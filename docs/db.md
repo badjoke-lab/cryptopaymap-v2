@@ -1,3 +1,1 @@
-# Placeholder
-
-Document content will be added from provided specifications in future tasks.
+# db.md — Database Schema v3.0
