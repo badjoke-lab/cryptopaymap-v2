@@ -1,3 +1,5 @@
+import MapClient from '../../components/map/MapClient';
+
 export default function MapPage() {
-  return <div>Map page placeholder</div>;
+  return <MapClient />;
 }
