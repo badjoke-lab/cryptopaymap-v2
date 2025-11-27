@@ -1,0 +1,14 @@
+.leaflet-marker-icon {
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+
+.leaflet-marker-icon:hover {
+  transform: scale(1.12);
+  z-index: 1000;
+}
+
+.leaflet-marker-icon.leaflet-interactive:active,
+.leaflet-marker-icon.leaflet-interactive.leaflet-marker-draggable.leaflet-clickable:active {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
