@@ -6,8 +6,7 @@
  */
 export async function createMarkerClusterGroup(
   L: typeof import('leaflet'),
-  options?: MarkerClusterGroupOptions
 ) {
   await import('leaflet.markercluster');
-  return L.markerClusterGroup(options);
+  return L.markerClusterGroup();
 }
