@@ -3,7 +3,6 @@
 import { useEffect, useRef } from 'react';
 import 'leaflet/dist/leaflet.css';
 import './map.css';
-import type 'leaflet.markercluster';
 import { createMarkerClusterGroup } from './cluster';
 
 const DEFAULT_COORDINATES: [number, number] = [20, 0];
