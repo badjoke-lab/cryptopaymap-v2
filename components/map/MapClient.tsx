@@ -1,73 +1,85 @@
 "use client";
 
-import { useEffect, useRef } from 'react';
-import 'leaflet/dist/leaflet.css';
-import './map.css';
-import { createMarkerClusterGroup } from './cluster';
+import { useEffect, useRef } from "react";
+
+// Leaflet core CSS
+import "leaflet/dist/leaflet.css";
+
+// 🔥 これが無いとマーカーが透明になる（今回の原因）
+import "leaflet.markercluster/dist/MarkerCluster.css";
+import "leaflet.markercluster/dist/MarkerCluster.Default.css";
+
+import "./map.css";
+import { createMarkerClusterGroup } from "./cluster";
 
 const DEFAULT_COORDINATES: [number, number] = [20, 0];
 const DEFAULT_ZOOM = 2;
 
+// 仮データ（後で DB と接続）
 const mockPlaces = [
-  { id: '1', lat: 35.68, lng: 139.76, type: 'owner' },
-  { id: '2', lat: 40.71, lng: -74.0, type: 'community' },
-  { id: '3', lat: 48.85, lng: 2.35, type: 'directory' },
-  { id: '4', lat: -33.86, lng: 151.2, type: 'unverified' }
+  { id: "1", lat: 35.68, lng: 139.76, type: "owner" },
+  { id: "2", lat: 40.71, lng: -74.0, type: "community" },
+  { id: "3", lat: 48.85, lng: 2.35, type: "directory" },
+  { id: "4", lat: -33.86, lng: 151.2, type: "unverified" },
 ] as const;
 
-type PlaceType = (typeof mockPlaces)[number]['type'];
+type PlaceType = (typeof mockPlaces)[number]["type"];
 
 export default function MapClient() {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
-  const mapInstanceRef = useRef<import('leaflet').Map | null>(null);
+  const mapInstanceRef = useRef<import("leaflet").Map | null>(null);
 
   useEffect(() => {
     let isMounted = true;
 
     const initializeMap = async () => {
-      const L = await import('leaflet');
-      const LMC = await import('leaflet.markercluster');
+      const L = await import("leaflet");
+      const LMC = await import("leaflet.markercluster");
       void LMC;
 
       if (!isMounted || !mapContainerRef.current || mapInstanceRef.current) return;
 
+      // --- MAP 初期化 ---
       const map = L.map(mapContainerRef.current, {
         zoomControl: true,
-        attributionControl: true
+        attributionControl: true,
       }).setView(DEFAULT_COORDINATES, DEFAULT_ZOOM);
 
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap contributors'
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "&copy; OpenStreetMap contributors",
       }).addTo(map);
 
+      // --- PIN アイコン ---
       const iconSize: [number, number] = [32, 32];
       const iconAnchor: [number, number] = [16, 32];
 
-      const iconMap: Record<PlaceType, import('leaflet').Icon> = {
+      const iconMap: Record<PlaceType, import("leaflet").Icon> = {
         owner: L.icon({
-          iconUrl: '/pins/owner.svg',
+          iconUrl: "/pins/owner.svg?v=2",
           iconSize,
-          iconAnchor
+          iconAnchor,
         }),
         community: L.icon({
-          iconUrl: '/pins/community.svg',
+          iconUrl: "/pins/community.svg?v=2",
           iconSize,
-          iconAnchor
+          iconAnchor,
         }),
         directory: L.icon({
-          iconUrl: '/pins/directory.svg',
+          iconUrl: "/pins/directory.svg?v=2",
           iconSize,
-          iconAnchor
+          iconAnchor,
         }),
         unverified: L.icon({
-          iconUrl: '/pins/unverified.svg',
+          iconUrl: "/pins/unverified.svg?v=2",
           iconSize,
-          iconAnchor
-        })
+          iconAnchor,
+        }),
       };
 
+      // --- MarkerCluster ---（今回の主因）
       const cluster = await createMarkerClusterGroup(L);
 
+      // --- markers 追加 ---
       mockPlaces.forEach((place) => {
         const icon = iconMap[place.type];
         cluster.addLayer(L.marker([place.lat, place.lng], { icon }));
@@ -92,7 +104,7 @@ export default function MapClient() {
     <div
       id="map"
       ref={mapContainerRef}
-      style={{ height: '100vh', width: '100%', position: 'relative' }}
+      style={{ height: "100vh", width: "100%", position: "relative" }}
     />
   );
 }
