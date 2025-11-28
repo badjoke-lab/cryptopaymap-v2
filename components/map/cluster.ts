@@ -1,4 +1,3 @@
-import type { MarkerClusterGroupOptions } from 'leaflet.markercluster';
 
 /**
  * Dynamically loads the Leaflet MarkerCluster plugin and returns a configured cluster group.
