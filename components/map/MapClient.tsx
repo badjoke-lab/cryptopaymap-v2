@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 // Leaflet core CSS
 import "leaflet/dist/leaflet.css";
@@ -10,25 +10,28 @@ import {
   ClusterResult,
   Pin,
   PinType,
+  SuperclusterIndex,
   createSuperclusterIndex,
 } from "./supercluster";
+import type { Place } from "../../types/places";
 
 const DEFAULT_COORDINATES: [number, number] = [20, 0];
 const DEFAULT_ZOOM = 2;
 
-// 仮データ（後で DB と接続）
-const mockPlaces: Pin[] = [
-  { id: "1", lat: 35.68, lng: 139.76, type: "owner" },
-  { id: "2", lat: 40.71, lng: -74.0, type: "community" },
-  { id: "3", lat: 48.85, lng: 2.35, type: "directory" },
-  { id: "4", lat: -33.86, lng: 151.2, type: "unverified" },
-];
+const placeToPin = (place: Place): Pin => ({
+  id: place.id,
+  lat: place.lat,
+  lng: place.lng,
+  verification: place.verification,
+});
 
 export default function MapClient() {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<import("leaflet").Map | null>(null);
   const markerLayerRef = useRef<import("leaflet").LayerGroup | null>(null);
   const renderFrameRef = useRef<number | null>(null);
+  const clusterIndexRef = useRef<SuperclusterIndex | null>(null);
+  const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -82,7 +85,6 @@ export default function MapClient() {
         }),
       };
 
-      const clusterIndex = createSuperclusterIndex(mockPlaces);
       const markerLayer = L.layerGroup();
       markerLayer.addTo(map);
       markerLayerRef.current = markerLayer;
@@ -107,10 +109,12 @@ export default function MapClient() {
 
             const marker = L.marker([lat, lng], { icon: clusterIcon });
             marker.on("click", () => {
-              const expansionZoom = clusterIndex.getClusterExpansionZoom(
+              const expansionZoom = clusterIndexRef.current?.getClusterExpansionZoom(
                 clusterItem.id,
               );
-              map.flyTo([lat, lng], expansionZoom, { animate: true });
+              if (expansionZoom !== undefined) {
+                map.flyTo([lat, lng], expansionZoom, { animate: true });
+              }
             });
 
             markerLayerRef.current?.addLayer(marker);
@@ -118,8 +122,14 @@ export default function MapClient() {
           }
 
           const [lng, lat] = clusterItem.coordinates;
-          const icon = iconMap[clusterItem.pinType];
+          const icon = iconMap[clusterItem.verification];
           const marker = L.marker([lat, lng], { icon });
+          marker.on("click", () => {
+            setSelectedPlaceId((current) => {
+              const nextValue = current === clusterItem.id ? null : clusterItem.id;
+              return nextValue;
+            });
+          });
           markerLayerRef.current.addLayer(marker);
         });
 
@@ -141,7 +151,7 @@ export default function MapClient() {
       };
 
       const updateVisibleMarkers = () => {
-        if (!markerLayerRef.current) return;
+        if (!markerLayerRef.current || !clusterIndexRef.current) return;
         const bounds = map.getBounds();
         const bbox: [number, number, number, number] = [
           bounds.getWest(),
@@ -151,13 +161,30 @@ export default function MapClient() {
         ];
 
         const zoom = map.getZoom();
-        const clusters = clusterIndex.getClusters(bbox, zoom);
+        const clusters = clusterIndexRef.current.getClusters(bbox, zoom);
         renderClusters(clusters);
       };
 
+      const fetchPlacesAndBuildIndex = async () => {
+        try {
+          const response = await fetch("/api/places");
+          if (!response.ok) {
+            throw new Error(`Failed to fetch places: ${response.statusText}`);
+          }
+          const places: Place[] = await response.json();
+          if (!isMounted) return;
+          const pins = places.map(placeToPin);
+          clusterIndexRef.current = createSuperclusterIndex(pins);
+          updateVisibleMarkers();
+        } catch (error) {
+          console.error(error);
+        }
+      };
+
       map.on("moveend zoomend", updateVisibleMarkers);
-      updateVisibleMarkers();
       mapInstanceRef.current = map;
+
+      await fetchPlacesAndBuildIndex();
     };
 
     initializeMap();
@@ -176,6 +203,7 @@ export default function MapClient() {
     <div
       id="map"
       ref={mapContainerRef}
+      data-selected-place={selectedPlaceId ?? ""}
       style={{ height: "100vh", width: "100%", position: "relative" }}
     />
   );

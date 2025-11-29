@@ -9,7 +9,7 @@ export type Pin = {
   id: string;
   lat: number;
   lng: number;
-  type: PinType;
+  verification: PinType;
 };
 
 export type ClusterPoint = {
@@ -23,24 +23,26 @@ export type SinglePoint = {
   type: "point";
   id: string;
   coordinates: [number, number];
-  pinType: PinType;
+  verification: PinType;
 };
 
 export type ClusterResult = ClusterPoint | SinglePoint;
 
+export type SuperclusterIndex = ReturnType<typeof createSuperclusterIndex>;
+
 export function createSuperclusterIndex(pins: Pin[]) {
   const index = new Supercluster<{
     id: string;
-    type: PinType;
+    verification: PinType;
   }>({
     radius: 80,
     maxZoom: 18,
   });
 
-  const features: Feature<Point, { id: string; type: PinType }>[] = pins.map(
+  const features: Feature<Point, { id: string; verification: PinType }>[] = pins.map(
     (pin) => ({
       type: "Feature",
-      properties: { id: pin.id, type: pin.type },
+      properties: { id: pin.id, verification: pin.verification },
       geometry: {
         type: "Point",
         coordinates: [pin.lng, pin.lat],
@@ -68,7 +70,7 @@ export function createSuperclusterIndex(pins: Pin[]) {
           type: "point" as const,
           id: (feature.properties as any).id as string,
           coordinates,
-          pinType: (feature.properties as any).type as PinType,
+          verification: (feature.properties as any).verification as PinType,
         } satisfies SinglePoint;
       });
     },
