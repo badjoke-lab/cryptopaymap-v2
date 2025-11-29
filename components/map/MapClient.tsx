@@ -5,37 +5,43 @@ import { useEffect, useRef } from "react";
 // Leaflet core CSS
 import "leaflet/dist/leaflet.css";
 
-// 🔥 これが無いとマーカーが透明になる（今回の原因）
-import "leaflet.markercluster/dist/MarkerCluster.css";
-import "leaflet.markercluster/dist/MarkerCluster.Default.css";
-
 import "./map.css";
-import { createMarkerClusterGroup } from "./cluster";
+import {
+  ClusterResult,
+  Pin,
+  PinType,
+  createSuperclusterIndex,
+} from "./supercluster";
 
 const DEFAULT_COORDINATES: [number, number] = [20, 0];
 const DEFAULT_ZOOM = 2;
 
 // 仮データ（後で DB と接続）
-const mockPlaces = [
+const mockPlaces: Pin[] = [
   { id: "1", lat: 35.68, lng: 139.76, type: "owner" },
   { id: "2", lat: 40.71, lng: -74.0, type: "community" },
   { id: "3", lat: 48.85, lng: 2.35, type: "directory" },
   { id: "4", lat: -33.86, lng: 151.2, type: "unverified" },
-] as const;
-
-type PlaceType = (typeof mockPlaces)[number]["type"];
+];
 
 export default function MapClient() {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<import("leaflet").Map | null>(null);
+  const markerLayerRef = useRef<import("leaflet").LayerGroup | null>(null);
+  const renderFrameRef = useRef<number | null>(null);
 
   useEffect(() => {
     let isMounted = true;
 
+    const stopRenderFrame = () => {
+      if (renderFrameRef.current !== null) {
+        cancelAnimationFrame(renderFrameRef.current);
+        renderFrameRef.current = null;
+      }
+    };
+
     const initializeMap = async () => {
       const L = await import("leaflet");
-      const LMC = await import("leaflet.markercluster");
-      void LMC;
 
       if (!isMounted || !mapContainerRef.current || mapInstanceRef.current) return;
 
@@ -53,7 +59,7 @@ export default function MapClient() {
       const iconSize: [number, number] = [32, 32];
       const iconAnchor: [number, number] = [16, 32];
 
-      const iconMap: Record<PlaceType, import("leaflet").Icon> = {
+      const iconMap: Record<PinType, import("leaflet").Icon> = {
         owner: L.icon({
           iconUrl: "/pins/owner.svg?v=2",
           iconSize,
@@ -76,16 +82,81 @@ export default function MapClient() {
         }),
       };
 
-      // --- MarkerCluster ---（今回の主因）
-      const cluster = await createMarkerClusterGroup(L);
+      const clusterIndex = createSuperclusterIndex(mockPlaces);
+      const markerLayer = L.layerGroup();
+      markerLayer.addTo(map);
+      markerLayerRef.current = markerLayer;
 
-      // --- markers 追加 ---
-      mockPlaces.forEach((place) => {
-        const icon = iconMap[place.type];
-        cluster.addLayer(L.marker([place.lat, place.lng], { icon }));
-      });
+      const renderClusters = (clusters: ClusterResult[]) => {
+        if (!markerLayerRef.current) return;
 
-      cluster.addTo(map);
+        stopRenderFrame();
+        markerLayerRef.current.clearLayers();
+
+        const tasks = clusters.map((clusterItem) => () => {
+          if (!markerLayerRef.current) return;
+
+          if (clusterItem.type === "cluster") {
+            const [lng, lat] = clusterItem.coordinates;
+            const clusterIcon = L.divIcon({
+              html: `<div class="cluster-marker__inner">${clusterItem.pointCount}</div>`,
+              className: "cluster-marker",
+              iconSize: [44, 44],
+              iconAnchor: [22, 22],
+            });
+
+            const marker = L.marker([lat, lng], { icon: clusterIcon });
+            marker.on("click", () => {
+              const expansionZoom = clusterIndex.getClusterExpansionZoom(
+                clusterItem.id,
+              );
+              map.flyTo([lat, lng], expansionZoom, { animate: true });
+            });
+
+            markerLayerRef.current?.addLayer(marker);
+            return;
+          }
+
+          const [lng, lat] = clusterItem.coordinates;
+          const icon = iconMap[clusterItem.pinType];
+          const marker = L.marker([lat, lng], { icon });
+          markerLayerRef.current.addLayer(marker);
+        });
+
+        const processChunk = () => {
+          const start = performance.now();
+          while (tasks.length && performance.now() - start < 12) {
+            const task = tasks.shift();
+            task?.();
+          }
+
+          if (tasks.length) {
+            renderFrameRef.current = requestAnimationFrame(processChunk);
+          } else {
+            renderFrameRef.current = null;
+          }
+        };
+
+        processChunk();
+      };
+
+      const updateVisibleMarkers = () => {
+        if (!markerLayerRef.current) return;
+        const bounds = map.getBounds();
+        const bbox: [number, number, number, number] = [
+          bounds.getWest(),
+          bounds.getSouth(),
+          bounds.getEast(),
+          bounds.getNorth(),
+        ];
+
+        const zoom = map.getZoom();
+        const clusters = clusterIndex.getClusters(bbox, zoom);
+        renderClusters(clusters);
+      };
+
+      map.on("moveend zoomend", updateVisibleMarkers);
+      updateVisibleMarkers();
       mapInstanceRef.current = map;
     };
 
@@ -93,6 +164,7 @@ export default function MapClient() {
 
     return () => {
       isMounted = false;
+      stopRenderFrame();
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
