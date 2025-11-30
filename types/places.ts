@@ -8,6 +8,7 @@ export type Place = {
   lng: number;
   category: string;
   verification: "owner" | "community" | "directory" | "unverified";
+  coverImage?: string | null;
   accepted: string[];
   website: string | null;
   twitter: string | null;

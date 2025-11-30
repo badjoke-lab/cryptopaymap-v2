@@ -13,6 +13,7 @@ import {
   SuperclusterIndex,
   createSuperclusterIndex,
 } from "./supercluster";
+import PCMapCard from "./PCMapCard";
 import type { Place } from "../../types/places";
 
 const DEFAULT_COORDINATES: [number, number] = [20, 0];
@@ -31,6 +32,7 @@ export default function MapClient() {
   const markerLayerRef = useRef<import("leaflet").LayerGroup | null>(null);
   const renderFrameRef = useRef<number | null>(null);
   const clusterIndexRef = useRef<SuperclusterIndex | null>(null);
+  const [places, setPlaces] = useState<Place[]>([]);
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -124,7 +126,8 @@ export default function MapClient() {
           const [lng, lat] = clusterItem.coordinates;
           const icon = iconMap[clusterItem.verification];
           const marker = L.marker([lat, lng], { icon });
-          marker.on("click", () => {
+          marker.on("click", (event: import("leaflet").LeafletMouseEvent) => {
+            event.originalEvent.stopPropagation();
             setSelectedPlaceId((current) => {
               const nextValue = current === clusterItem.id ? null : clusterItem.id;
               return nextValue;
@@ -171,9 +174,10 @@ export default function MapClient() {
           if (!response.ok) {
             throw new Error(`Failed to fetch places: ${response.statusText}`);
           }
-          const places: Place[] = await response.json();
+          const fetchedPlaces: Place[] = await response.json();
           if (!isMounted) return;
-          const pins = places.map(placeToPin);
+          setPlaces(fetchedPlaces);
+          const pins = fetchedPlaces.map(placeToPin);
           clusterIndexRef.current = createSuperclusterIndex(pins);
           updateVisibleMarkers();
         } catch (error) {
@@ -182,6 +186,9 @@ export default function MapClient() {
       };
 
       map.on("moveend zoomend", updateVisibleMarkers);
+      map.on("click", () => {
+        setSelectedPlaceId(null);
+      });
       mapInstanceRef.current = map;
 
       await fetchPlacesAndBuildIndex();
@@ -199,12 +206,20 @@ export default function MapClient() {
     };
   }, []);
 
+  const selectedPlace =
+    selectedPlaceId && places.length
+      ? places.find((place) => place.id === selectedPlaceId) ?? null
+      : null;
+
   return (
-    <div
-      id="map"
-      ref={mapContainerRef}
-      data-selected-place={selectedPlaceId ?? ""}
-      style={{ height: "100vh", width: "100%", position: "relative" }}
-    />
+    <>
+      <PCMapCard place={selectedPlace} />
+      <div
+        id="map"
+        ref={mapContainerRef}
+        data-selected-place={selectedPlaceId ?? ""}
+        style={{ height: "100vh", width: "100%", position: "relative" }}
+      />
+    </>
   );
 }
