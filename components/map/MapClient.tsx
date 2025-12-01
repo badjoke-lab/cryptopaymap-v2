@@ -19,6 +19,13 @@ import type { Place } from "../../types/places";
 const DEFAULT_COORDINATES: [number, number] = [20, 0];
 const DEFAULT_ZOOM = 2;
 
+const PIN_SVGS: Record<PinType, string> = {
+  owner: `<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><g><path d="M16 2 C10 2,6 6.5,6 12 C6 20,16 30,16 30 C16 30,26 20,26 12 C26 6.5,22 2,16 2Z" fill="#F59E0B" stroke="white" stroke-width="2"/><circle cx="16" cy="12" r="4" fill="white"/></g></svg>`,
+  community: `<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><g><path d="M16 2 C10 2,6 6.5,6 12 C6 20,16 30,16 30 C16 30,26 20,26 12 C26 6.5,22 2,16 2Z" fill="#3B82F6" stroke="white" stroke-width="2"/><path d="M12 13C12 10.7909 13.7909 9 16 9C18.2091 9 20 10.7909 20 13C20 15.2091 18.2091 17 16 17C13.7909 17 12 15.2091 12 13Z" fill="white"/><circle cx="14" cy="12" r="1" fill="#3B82F6"/><circle cx="18" cy="12" r="1" fill="#3B82F6"/><path d="M14 15C14.5 15.6667 15.6 17 16 17C16.4 17 17.5 15.6667 18 15" stroke="#3B82F6" stroke-width="1" stroke-linecap="round"/></g></svg>`,
+  directory: `<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><g><path d="M16 2 C10 2,6 6.5,6 12 C6 20,16 30,16 30 C16 30,26 20,26 12 C26 6.5,22 2,16 2Z" fill="#14B8A6" stroke="white" stroke-width="2"/><path d="M11 12C11 9.23858 13.2386 7 16 7C18.7614 7 21 9.23858 21 12C21 14.7614 18.7614 17 16 17C13.2386 17 11 14.7614 11 12Z" fill="white"/><path d="M14 12H18M16 10V14" stroke="#14B8A6" stroke-width="1.5" stroke-linecap="round"/></g></svg>`,
+  unverified: `<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><g><path d="M16 2 C10 2,6 6.5,6 12 C6 20,16 30,16 30 C16 30,26 20,26 12 C26 6.5,22 2,16 2Z" fill="#9CA3AF" stroke="white" stroke-width="2"/><circle cx="16" cy="12" r="4" fill="white"/><path d="M16 10V14" stroke="#9CA3AF" stroke-width="1.5" stroke-linecap="round"/><circle cx="16" cy="17" r="0.75" fill="#9CA3AF"/></g></svg>`,
+};
+
 const placeToPin = (place: Place): Pin => ({
   id: place.id,
   lat: place.lat,
@@ -63,31 +70,13 @@ export default function MapClient() {
       }).addTo(map);
 
       // --- PIN アイコン ---
-      const iconSize: [number, number] = [32, 32];
-      const iconAnchor: [number, number] = [16, 32];
-
-      const iconMap: Record<PinType, import("leaflet").Icon> = {
-        owner: L.icon({
-          iconUrl: "/pins/owner.svg?v=2",
-          iconSize,
-          iconAnchor,
-        }),
-        community: L.icon({
-          iconUrl: "/pins/community.svg?v=2",
-          iconSize,
-          iconAnchor,
-        }),
-        directory: L.icon({
-          iconUrl: "/pins/directory.svg?v=2",
-          iconSize,
-          iconAnchor,
-        }),
-        unverified: L.icon({
-          iconUrl: "/pins/unverified.svg?v=2",
-          iconSize,
-          iconAnchor,
-        }),
-      };
+      const createPinIcon = (verification: PinType) =>
+        L.divIcon({
+          html: `<div class="cpm-pin cpm-pin-${verification}">${PIN_SVGS[verification]}</div>`,
+          className: "",
+          iconSize: [32, 32],
+          iconAnchor: [16, 32],
+        });
 
       const markerLayer = L.layerGroup();
       markerLayer.addTo(map);
@@ -128,7 +117,7 @@ export default function MapClient() {
           }
 
           const [lng, lat] = clusterItem.coordinates;
-          const icon = iconMap[clusterItem.verification];
+          const icon = createPinIcon(clusterItem.verification);
           const marker = L.marker([lat, lng], { icon });
           marker.on("click", (event: import("leaflet").LeafletMouseEvent) => {
             event.originalEvent.stopPropagation();
@@ -217,8 +206,9 @@ export default function MapClient() {
     markersRef.current.forEach((marker, id) => {
       const element = marker.getElement();
       const isSelected = id === selectedPlaceId;
-      if (element) {
-        element.classList.toggle("selected-pin", isSelected);
+      const pin = element?.querySelector(".cpm-pin");
+      if (pin) {
+        pin.classList.toggle("cpm-pin-selected", isSelected);
       }
       marker.setZIndexOffset(isSelected ? 1000 : 0);
     });
@@ -248,12 +238,14 @@ export default function MapClient() {
 
   return (
     <>
-      <div
-        id="map"
-        ref={mapContainerRef}
-        data-selected-place={selectedPlaceId ?? ""}
-        style={{ height: "100vh", width: "100%", position: "relative" }}
-      />
+      <div className="relative w-full min-h-screen">
+        <div
+          id="map"
+          ref={mapContainerRef}
+          data-selected-place={selectedPlaceId ?? ""}
+          className="absolute inset-0 h-[calc(100vh)] w-full"
+        />
+      </div>
       <RightDrawer place={selectedPlace} onClose={() => setSelectedPlaceId(null)} ref={drawerRef} />
     </>
   );
