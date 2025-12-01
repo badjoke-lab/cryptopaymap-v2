@@ -47,11 +47,14 @@ const RightDrawer = forwardRef<HTMLDivElement, Props>(({ place, onClose }, ref) 
 
   const images = place.images ?? [];
   const accepted = place.accepted ?? [];
+  const canShowPhotos =
+    (place.verification === "owner" || place.verification === "community") &&
+    images.length > 0;
 
   return (
     <aside
       ref={ref}
-      className={`fixed right-0 top-0 z-20 h-full w-[440px] transform border-l border-gray-200 bg-white shadow-lg transition-transform ease-out ${
+      className={`fixed right-0 top-0 z-[9999] h-full w-[440px] transform border-l border-gray-200 bg-white shadow-lg transition-transform ease-out ${
         isOpen ? "translate-x-0" : "translate-x-full"
       }`}
       style={{ transitionDuration: "250ms" }}
@@ -101,7 +104,7 @@ const RightDrawer = forwardRef<HTMLDivElement, Props>(({ place, onClose }, ref) 
         </header>
 
         <div className="flex flex-col gap-6 px-6 py-5">
-          {images.length > 0 && (
+          {canShowPhotos && (
             <section className="space-y-3">
               <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Photos</h3>
               {images.length === 1 ? (
