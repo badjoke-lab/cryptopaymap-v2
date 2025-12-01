@@ -246,7 +246,12 @@ export default function MapClient() {
           className="absolute inset-0 h-[calc(100vh)] w-full"
         />
       </div>
-      <RightDrawer place={selectedPlace} onClose={() => setSelectedPlaceId(null)} ref={drawerRef} />
+      <RightDrawer
+        place={selectedPlace}
+        isOpen={Boolean(selectedPlace)}
+        onClose={() => setSelectedPlaceId(null)}
+        ref={drawerRef}
+      />
     </>
   );
 }
