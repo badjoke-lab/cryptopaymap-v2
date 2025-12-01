@@ -8,10 +8,13 @@ export type Place = {
   lng: number;
   category: string;
   verification: "owner" | "community" | "directory" | "unverified";
+  about?: string | null;
   coverImage?: string | null;
   accepted: string[];
-  website: string | null;
-  twitter: string | null;
-  instagram: string | null;
+  website?: string | null;
+  phone?: string | null;
+  twitter?: string | null;
+  instagram?: string | null;
+  images?: string[];
   updatedAt: string;
 };
