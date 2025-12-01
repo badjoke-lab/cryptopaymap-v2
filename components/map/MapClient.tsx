@@ -14,6 +14,7 @@ import {
   createSuperclusterIndex,
 } from "./supercluster";
 import RightDrawer from "./RightDrawer";
+import MobileBottomSheet from "./MobileBottomSheet";
 import type { Place } from "../../types/places";
 
 const DEFAULT_COORDINATES: [number, number] = [20, 0];
@@ -43,9 +44,18 @@ export default function MapClient() {
   const [places, setPlaces] = useState<Place[]>([]);
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
   const drawerRef = useRef<HTMLDivElement | null>(null);
+  const bottomSheetRef = useRef<HTMLDivElement | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
+
+    const updateIsMobile = () => {
+      setIsMobile(window.innerWidth < 1024);
+    };
+
+    updateIsMobile();
+    window.addEventListener("resize", updateIsMobile);
 
     const stopRenderFrame = () => {
       if (renderFrameRef.current !== null) {
@@ -189,6 +199,7 @@ export default function MapClient() {
 
     return () => {
       isMounted = false;
+      window.removeEventListener("resize", updateIsMobile);
       stopRenderFrame();
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
@@ -224,6 +235,12 @@ export default function MapClient() {
         }
       }
 
+      if (bottomSheetRef.current && event.target instanceof Node) {
+        if (bottomSheetRef.current.contains(event.target)) {
+          return;
+        }
+      }
+
       setSelectedPlaceId(null);
     };
 
@@ -248,10 +265,18 @@ export default function MapClient() {
       </div>
       <RightDrawer
         place={selectedPlace}
-        isOpen={Boolean(selectedPlace)}
+        isOpen={!isMobile && Boolean(selectedPlace)}
         onClose={() => setSelectedPlaceId(null)}
         ref={drawerRef}
       />
+      {isMobile && (
+        <MobileBottomSheet
+          place={selectedPlace}
+          isOpen={Boolean(selectedPlace)}
+          onClose={() => setSelectedPlaceId(null)}
+          ref={bottomSheetRef}
+        />
+      )}
     </>
   );
 }
