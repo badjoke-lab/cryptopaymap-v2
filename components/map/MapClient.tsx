@@ -13,7 +13,7 @@ import {
   SuperclusterIndex,
   createSuperclusterIndex,
 } from "./supercluster";
-import PCMapCard from "./PCMapCard";
+import RightDrawer from "./RightDrawer";
 import type { Place } from "../../types/places";
 
 const DEFAULT_COORDINATES: [number, number] = [20, 0];
@@ -32,8 +32,10 @@ export default function MapClient() {
   const markerLayerRef = useRef<import("leaflet").LayerGroup | null>(null);
   const renderFrameRef = useRef<number | null>(null);
   const clusterIndexRef = useRef<SuperclusterIndex | null>(null);
+  const markersRef = useRef<Map<string, import("leaflet").Marker>>(new Map());
   const [places, setPlaces] = useState<Place[]>([]);
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
+  const drawerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -97,6 +99,8 @@ export default function MapClient() {
         stopRenderFrame();
         markerLayerRef.current.clearLayers();
 
+        markersRef.current.clear();
+
         const tasks = clusters.map((clusterItem) => () => {
           if (!markerLayerRef.current) return;
 
@@ -128,12 +132,10 @@ export default function MapClient() {
           const marker = L.marker([lat, lng], { icon });
           marker.on("click", (event: import("leaflet").LeafletMouseEvent) => {
             event.originalEvent.stopPropagation();
-            setSelectedPlaceId((current) => {
-              const nextValue = current === clusterItem.id ? null : clusterItem.id;
-              return nextValue;
-            });
+            setSelectedPlaceId(clusterItem.id);
           });
           markerLayerRef.current.addLayer(marker);
+          markersRef.current.set(clusterItem.id, marker);
         });
 
         const processChunk = () => {
@@ -211,15 +213,48 @@ export default function MapClient() {
       ? places.find((place) => place.id === selectedPlaceId) ?? null
       : null;
 
+  useEffect(() => {
+    markersRef.current.forEach((marker, id) => {
+      const element = marker.getElement();
+      const isSelected = id === selectedPlaceId;
+      if (element) {
+        element.classList.toggle("selected-pin", isSelected);
+      }
+      marker.setZIndexOffset(isSelected ? 1000 : 0);
+    });
+  }, [selectedPlaceId]);
+
+  useEffect(() => {
+    if (!selectedPlaceId) return;
+
+    const handlePointerDown = (event: MouseEvent | TouchEvent) => {
+      if (drawerRef.current && event.target instanceof Node) {
+        if (drawerRef.current.contains(event.target)) {
+          return;
+        }
+      }
+
+      setSelectedPlaceId(null);
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("touchstart", handlePointerDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("touchstart", handlePointerDown);
+    };
+  }, [selectedPlaceId]);
+
   return (
     <>
-      <PCMapCard place={selectedPlace} />
       <div
         id="map"
         ref={mapContainerRef}
         data-selected-place={selectedPlaceId ?? ""}
         style={{ height: "100vh", width: "100%", position: "relative" }}
       />
+      <RightDrawer place={selectedPlace} onClose={() => setSelectedPlaceId(null)} ref={drawerRef} />
     </>
   );
 }
