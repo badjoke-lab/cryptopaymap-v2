@@ -10,11 +10,15 @@ export type Place = {
   verification: "owner" | "community" | "directory" | "unverified";
   about?: string | null;
   coverImage?: string | null;
+  paymentNote?: string | null;
   accepted: string[];
   website?: string | null;
   phone?: string | null;
   twitter?: string | null;
   instagram?: string | null;
+  facebook?: string | null;
+  amenities?: string[] | null;
+  submitterName?: string | null;
   images?: string[];
   updatedAt: string;
 };
