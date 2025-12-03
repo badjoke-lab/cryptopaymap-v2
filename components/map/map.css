@@ -19,7 +19,7 @@
   transform: scale(1.12);
 }
 
-.cpm-pin-selected {
+.cpm-pin.active {
   transform: scale(1.25);
   filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.9));
 }

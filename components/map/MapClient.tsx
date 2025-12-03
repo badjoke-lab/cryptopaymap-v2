@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 // Leaflet core CSS
 import "leaflet/dist/leaflet.css";
@@ -13,9 +13,11 @@ import {
   SuperclusterIndex,
   createSuperclusterIndex,
 } from "./supercluster";
-import RightDrawer from "./RightDrawer";
+import Drawer from "./Drawer";
 import MobileBottomSheet from "./MobileBottomSheet";
 import type { Place } from "../../types/places";
+
+const HEADER_HEIGHT = 0;
 
 const DEFAULT_COORDINATES: [number, number] = [20, 0];
 const DEFAULT_ZOOM = 2;
@@ -43,9 +45,23 @@ export default function MapClient() {
   const markersRef = useRef<Map<string, import("leaflet").Marker>>(new Map());
   const [places, setPlaces] = useState<Place[]>([]);
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerMode, setDrawerMode] = useState<"full" | null>(null);
   const drawerRef = useRef<HTMLDivElement | null>(null);
   const bottomSheetRef = useRef<HTMLDivElement | null>(null);
   const [isMobile, setIsMobile] = useState(false);
+
+  const openDrawerForPlace = useCallback((placeId: string) => {
+    setSelectedPlaceId(placeId);
+    setDrawerOpen(true);
+    setDrawerMode("full");
+  }, []);
+
+  const closeDrawer = useCallback(() => {
+    setSelectedPlaceId(null);
+    setDrawerOpen(false);
+    setDrawerMode(null);
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -131,7 +147,7 @@ export default function MapClient() {
           const marker = L.marker([lat, lng], { icon });
           marker.on("click", (event: import("leaflet").LeafletMouseEvent) => {
             event.originalEvent.stopPropagation();
-            setSelectedPlaceId(clusterItem.id);
+            openDrawerForPlace(clusterItem.id);
           });
           markerLayerRef.current.addLayer(marker);
           markersRef.current.set(clusterItem.id, marker);
@@ -188,7 +204,7 @@ export default function MapClient() {
 
       map.on("moveend zoomend", updateVisibleMarkers);
       map.on("click", () => {
-        setSelectedPlaceId(null);
+        closeDrawer();
       });
       mapInstanceRef.current = map;
 
@@ -208,10 +224,19 @@ export default function MapClient() {
     };
   }, []);
 
-  const selectedPlace =
-    selectedPlaceId && places.length
-      ? places.find((place) => place.id === selectedPlaceId) ?? null
-      : null;
+  const selectedPlace = useMemo(
+    () =>
+      selectedPlaceId && places.length
+        ? places.find((place) => place.id === selectedPlaceId) ?? null
+        : null,
+    [places, selectedPlaceId],
+  );
+
+  useEffect(() => {
+    if (selectedPlaceId && !selectedPlace) {
+      closeDrawer();
+    }
+  }, [closeDrawer, selectedPlace, selectedPlaceId]);
 
   useEffect(() => {
     markersRef.current.forEach((marker, id) => {
@@ -219,14 +244,15 @@ export default function MapClient() {
       const isSelected = id === selectedPlaceId;
       const pin = element?.querySelector(".cpm-pin");
       if (pin) {
-        pin.classList.toggle("cpm-pin-selected", isSelected);
+        pin.classList.remove("cpm-pin-selected");
+        pin.classList.toggle("active", isSelected);
       }
       marker.setZIndexOffset(isSelected ? 1000 : 0);
     });
   }, [selectedPlaceId]);
 
   useEffect(() => {
-    if (!selectedPlaceId) return;
+    if (!selectedPlaceId && !drawerOpen) return;
 
     const handlePointerDown = (event: MouseEvent | TouchEvent) => {
       if (drawerRef.current && event.target instanceof Node) {
@@ -241,7 +267,7 @@ export default function MapClient() {
         }
       }
 
-      setSelectedPlaceId(null);
+      closeDrawer();
     };
 
     document.addEventListener("mousedown", handlePointerDown);
@@ -251,32 +277,40 @@ export default function MapClient() {
       document.removeEventListener("mousedown", handlePointerDown);
       document.removeEventListener("touchstart", handlePointerDown);
     };
-  }, [selectedPlaceId]);
+  }, [closeDrawer, drawerOpen, selectedPlaceId]);
 
   return (
-    <>
-      <div className="relative w-full min-h-screen">
-        <div
-          id="map"
-          ref={mapContainerRef}
-          data-selected-place={selectedPlaceId ?? ""}
-          className="absolute inset-0 h-[calc(100vh)] w-full"
-        />
-      </div>
-      <RightDrawer
-        place={selectedPlace}
-        isOpen={!isMobile && Boolean(selectedPlace)}
-        onClose={() => setSelectedPlaceId(null)}
-        ref={drawerRef}
+    <div
+      className="relative w-full"
+      style={{
+        height: `calc(100vh - ${HEADER_HEIGHT}px)`,
+        ["--header-height" as string]: `${HEADER_HEIGHT}px`,
+      }}
+    >
+      <div
+        id="map"
+        ref={mapContainerRef}
+        data-selected-place={selectedPlaceId ?? ""}
+        className="absolute inset-0 w-full"
       />
+      {!isMobile && (
+        <Drawer
+          place={selectedPlace}
+          isOpen={drawerOpen && Boolean(selectedPlace)}
+          mode={drawerMode}
+          onClose={closeDrawer}
+          ref={drawerRef}
+          headerHeight={HEADER_HEIGHT}
+        />
+      )}
       {isMobile && (
         <MobileBottomSheet
           place={selectedPlace}
-          isOpen={Boolean(selectedPlace)}
-          onClose={() => setSelectedPlaceId(null)}
+          isOpen={drawerOpen && Boolean(selectedPlace)}
+          onClose={closeDrawer}
           ref={bottomSheetRef}
         />
       )}
-    </>
+    </div>
   );
 }
