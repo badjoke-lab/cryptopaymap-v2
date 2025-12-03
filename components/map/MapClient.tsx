@@ -51,11 +51,18 @@ export default function MapClient() {
   const bottomSheetRef = useRef<HTMLDivElement | null>(null);
   const [isMobile, setIsMobile] = useState(false);
 
-  const openDrawerForPlace = useCallback((placeId: string) => {
-    setSelectedPlaceId(placeId);
-    setDrawerOpen(true);
-    setDrawerMode("full");
-  }, []);
+  const openDrawerForPlace = useCallback(
+    (placeId: string) => {
+      if (selectedPlaceId === placeId) {
+        return;
+      }
+
+      setSelectedPlaceId(placeId);
+      setDrawerOpen(true);
+      setDrawerMode("full");
+    },
+    [selectedPlaceId],
+  );
 
   const closeDrawer = useCallback(() => {
     setSelectedPlaceId(null);
