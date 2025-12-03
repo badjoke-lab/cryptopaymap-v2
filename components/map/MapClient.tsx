@@ -262,6 +262,12 @@ export default function MapClient() {
     if (!selectedPlaceId && !drawerOpen) return;
 
     const handlePointerDown = (event: MouseEvent | TouchEvent) => {
+      if (event.target instanceof HTMLElement) {
+        if (event.target.closest(".leaflet-marker-icon")) {
+          return;
+        }
+      }
+
       if (drawerRef.current && event.target instanceof Node) {
         if (drawerRef.current.contains(event.target)) {
           return;
