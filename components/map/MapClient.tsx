@@ -262,20 +262,20 @@ export default function MapClient() {
     if (!selectedPlaceId && !drawerOpen) return;
 
     const handleClick = (event: MouseEvent) => {
-      if (event.target instanceof Node) {
-        if (
-          event.target.closest(
-            ".leaflet-marker-icon, .cpm-pin, .cluster-marker",
-          )
-        ) {
+      const target = event.target;
+
+      if (target instanceof Element) {
+        if (target.closest(".leaflet-marker-icon, .cpm-pin, .cluster-marker")) {
+          return;
+        }
+      }
+
+      if (target instanceof Node) {
+        if (drawerRef.current?.contains(target)) {
           return;
         }
 
-        if (drawerRef.current?.contains(event.target)) {
-          return;
-        }
-
-        if (bottomSheetRef.current?.contains(event.target)) {
+        if (bottomSheetRef.current?.contains(target)) {
           return;
         }
       }
