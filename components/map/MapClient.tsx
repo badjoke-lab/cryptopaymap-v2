@@ -261,15 +261,21 @@ export default function MapClient() {
   useEffect(() => {
     if (!selectedPlaceId && !drawerOpen) return;
 
-    const handlePointerDown = (event: MouseEvent | TouchEvent) => {
-      if (drawerRef.current && event.target instanceof Node) {
-        if (drawerRef.current.contains(event.target)) {
+    const handleClick = (event: MouseEvent) => {
+      const target = event.target;
+
+      if (target instanceof Element) {
+        if (target.closest(".leaflet-marker-icon, .cpm-pin, .cluster-marker")) {
           return;
         }
       }
 
-      if (bottomSheetRef.current && event.target instanceof Node) {
-        if (bottomSheetRef.current.contains(event.target)) {
+      if (target instanceof Node) {
+        if (drawerRef.current?.contains(target)) {
+          return;
+        }
+
+        if (bottomSheetRef.current?.contains(target)) {
           return;
         }
       }
@@ -277,12 +283,10 @@ export default function MapClient() {
       closeDrawer();
     };
 
-    document.addEventListener("mousedown", handlePointerDown);
-    document.addEventListener("touchstart", handlePointerDown);
+    document.addEventListener("click", handleClick);
 
     return () => {
-      document.removeEventListener("mousedown", handlePointerDown);
-      document.removeEventListener("touchstart", handlePointerDown);
+      document.removeEventListener("click", handleClick);
     };
   }, [closeDrawer, drawerOpen, selectedPlaceId]);
 
