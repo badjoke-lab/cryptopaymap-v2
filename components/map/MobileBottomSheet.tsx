@@ -27,11 +27,11 @@ const VERIFICATION_LABELS: Record<Place["verification"], string> = {
   unverified: "Unverified",
 };
 
-const formatAccepted = (accepted: string[]) => {
+const formatAccepted = (supportedCrypto: string[]) => {
   const ordered = ["BTC", "Lightning", "ETH", "USDT"];
   const prioritized = [
-    ...ordered.filter((item) => accepted.includes(item)),
-    ...accepted
+    ...ordered.filter((item) => supportedCrypto.includes(item)),
+    ...supportedCrypto
       .filter((item) => !ordered.includes(item))
       .sort((a, b) => a.localeCompare(b)),
   ];
@@ -99,8 +99,8 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
     }, [isOpen, place, stage]);
 
     const { visible: visibleAccepted, remaining: remainingAccepted } = useMemo(
-      () => formatAccepted(place?.accepted ?? []),
-      [place?.accepted],
+      () => formatAccepted(place?.supportedCrypto ?? []),
+      [place?.supportedCrypto],
     );
 
     if (!place) return null;
@@ -151,9 +151,9 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
             </div>
 
             {((place.verification === "owner" || place.verification === "community") &&
-              (place.images?.length ?? 0) > 0) && (
+              (place.photos?.length ?? 0) > 0) && (
               <div className="flex gap-3 overflow-x-auto px-4 pb-4">
-                {place.images?.slice(0, 2).map((image) => (
+                {place.photos?.slice(0, 2).map((image) => (
                   <div key={image} className="relative h-32 w-48 shrink-0 overflow-hidden rounded-lg bg-gray-200">
                     <img src={image} alt={`${place.name} preview`} className="h-full w-full object-cover" />
                   </div>
@@ -183,10 +183,10 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
                   </div>
                 </div>
 
-                {place.address && (
+                {place.addressFull && (
                   <div className="space-y-1 text-sm text-gray-700">
                     <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Address</h3>
-                    <p className="leading-relaxed">{place.address}</p>
+                    <p className="leading-relaxed">{place.addressFull}</p>
                   </div>
                 )}
               </div>

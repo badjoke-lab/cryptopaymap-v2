@@ -96,20 +96,20 @@ const RightDrawer = forwardRef<HTMLDivElement, Props>(({ place, isOpen, onClose 
 
           <div className="flex flex-col gap-6 px-6 py-5">
             {((place.verification === "owner" || place.verification === "community") &&
-              (place.images?.length ?? 0) > 0) && (
+              (place.photos?.length ?? 0) > 0) && (
               <section className="space-y-3">
                 <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Photos</h3>
-                {place.images?.length === 1 ? (
+                {place.photos?.length === 1 ? (
                   <div className="overflow-hidden rounded-lg">
                     <img
-                      src={place.images[0]}
+                      src={place.photos[0]}
                       alt={`${place.name} photo`}
                       className="h-[220px] w-full object-cover"
                     />
                   </div>
                 ) : (
                   <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2">
-                    {place.images?.map((image) => (
+                    {place.photos?.map((image) => (
                       <div key={image} className="snap-start overflow-hidden rounded-lg">
                         <img src={image} alt={`${place.name} photo`} className="h-40 w-64 object-cover" />
                       </div>
@@ -119,18 +119,18 @@ const RightDrawer = forwardRef<HTMLDivElement, Props>(({ place, isOpen, onClose 
               </section>
             )}
 
-            {place.about && (
+            {place.description && place.verification !== "unverified" && (
               <section className="space-y-2">
-                <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">About</h3>
-                <p className="text-sm leading-relaxed text-gray-700">{place.about}</p>
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Description</h3>
+                <p className="text-sm leading-relaxed text-gray-700">{place.description}</p>
               </section>
             )}
 
-            {(place.accepted?.length ?? 0) > 0 && (
+            {(place.supportedCrypto?.length ?? 0) > 0 && (
               <section className="space-y-3">
                 <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Supported crypto</h3>
                 <div className="flex flex-wrap gap-2">
-                  {place.accepted?.map((item) => (
+                  {place.supportedCrypto?.map((item) => (
                     <span
                       key={item}
                       className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700"
@@ -142,50 +142,38 @@ const RightDrawer = forwardRef<HTMLDivElement, Props>(({ place, isOpen, onClose 
               </section>
             )}
 
-            {(place.website || place.phone) && (
-              <section className="grid grid-cols-1 gap-3 text-sm text-gray-700">
-                {place.website && (
-                  <a
-                    href={place.website}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-2 text-blue-600 hover:underline"
-                  >
-                    <span className="font-medium">Website</span>
-                    <span className="break-all">{place.website}</span>
-                  </a>
-                )}
-                {place.phone && (
-                  <div className="inline-flex items-center gap-2">
-                    <span className="font-medium">Phone</span>
-                    <span>{place.phone}</span>
-                  </div>
-                )}
-              </section>
-            )}
-
-            {(place.twitter || place.instagram) && (
+            {(place.socialWebsite || place.socialTwitter || place.socialInstagram) && (
               <section className="space-y-2 text-sm text-gray-700">
-                <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Social</h3>
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Online</h3>
                 <div className="flex flex-col gap-2">
-                  {place.twitter && (
+                  {place.socialWebsite && (
                     <a
-                      href={`https://twitter.com/${place.twitter.replace(/^@/, "")}`}
+                      href={place.socialWebsite}
                       target="_blank"
                       rel="noreferrer"
                       className="text-blue-600 hover:underline"
                     >
-                      {place.twitter}
+                      Website
                     </a>
                   )}
-                  {place.instagram && (
+                  {place.socialTwitter && (
                     <a
-                      href={`https://instagram.com/${place.instagram.replace(/^@/, "")}`}
+                      href={`https://twitter.com/${place.socialTwitter.replace(/^@/, "")}`}
                       target="_blank"
                       rel="noreferrer"
                       className="text-blue-600 hover:underline"
                     >
-                      {place.instagram}
+                      {place.socialTwitter}
+                    </a>
+                  )}
+                  {place.socialInstagram && (
+                    <a
+                      href={`https://instagram.com/${place.socialInstagram.replace(/^@/, "")}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-blue-600 hover:underline"
+                    >
+                      {place.socialInstagram}
                     </a>
                   )}
                 </div>

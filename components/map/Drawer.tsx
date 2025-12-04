@@ -46,38 +46,38 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
       if (!place) return [] as { label: string; href: string; key: string }[];
 
       const entries: { label: string; href: string; key: string }[] = [];
-      if (place.twitter) {
-        const handle = place.twitter.replace(/^@/, "");
+      if (place.socialTwitter) {
+        const handle = place.socialTwitter.replace(/^@/, "");
         entries.push({
           key: "twitter",
           label: `@${handle}`,
           href: `https://twitter.com/${handle}`,
         });
       }
-      if (place.instagram) {
-        const handle = place.instagram.replace(/^@/, "");
+      if (place.socialInstagram) {
+        const handle = place.socialInstagram.replace(/^@/, "");
         entries.push({
           key: "instagram",
           label: `@${handle}`,
           href: `https://instagram.com/${handle}`,
         });
       }
-      if (place.facebook) {
+      if (place.socialWebsite) {
         entries.push({
-          key: "facebook",
-          label: place.facebook,
-          href: `https://facebook.com/${place.facebook}`,
+          key: "website",
+          label: "Website",
+          href: place.socialWebsite,
         });
       }
       return entries;
     }, [place]);
 
-    const acceptedChips = useMemo(() => {
+    const supportedCrypto = useMemo(() => {
       if (!place) return [] as string[];
       const ordered = ["BTC", "BTC@Lightning", "Lightning", "ETH", "USDT"];
       const sorted = [
-        ...ordered.filter((item) => place.accepted.includes(item)),
-        ...place.accepted
+        ...ordered.filter((item) => place.supportedCrypto.includes(item)),
+        ...place.supportedCrypto
           .filter((item) => !ordered.includes(item))
           .sort((a, b) => a.localeCompare(b)),
       ];
@@ -100,8 +100,8 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
 
     const canShowPhotos =
       (place.verification === "owner" || place.verification === "community") &&
-      (place.images?.length ?? 0) > 0;
-    const canShowDescription = place.verification !== "unverified" && place.about;
+      (place.photos?.length ?? 0) > 0;
+    const canShowDescription = place.verification !== "unverified" && place.description;
     const shortAddress = [place.city, place.country].filter(Boolean).join(", ");
 
     return (
@@ -119,30 +119,32 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
         <div className="cpm-drawer__panel">
           <header className="cpm-drawer__header">
             <div className="cpm-drawer__title-block">
-              <div className="cpm-drawer__title-row">
-                <h2 className="cpm-drawer__title">{place.name}</h2>
+              <h2 className="cpm-drawer__title">{place.name}</h2>
+              <span
+                className="cpm-drawer__badge"
+                style={{
+                  color: VERIFICATION_COLORS[place.verification],
+                  borderColor: VERIFICATION_COLORS[place.verification],
+                  backgroundColor: `${VERIFICATION_COLORS[place.verification]}1A`,
+                }}
+              >
                 <span
-                  className="cpm-drawer__badge"
-                  style={{
-                    color: VERIFICATION_COLORS[place.verification],
-                    borderColor: VERIFICATION_COLORS[place.verification],
-                    backgroundColor: `${VERIFICATION_COLORS[place.verification]}1A`,
-                  }}
-                >
-                  <span
-                    className="cpm-drawer__badge-dot"
-                    style={{ backgroundColor: VERIFICATION_COLORS[place.verification] }}
-                    aria-hidden
-                  />
-                  {VERIFICATION_LABELS[place.verification]}
-                </span>
-              </div>
+                  className="cpm-drawer__badge-dot"
+                  style={{ backgroundColor: VERIFICATION_COLORS[place.verification] }}
+                  aria-hidden
+                />
+                {VERIFICATION_LABELS[place.verification]}
+              </span>
               <div className="cpm-drawer__meta-row">
                 <span className="cpm-drawer__chip">{place.category}</span>
-                <span className="cpm-drawer__dot" aria-hidden>
-                  •
-                </span>
-                <span className="cpm-drawer__address">{shortAddress}</span>
+                {shortAddress && (
+                  <>
+                    <span className="cpm-drawer__dot" aria-hidden>
+                      •
+                    </span>
+                    <span className="cpm-drawer__address">{shortAddress}</span>
+                  </>
+                )}
               </div>
             </div>
             <button type="button" className="cpm-drawer__close" aria-label="Close drawer" onClick={onClose}>
@@ -151,23 +153,24 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
           </header>
 
           <div className="cpm-drawer__content" role="presentation">
-            <section className="cpm-drawer__section">
-              <h3 className="cpm-drawer__section-title">Accepted</h3>
-              <div className="cpm-drawer__pill-row">
-                {acceptedChips.length === 0 && <span className="cpm-drawer__muted">No payment info</span>}
-                {acceptedChips.map((item) => (
-                  <span key={item} className="cpm-drawer__pill">
-                    {item}
-                  </span>
-                ))}
-              </div>
-            </section>
+            {supportedCrypto.length > 0 && (
+              <section className="cpm-drawer__section">
+                <h3 className="cpm-drawer__section-title">Supported crypto</h3>
+                <div className="cpm-drawer__pill-row">
+                  {supportedCrypto.map((item) => (
+                    <span key={item} className="cpm-drawer__pill">
+                      {item}
+                    </span>
+                  ))}
+                </div>
+              </section>
+            )}
 
             {canShowPhotos && (
               <section className="cpm-drawer__section">
                 <h3 className="cpm-drawer__section-title">Photos</h3>
                 <div className="cpm-drawer__carousel" aria-label="Store photos">
-                  {(place.images ?? []).map((image) => (
+                  {(place.photos ?? []).map((image) => (
                     <div key={image} className="cpm-drawer__carousel-item">
                       <img src={image} alt={`${place.name} photo`} className="cpm-drawer__photo" />
                     </div>
@@ -179,25 +182,21 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
             {canShowDescription && (
               <section className="cpm-drawer__section">
                 <h3 className="cpm-drawer__section-title">Description</h3>
-                <p className="cpm-drawer__body">{place.about}</p>
+                <p className="cpm-drawer__body">{place.description}</p>
               </section>
             )}
 
-            {(place.website || socialLinks.length > 0 || place.phone) && (
+            {place.addressFull && (
               <section className="cpm-drawer__section">
-                <h3 className="cpm-drawer__section-title">Links</h3>
+                <h3 className="cpm-drawer__section-title">Address</h3>
+                <p className="cpm-drawer__body">{place.addressFull}</p>
+              </section>
+            )}
+
+            {socialLinks.length > 0 && (
+              <section className="cpm-drawer__section">
+                <h3 className="cpm-drawer__section-title">Online</h3>
                 <div className="cpm-drawer__links">
-                  {place.website && (
-                    <a
-                      className="cpm-drawer__link"
-                      href={place.website}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Website
-                    </a>
-                  )}
-                  {place.phone && <span className="cpm-drawer__link muted">{place.phone}</span>}
                   {socialLinks.map((social) => (
                     <a
                       key={social.key}
@@ -212,39 +211,7 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
                 </div>
               </section>
             )}
-
-            {place.paymentNote && (
-              <section className="cpm-drawer__section">
-                <h3 className="cpm-drawer__section-title">Payment note</h3>
-                <p className="cpm-drawer__body">{place.paymentNote}</p>
-              </section>
-            )}
-
-            {(place.amenities?.length ?? 0) > 0 && (
-              <section className="cpm-drawer__section">
-                <h3 className="cpm-drawer__section-title">Amenities</h3>
-                <div className="cpm-drawer__pill-row">
-                  {(place.amenities ?? []).map((amenity) => (
-                    <span key={amenity} className="cpm-drawer__pill">
-                      {amenity}
-                    </span>
-                  ))}
-                </div>
-              </section>
-            )}
           </div>
-
-          <footer className="cpm-drawer__footer">
-            <div className="cpm-drawer__submitter">
-              <span className="cpm-drawer__muted">Submitted by</span>
-              <span className="cpm-drawer__submitter-name">
-                {place.submitterName || VERIFICATION_LABELS[place.verification]}
-              </span>
-            </div>
-            <div className="cpm-drawer__updated">
-              Updated: {new Date(place.updatedAt).toLocaleDateString()}
-            </div>
-          </footer>
         </div>
       </div>
     );
