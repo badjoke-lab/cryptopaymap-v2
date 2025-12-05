@@ -8,7 +8,7 @@ export type Place = {
   country: string;
   city: string;
   address_full?: string | null;
-  supported_crypto: string[];
+  supported_crypto?: string[];
   photos?: string[] | null;
   social_twitter?: string | null;
   social_instagram?: string | null;
