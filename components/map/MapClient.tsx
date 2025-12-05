@@ -74,7 +74,7 @@ export default function MapClient() {
     let isMounted = true;
 
     const updateIsMobile = () => {
-      setIsMobile(window.innerWidth < 1024);
+      setIsMobile(window.innerWidth <= 768);
     };
 
     updateIsMobile();

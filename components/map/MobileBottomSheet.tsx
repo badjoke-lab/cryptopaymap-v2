@@ -4,6 +4,7 @@ import type React from "react";
 import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
 
 import type { Place } from "../../types/places";
+import "./MobileBottomSheet.css";
 
 type Props = {
   place: Place | null;
@@ -13,6 +14,9 @@ type Props = {
 
 type SheetStage = "peek" | "expanded";
 
+const PEEK_HEIGHT = 32;
+const EXPANDED_HEIGHT = 88;
+
 const VERIFICATION_COLORS: Record<Place["verification"], string> = {
   owner: "#F59E0B",
   community: "#3B82F6",
@@ -21,189 +25,296 @@ const VERIFICATION_COLORS: Record<Place["verification"], string> = {
 };
 
 const VERIFICATION_LABELS: Record<Place["verification"], string> = {
-  owner: "Owner Verified",
-  community: "Community Verified",
-  directory: "Directory",
+  owner: "Owner verified",
+  community: "Community verified",
+  directory: "Directory listing",
   unverified: "Unverified",
 };
 
-const formatAccepted = (accepted: string[]) => {
-  const ordered = ["BTC", "Lightning", "ETH", "USDT"];
-  const prioritized = [
-    ...ordered.filter((item) => accepted.includes(item)),
-    ...accepted
-      .filter((item) => !ordered.includes(item))
-      .sort((a, b) => a.localeCompare(b)),
+const formatSupportedCrypto = (place: Place | null) => {
+  if (!place) return [] as string[];
+
+  const preferredOrder = ["BTC", "BTC@Lightning", "Lightning", "ETH", "USDT"];
+  const chains = place.supported_crypto?.length ? place.supported_crypto : place.accepted ?? [];
+
+  const sorted = [
+    ...preferredOrder.filter((item) => chains.includes(item)),
+    ...chains.filter((item) => !preferredOrder.includes(item)).sort((a, b) => a.localeCompare(b)),
   ];
 
-  const unique = Array.from(new Set(prioritized));
-  const visible = unique.slice(0, 4);
-  const remaining = unique.length - visible.length;
-
-  return {
-    visible,
-    remaining,
-  };
+  return Array.from(new Set(sorted));
 };
 
-const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
-  ({ place, isOpen, onClose }, ref) => {
-    const [stage, setStage] = useState<SheetStage>("peek");
-    const touchStartY = useRef<number | null>(null);
-    const touchCurrentY = useRef<number | null>(null);
-    const supportedCrypto = useMemo(
-      () =>
-        place?.supported_crypto?.length
-          ? place.supported_crypto
-          : place?.accepted ?? [],
-      [place?.accepted, place?.supported_crypto],
-    );
+const buildSocialLinks = (place: Place | null) => {
+  if (!place) return [] as { label: string; href: string; key: string }[];
 
-    useEffect(() => {
-      if (isOpen) {
+  const entries: { label: string; href: string; key: string }[] = [];
+  const twitter = place.social_twitter ?? place.twitter;
+  const instagram = place.social_instagram ?? place.instagram;
+  const website = place.social_website ?? place.website;
+  const facebook = place.facebook;
+
+  if (twitter) {
+    const handle = twitter.replace(/^@/, "");
+    entries.push({ key: "twitter", label: `@${handle}`, href: `https://twitter.com/${handle}` });
+  }
+  if (instagram) {
+    const handle = instagram.replace(/^@/, "");
+    entries.push({ key: "instagram", label: `@${handle}`, href: `https://instagram.com/${handle}` });
+  }
+  if (facebook) {
+    const handle = facebook.replace(/^@/, "");
+    entries.push({ key: "facebook", label: handle, href: `https://facebook.com/${handle}` });
+  }
+  if (website) {
+    entries.push({ key: "website", label: website.replace(/^https?:\/\//, ""), href: website });
+  }
+
+  return entries;
+};
+
+const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(({ place, isOpen, onClose }, ref) => {
+  const [stage, setStage] = useState<SheetStage>("peek");
+  const [renderedPlace, setRenderedPlace] = useState<Place | null>(null);
+  const touchStartY = useRef<number | null>(null);
+  const touchCurrentY = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (place) {
+      setRenderedPlace(place);
+      setStage("peek");
+      return;
+    }
+
+    if (!isOpen) {
+      const timeout = window.setTimeout(() => setRenderedPlace(null), 220);
+      return () => window.clearTimeout(timeout);
+    }
+
+    return undefined;
+  }, [isOpen, place]);
+
+  const supportedCrypto = useMemo(() => formatSupportedCrypto(renderedPlace), [renderedPlace]);
+  const socialLinks = useMemo(() => buildSocialLinks(renderedPlace), [renderedPlace]);
+  const photos = useMemo(() => {
+    if (!renderedPlace) return [] as string[];
+    return renderedPlace.photos?.length ? renderedPlace.photos : renderedPlace.images ?? [];
+  }, [renderedPlace]);
+
+  const canShowPhotos =
+    renderedPlace && (renderedPlace.verification === "owner" || renderedPlace.verification === "community")
+      ? photos.length > 0
+      : false;
+  const canShowDescription =
+    renderedPlace && renderedPlace.verification !== "unverified" && (renderedPlace.description ?? renderedPlace.about);
+  const fullAddress = renderedPlace?.address_full ?? renderedPlace?.address ?? "";
+  const shortAddress = [renderedPlace?.city, renderedPlace?.country].filter(Boolean).join(", ");
+  const amenities = renderedPlace?.amenities ?? [];
+  const paymentNote = renderedPlace?.paymentNote;
+  const submitter = renderedPlace?.submitterName ?? renderedPlace?.updatedAt;
+
+  useEffect(() => {
+    if (!isOpen || !renderedPlace) return undefined;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose, renderedPlace]);
+
+  const handleTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+    touchStartY.current = event.touches[0]?.clientY ?? null;
+    touchCurrentY.current = touchStartY.current;
+  };
+
+  const handleTouchMove = (event: React.TouchEvent<HTMLDivElement>) => {
+    touchCurrentY.current = event.touches[0]?.clientY ?? null;
+  };
+
+  const handleTouchEnd = () => {
+    if (touchStartY.current === null || touchCurrentY.current === null) {
+      return;
+    }
+
+    const deltaY = touchCurrentY.current - touchStartY.current;
+    const threshold = 40;
+
+    if (deltaY < -threshold) {
+      setStage("expanded");
+    } else if (deltaY > threshold) {
+      if (stage === "expanded") {
         setStage("peek");
+      } else {
+        onClose();
       }
-    }, [isOpen, place]);
+    }
 
-    const handleTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
-      touchStartY.current = event.touches[0]?.clientY ?? null;
-      touchCurrentY.current = touchStartY.current;
-    };
+    touchStartY.current = null;
+    touchCurrentY.current = null;
+  };
 
-    const handleTouchMove = (event: React.TouchEvent<HTMLDivElement>) => {
-      touchCurrentY.current = event.touches[0]?.clientY ?? null;
-    };
+  if (!renderedPlace) {
+    return null;
+  }
 
-    const handleTouchEnd = () => {
-      if (touchStartY.current === null || touchCurrentY.current === null) {
-        return;
-      }
+  const sheetHeight = stage === "expanded" ? `${EXPANDED_HEIGHT}vh` : `${PEEK_HEIGHT}vh`;
+  const showDetails = stage === "expanded";
+  const isVisible = isOpen && Boolean(renderedPlace);
 
-      const deltaY = touchCurrentY.current - touchStartY.current;
-      const threshold = 40;
-
-      if (deltaY < -threshold) {
-        setStage("expanded");
-      } else if (deltaY > threshold) {
-        if (stage === "expanded") {
-          setStage("peek");
-        } else {
-          onClose();
-        }
-      }
-
-      touchStartY.current = null;
-      touchCurrentY.current = null;
-    };
-
-    const sheetHeight = stage === "expanded" ? "88vh" : "32vh";
-
-    const translateClass = useMemo(() => {
-      if (!isOpen || !place) return "translate-y-full";
-      return stage === "expanded"
-        ? "translate-y-[calc(100vh-88vh)]"
-        : "translate-y-[calc(100vh-32vh)]";
-    }, [isOpen, place, stage]);
-
-    const { visible: visibleAccepted, remaining: remainingAccepted } = useMemo(
-      () => formatAccepted(supportedCrypto),
-      [supportedCrypto],
-    );
-
-    if (!place) return null;
-
-    return (
-      <>
+  return (
+    <div className={`cpm-bottom-sheet ${isVisible ? "open" : ""}`} ref={ref}>
+      <div
+        className="cpm-bottom-sheet__panel"
+        style={{ height: sheetHeight, transform: `translateY(${isVisible ? "0" : "100%"})` }}
+      >
         <div
-          ref={ref}
-          className={`fixed inset-x-0 top-0 z-[10000] transform-gpu transition-transform duration-300 ease-out ${translateClass}`}
-          style={{ height: sheetHeight }}
+          className="cpm-bottom-sheet__handle"
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
+          onClick={() => setStage((prev) => (prev === "peek" ? "expanded" : "peek"))}
         >
-          <div className="flex h-full flex-col overflow-hidden rounded-t-2xl bg-[#F7F7F7] shadow-xl">
-            <div className="flex flex-col gap-4 p-4">
-              <div className="mx-auto h-1.5 w-12 rounded-full bg-gray-300" aria-hidden />
+          <span className="cpm-bottom-sheet__handle-bar" aria-hidden />
+        </div>
 
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-2">
-                  <h2 className="truncate text-lg font-semibold text-gray-900">{place.name}</h2>
-                  <span
-                    className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium"
-                    style={{
-                      color: VERIFICATION_COLORS[place.verification],
-                      borderColor: VERIFICATION_COLORS[place.verification],
-                      backgroundColor: `${VERIFICATION_COLORS[place.verification]}1A`,
-                    }}
-                  >
-                    <span
-                      className="inline-block h-2.5 w-2.5 rounded-full"
-                      style={{ backgroundColor: VERIFICATION_COLORS[place.verification] }}
-                      aria-hidden
-                    />
-                    {VERIFICATION_LABELS[place.verification]}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2 text-sm text-gray-600">
-                  <span className="truncate capitalize">{place.category}</span>
-                  <span className="text-gray-400">•</span>
-                  <span className="truncate">
-                    {place.city}
-                    {place.city && place.country ? ", " : ""}
-                    {place.country}
-                  </span>
-                </div>
-              </div>
+        <header className="cpm-bottom-sheet__header">
+          <div className="cpm-bottom-sheet__title-block">
+            <div className="cpm-bottom-sheet__title-row">
+              <h2 className="cpm-bottom-sheet__title">{renderedPlace.name}</h2>
+              <span
+                className="cpm-bottom-sheet__badge"
+                style={{
+                  color: VERIFICATION_COLORS[renderedPlace.verification],
+                  borderColor: VERIFICATION_COLORS[renderedPlace.verification],
+                  backgroundColor: `${VERIFICATION_COLORS[renderedPlace.verification]}1A`,
+                }}
+              >
+                <span
+                  className="cpm-bottom-sheet__badge-dot"
+                  style={{ backgroundColor: VERIFICATION_COLORS[renderedPlace.verification] }}
+                  aria-hidden
+                />
+                {VERIFICATION_LABELS[renderedPlace.verification]}
+              </span>
             </div>
+            <div className="cpm-bottom-sheet__meta-row">
+              <span className="cpm-bottom-sheet__category">{renderedPlace.category}</span>
+              {shortAddress && <span className="cpm-bottom-sheet__meta-dot">•</span>}
+              {shortAddress && <span className="cpm-bottom-sheet__address">{shortAddress}</span>}
+            </div>
+          </div>
+        </header>
 
-            {((place.verification === "owner" || place.verification === "community") &&
-              ((place.photos?.length ?? 0) > 0 || (place.images?.length ?? 0) > 0)) && (
-              <div className="flex gap-3 overflow-x-auto px-4 pb-4">
-                {(place.photos ?? place.images ?? []).slice(0, 2).map((image) => (
-                  <div key={image} className="relative h-32 w-48 shrink-0 overflow-hidden rounded-lg bg-gray-200">
-                    <img src={image} alt={`${place.name} preview`} className="h-full w-full object-cover" />
+        <div className="cpm-bottom-sheet__content" role="presentation">
+          <section className="cpm-bottom-sheet__section">
+            <div className="cpm-bottom-sheet__section-head">
+              <h3 className="cpm-bottom-sheet__section-title">Accepted payments</h3>
+            </div>
+            <div className="cpm-bottom-sheet__pill-row">
+              {supportedCrypto.map((item) => (
+                <span key={item} className="cpm-bottom-sheet__pill">
+                  {item}
+                </span>
+              ))}
+              {supportedCrypto.length === 0 && <span className="cpm-bottom-sheet__muted">Not provided</span>}
+            </div>
+          </section>
+
+          {showDetails && canShowPhotos && (
+            <section className="cpm-bottom-sheet__section">
+              <div className="cpm-bottom-sheet__section-head">
+                <h3 className="cpm-bottom-sheet__section-title">Photos</h3>
+              </div>
+              <div className="cpm-bottom-sheet__carousel" aria-label={`${renderedPlace.name} photos`}>
+                {photos.map((image) => (
+                  <div key={image} className="cpm-bottom-sheet__carousel-item">
+                    <img src={image} alt={`${renderedPlace.name} photo`} className="cpm-bottom-sheet__photo" />
                   </div>
                 ))}
               </div>
-            )}
+            </section>
+          )}
 
-            <div className="flex-1 overflow-y-auto px-4 pb-6">
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-                    Accepted payments
-                  </h3>
-                  <div className="flex flex-wrap items-center gap-2 text-sm text-gray-800">
-                    {visibleAccepted.length === 0 && <span className="text-gray-500">No payment info</span>}
-                    {visibleAccepted.map((item) => (
-                      <span
-                        key={item}
-                        className="inline-flex items-center rounded-full bg-white px-3 py-1 text-xs font-medium shadow-sm"
-                      >
-                        {item}
-                      </span>
-                    ))}
-                    {remainingAccepted > 0 && (
-                      <span className="text-xs font-semibold text-gray-600">+{remainingAccepted}</span>
-                    )}
-                  </div>
-                </div>
-
-                {(place.address_full ?? place.address) && (
-                  <div className="space-y-1 text-sm text-gray-700">
-                    <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Address</h3>
-                    <p className="leading-relaxed">{place.address_full ?? place.address}</p>
-                  </div>
-                )}
+          {showDetails && canShowDescription && (
+            <section className="cpm-bottom-sheet__section">
+              <div className="cpm-bottom-sheet__section-head">
+                <h3 className="cpm-bottom-sheet__section-title">Description</h3>
               </div>
-            </div>
-          </div>
+              <p className="cpm-bottom-sheet__body">{renderedPlace.description ?? renderedPlace.about}</p>
+            </section>
+          )}
+
+          {showDetails && socialLinks.length > 0 && (
+            <section className="cpm-bottom-sheet__section">
+              <div className="cpm-bottom-sheet__section-head">
+                <h3 className="cpm-bottom-sheet__section-title">Links</h3>
+              </div>
+              <div className="cpm-bottom-sheet__links">
+                {socialLinks.map((social) => (
+                  <a
+                    key={social.key}
+                    className="cpm-bottom-sheet__link"
+                    href={social.href}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {social.label}
+                  </a>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {showDetails && paymentNote && (
+            <section className="cpm-bottom-sheet__section">
+              <div className="cpm-bottom-sheet__section-head">
+                <h3 className="cpm-bottom-sheet__section-title">Payment note</h3>
+              </div>
+              <p className="cpm-bottom-sheet__body">{paymentNote}</p>
+            </section>
+          )}
+
+          {showDetails && amenities.length > 0 && (
+            <section className="cpm-bottom-sheet__section">
+              <div className="cpm-bottom-sheet__section-head">
+                <h3 className="cpm-bottom-sheet__section-title">Amenities</h3>
+              </div>
+              <div className="cpm-bottom-sheet__pill-row">
+                {amenities.map((item) => (
+                  <span key={item} className="cpm-bottom-sheet__pill muted">
+                    {item}
+                  </span>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {showDetails && fullAddress && (
+            <section className="cpm-bottom-sheet__section">
+              <div className="cpm-bottom-sheet__section-head">
+                <h3 className="cpm-bottom-sheet__section-title">Address</h3>
+              </div>
+              <p className="cpm-bottom-sheet__body">{fullAddress}</p>
+            </section>
+          )}
+
+          {showDetails && submitter && (
+            <section className="cpm-bottom-sheet__section">
+              <div className="cpm-bottom-sheet__section-head">
+                <h3 className="cpm-bottom-sheet__section-title">Submitted by</h3>
+              </div>
+              <p className="cpm-bottom-sheet__body muted">{submitter}</p>
+            </section>
+          )}
         </div>
-      </>
-    );
-  },
-);
+      </div>
+    </div>
+  );
+});
 
 MobileBottomSheet.displayName = "MobileBottomSheet";
 
