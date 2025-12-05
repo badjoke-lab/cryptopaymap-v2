@@ -45,36 +45,72 @@ export default function MapClient() {
   const markersRef = useRef<Map<string, import("leaflet").Marker>>(new Map());
   const [places, setPlaces] = useState<Place[]>([]);
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<"full" | null>(null);
+  const [activeSurface, setActiveSurface] = useState<"drawer" | "sheet" | null>(null);
+  const selectedPlaceIdRef = useRef<string | null>(null);
+  const activeSurfaceRef = useRef<"drawer" | "sheet" | null>(null);
   const drawerRef = useRef<HTMLDivElement | null>(null);
   const bottomSheetRef = useRef<HTMLDivElement | null>(null);
   const [isMobile, setIsMobile] = useState(false);
 
   const openDrawerForPlace = useCallback(
     (placeId: string) => {
-      if (selectedPlaceId === placeId) {
+      if (selectedPlaceId === placeId && activeSurface === "drawer") {
         return;
       }
 
       setSelectedPlaceId(placeId);
-      setDrawerOpen(true);
       setDrawerMode("full");
+      setActiveSurface("drawer");
     },
-    [selectedPlaceId],
+    [activeSurface, selectedPlaceId],
   );
 
-  const closeDrawer = useCallback(() => {
+  const openSheetForPlace = useCallback(
+    (placeId: string) => {
+      if (selectedPlaceId === placeId && activeSurface === "sheet") {
+        return;
+      }
+
+      setSelectedPlaceId(placeId);
+      setDrawerMode(null);
+      setActiveSurface("sheet");
+    },
+    [activeSurface, selectedPlaceId],
+  );
+
+  const openForPlace = useCallback(
+    (placeId: string) => {
+      const shouldUseSheet = typeof window !== "undefined" ? window.innerWidth < 768 : isMobile;
+      if (shouldUseSheet) {
+        openSheetForPlace(placeId);
+        return;
+      }
+
+      openDrawerForPlace(placeId);
+    },
+    [isMobile, openDrawerForPlace, openSheetForPlace],
+  );
+
+  const closeAll = useCallback(() => {
     setSelectedPlaceId(null);
-    setDrawerOpen(false);
+    setActiveSurface(null);
     setDrawerMode(null);
   }, []);
+
+  useEffect(() => {
+    selectedPlaceIdRef.current = selectedPlaceId;
+  }, [selectedPlaceId]);
+
+  useEffect(() => {
+    activeSurfaceRef.current = activeSurface;
+  }, [activeSurface]);
 
   useEffect(() => {
     let isMounted = true;
 
     const updateIsMobile = () => {
-      setIsMobile(window.innerWidth <= 768);
+      setIsMobile(window.innerWidth < 768);
     };
 
     updateIsMobile();
@@ -154,7 +190,7 @@ export default function MapClient() {
           const marker = L.marker([lat, lng], { icon });
           marker.on("click", (event: import("leaflet").LeafletMouseEvent) => {
             event.originalEvent.stopPropagation();
-            openDrawerForPlace(clusterItem.id);
+            openForPlace(clusterItem.id);
           });
           markerLayerRef.current.addLayer(marker);
           markersRef.current.set(clusterItem.id, marker);
@@ -211,7 +247,7 @@ export default function MapClient() {
 
       map.on("moveend zoomend", updateVisibleMarkers);
       map.on("click", () => {
-        closeDrawer();
+        closeAll();
       });
       mapInstanceRef.current = map;
 
@@ -241,9 +277,9 @@ export default function MapClient() {
 
   useEffect(() => {
     if (selectedPlaceId && !selectedPlace) {
-      closeDrawer();
+      closeAll();
     }
-  }, [closeDrawer, selectedPlace, selectedPlaceId]);
+  }, [closeAll, selectedPlace, selectedPlaceId]);
 
   useEffect(() => {
     markersRef.current.forEach((marker, id) => {
@@ -259,9 +295,9 @@ export default function MapClient() {
   }, [selectedPlaceId]);
 
   useEffect(() => {
-    if (!selectedPlaceId && !drawerOpen) return;
-
     const handleClick = (event: MouseEvent) => {
+      if (!selectedPlaceIdRef.current || !activeSurfaceRef.current) return;
+
       const target = event.target;
 
       if (target instanceof Element) {
@@ -280,7 +316,7 @@ export default function MapClient() {
         }
       }
 
-      closeDrawer();
+      closeAll();
     };
 
     document.addEventListener("click", handleClick);
@@ -288,7 +324,25 @@ export default function MapClient() {
     return () => {
       document.removeEventListener("click", handleClick);
     };
-  }, [closeDrawer, drawerOpen, selectedPlaceId]);
+  }, [closeAll]);
+
+  useEffect(() => {
+    if (!selectedPlaceId) {
+      return;
+    }
+
+    if (isMobile && activeSurface !== "sheet") {
+      openSheetForPlace(selectedPlaceId);
+      return;
+    }
+
+    if (!isMobile && activeSurface !== "drawer") {
+      openDrawerForPlace(selectedPlaceId);
+    }
+  }, [activeSurface, isMobile, openDrawerForPlace, openSheetForPlace, selectedPlaceId]);
+
+  const isDrawerOpen = activeSurface === "drawer" && Boolean(selectedPlace);
+  const isSheetOpen = activeSurface === "sheet" && Boolean(selectedPlace);
 
   return (
     <div
@@ -307,9 +361,9 @@ export default function MapClient() {
       {!isMobile && (
         <Drawer
           place={selectedPlace}
-          isOpen={drawerOpen && Boolean(selectedPlace)}
+          isOpen={isDrawerOpen}
           mode={drawerMode}
-          onClose={closeDrawer}
+          onClose={closeAll}
           ref={drawerRef}
           headerHeight={HEADER_HEIGHT}
         />
@@ -317,8 +371,8 @@ export default function MapClient() {
       {isMobile && (
         <MobileBottomSheet
           place={selectedPlace}
-          isOpen={drawerOpen && Boolean(selectedPlace)}
-          onClose={closeDrawer}
+          isOpen={isSheetOpen}
+          onClose={closeAll}
           ref={bottomSheetRef}
         />
       )}
