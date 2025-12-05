@@ -210,9 +210,6 @@ export default function MapClient() {
       };
 
       map.on("moveend zoomend", updateVisibleMarkers);
-      map.on("click", () => {
-        closeDrawer();
-      });
       mapInstanceRef.current = map;
 
       await fetchPlacesAndBuildIndex();
@@ -261,7 +258,7 @@ export default function MapClient() {
   useEffect(() => {
     if (!selectedPlaceId && !drawerOpen) return;
 
-    const handleClick = (event: MouseEvent) => {
+    const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
 
       if (target instanceof Element) {
@@ -283,10 +280,10 @@ export default function MapClient() {
       closeDrawer();
     };
 
-    document.addEventListener("click", handleClick);
+    document.addEventListener("pointerdown", handlePointerDown);
 
     return () => {
-      document.removeEventListener("click", handleClick);
+      document.removeEventListener("pointerdown", handlePointerDown);
     };
   }, [closeDrawer, drawerOpen, selectedPlaceId]);
 
