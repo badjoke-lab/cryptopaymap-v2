@@ -1,13 +1,15 @@
 .cpm-drawer {
   position: fixed;
   inset: 0 auto 0 0;
+  width: 420px;
   max-width: 420px;
-  min-width: 360px;
+  min-width: 420px;
   height: calc(100vh - var(--header-height, 0px));
   transform: translateX(-100%);
   transition: transform 0.25s ease-in;
   z-index: 9999;
   pointer-events: none;
+  will-change: transform;
 }
 
 .cpm-drawer.open {
@@ -41,7 +43,7 @@
 .cpm-drawer__title-block {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   min-width: 0;
 }
 
@@ -88,6 +90,12 @@
   gap: 8px;
   color: #4b5563;
   font-size: 0.9375rem;
+}
+
+.cpm-drawer__category {
+  font-weight: 700;
+  color: #111827;
+  text-transform: capitalize;
 }
 
 .cpm-drawer__chip {
@@ -236,36 +244,9 @@
   font-weight: 500;
 }
 
-.cpm-drawer__footer {
-  margin-top: auto;
-  padding: 14px 20px;
-  border-top: 1px solid #e5e7eb;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  color: #4b5563;
-  background: #ffffff;
-}
-
-.cpm-drawer__submitter {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.cpm-drawer__submitter-name {
-  font-weight: 700;
-  color: #111827;
-}
-
-.cpm-drawer__updated {
-  font-size: 0.875rem;
-  color: #6b7280;
-}
-
 @media (max-width: 1023px) {
   .cpm-drawer {
+    width: 380px;
     max-width: 380px;
     min-width: 320px;
   }

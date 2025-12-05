@@ -1,17 +1,23 @@
 export type Place = {
   id: string;
   name: string;
-  country: string;
-  city: string;
-  address: string;
-  lat: number;
-  lng: number;
   category: string;
   verification: "owner" | "community" | "directory" | "unverified";
-  about?: string | null;
-  coverImage?: string | null;
-  paymentNote?: string | null;
-  accepted: string[];
+  lat: number;
+  lng: number;
+  country: string;
+  city: string;
+  address_full?: string | null;
+  supported_crypto?: string[];
+  photos?: string[] | null;
+  social_twitter?: string | null;
+  social_instagram?: string | null;
+  social_website?: string | null;
+  description?: string | null;
+
+  // Legacy/compatibility fields (to be removed once API is updated)
+  accepted?: string[];
+  address?: string;
   website?: string | null;
   phone?: string | null;
   twitter?: string | null;
@@ -20,5 +26,8 @@ export type Place = {
   amenities?: string[] | null;
   submitterName?: string | null;
   images?: string[];
-  updatedAt: string;
+  updatedAt?: string;
+  coverImage?: string | null;
+  about?: string | null;
+  paymentNote?: string | null;
 };

@@ -51,6 +51,13 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
     const [stage, setStage] = useState<SheetStage>("peek");
     const touchStartY = useRef<number | null>(null);
     const touchCurrentY = useRef<number | null>(null);
+    const supportedCrypto = useMemo(
+      () =>
+        place?.supported_crypto?.length
+          ? place.supported_crypto
+          : place?.accepted ?? [],
+      [place?.accepted, place?.supported_crypto],
+    );
 
     useEffect(() => {
       if (isOpen) {
@@ -99,8 +106,8 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
     }, [isOpen, place, stage]);
 
     const { visible: visibleAccepted, remaining: remainingAccepted } = useMemo(
-      () => formatAccepted(place?.accepted ?? []),
-      [place?.accepted],
+      () => formatAccepted(supportedCrypto),
+      [supportedCrypto],
     );
 
     if (!place) return null;
@@ -151,9 +158,9 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
             </div>
 
             {((place.verification === "owner" || place.verification === "community") &&
-              (place.images?.length ?? 0) > 0) && (
+              ((place.photos?.length ?? 0) > 0 || (place.images?.length ?? 0) > 0)) && (
               <div className="flex gap-3 overflow-x-auto px-4 pb-4">
-                {place.images?.slice(0, 2).map((image) => (
+                {(place.photos ?? place.images ?? []).slice(0, 2).map((image) => (
                   <div key={image} className="relative h-32 w-48 shrink-0 overflow-hidden rounded-lg bg-gray-200">
                     <img src={image} alt={`${place.name} preview`} className="h-full w-full object-cover" />
                   </div>
@@ -183,10 +190,10 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
                   </div>
                 </div>
 
-                {place.address && (
+                {(place.address_full ?? place.address) && (
                   <div className="space-y-1 text-sm text-gray-700">
                     <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Address</h3>
-                    <p className="leading-relaxed">{place.address}</p>
+                    <p className="leading-relaxed">{place.address_full ?? place.address}</p>
                   </div>
                 )}
               </div>

@@ -46,40 +46,45 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
       if (!place) return [] as { label: string; href: string; key: string }[];
 
       const entries: { label: string; href: string; key: string }[] = [];
-      if (place.twitter) {
-        const handle = place.twitter.replace(/^@/, "");
+      const twitter = place.social_twitter ?? place.twitter;
+      const instagram = place.social_instagram ?? place.instagram;
+      const website = place.social_website ?? place.website;
+
+      if (twitter) {
+        const handle = twitter.replace(/^@/, "");
         entries.push({
           key: "twitter",
           label: `@${handle}`,
           href: `https://twitter.com/${handle}`,
         });
       }
-      if (place.instagram) {
-        const handle = place.instagram.replace(/^@/, "");
+      if (instagram) {
+        const handle = instagram.replace(/^@/, "");
         entries.push({
           key: "instagram",
           label: `@${handle}`,
           href: `https://instagram.com/${handle}`,
         });
       }
-      if (place.facebook) {
+      if (website) {
         entries.push({
-          key: "facebook",
-          label: place.facebook,
-          href: `https://facebook.com/${place.facebook}`,
+          key: "website",
+          label: website.replace(/^https?:\/\//, ""),
+          href: website,
         });
       }
       return entries;
     }, [place]);
 
-    const acceptedChips = useMemo(() => {
+    const supportedCrypto = useMemo(() => {
       if (!place) return [] as string[];
-      const ordered = ["BTC", "BTC@Lightning", "Lightning", "ETH", "USDT"];
+      const preferredOrder = ["BTC", "BTC@Lightning", "Lightning", "ETH", "USDT"];
+      const chains = place.supported_crypto?.length
+        ? place.supported_crypto
+        : place.accepted ?? [];
       const sorted = [
-        ...ordered.filter((item) => place.accepted.includes(item)),
-        ...place.accepted
-          .filter((item) => !ordered.includes(item))
-          .sort((a, b) => a.localeCompare(b)),
+        ...preferredOrder.filter((item) => chains.includes(item)),
+        ...chains.filter((item) => !preferredOrder.includes(item)).sort((a, b) => a.localeCompare(b)),
       ];
       return Array.from(new Set(sorted));
     }, [place]);
@@ -98,11 +103,12 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
       );
     }
 
+    const photos = place.photos?.length ? place.photos : place.images ?? [];
     const canShowPhotos =
-      (place.verification === "owner" || place.verification === "community") &&
-      (place.images?.length ?? 0) > 0;
-    const canShowDescription = place.verification !== "unverified" && place.about;
+      (place.verification === "owner" || place.verification === "community") && photos.length > 0;
+    const canShowDescription = place.verification !== "unverified" && (place.description ?? place.about);
     const shortAddress = [place.city, place.country].filter(Boolean).join(", ");
+    const fullAddress = place.address_full ?? place.address ?? "";
 
     return (
       <div
@@ -119,30 +125,32 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
         <div className="cpm-drawer__panel">
           <header className="cpm-drawer__header">
             <div className="cpm-drawer__title-block">
-              <div className="cpm-drawer__title-row">
-                <h2 className="cpm-drawer__title">{place.name}</h2>
+              <h2 className="cpm-drawer__title">{place.name}</h2>
+              <span
+                className="cpm-drawer__badge"
+                style={{
+                  color: VERIFICATION_COLORS[place.verification],
+                  borderColor: VERIFICATION_COLORS[place.verification],
+                  backgroundColor: `${VERIFICATION_COLORS[place.verification]}1A`,
+                }}
+              >
                 <span
-                  className="cpm-drawer__badge"
-                  style={{
-                    color: VERIFICATION_COLORS[place.verification],
-                    borderColor: VERIFICATION_COLORS[place.verification],
-                    backgroundColor: `${VERIFICATION_COLORS[place.verification]}1A`,
-                  }}
-                >
-                  <span
-                    className="cpm-drawer__badge-dot"
-                    style={{ backgroundColor: VERIFICATION_COLORS[place.verification] }}
-                    aria-hidden
-                  />
-                  {VERIFICATION_LABELS[place.verification]}
-                </span>
-              </div>
+                  className="cpm-drawer__badge-dot"
+                  style={{ backgroundColor: VERIFICATION_COLORS[place.verification] }}
+                  aria-hidden
+                />
+                {VERIFICATION_LABELS[place.verification]}
+              </span>
               <div className="cpm-drawer__meta-row">
-                <span className="cpm-drawer__chip">{place.category}</span>
-                <span className="cpm-drawer__dot" aria-hidden>
-                  •
-                </span>
-                <span className="cpm-drawer__address">{shortAddress}</span>
+                <span className="cpm-drawer__category">{place.category}</span>
+                {shortAddress && (
+                  <>
+                    <span className="cpm-drawer__dot" aria-hidden>
+                      •
+                    </span>
+                    <span className="cpm-drawer__address">{shortAddress}</span>
+                  </>
+                )}
               </div>
             </div>
             <button type="button" className="cpm-drawer__close" aria-label="Close drawer" onClick={onClose}>
@@ -152,14 +160,14 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
 
           <div className="cpm-drawer__content" role="presentation">
             <section className="cpm-drawer__section">
-              <h3 className="cpm-drawer__section-title">Accepted</h3>
+              <h3 className="cpm-drawer__section-title">Supported crypto</h3>
               <div className="cpm-drawer__pill-row">
-                {acceptedChips.length === 0 && <span className="cpm-drawer__muted">No payment info</span>}
-                {acceptedChips.map((item) => (
+                {supportedCrypto.map((item) => (
                   <span key={item} className="cpm-drawer__pill">
                     {item}
                   </span>
                 ))}
+                {supportedCrypto.length === 0 && <span className="cpm-drawer__muted">Not provided</span>}
               </div>
             </section>
 
@@ -167,7 +175,7 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
               <section className="cpm-drawer__section">
                 <h3 className="cpm-drawer__section-title">Photos</h3>
                 <div className="cpm-drawer__carousel" aria-label="Store photos">
-                  {(place.images ?? []).map((image) => (
+                  {photos.map((image) => (
                     <div key={image} className="cpm-drawer__carousel-item">
                       <img src={image} alt={`${place.name} photo`} className="cpm-drawer__photo" />
                     </div>
@@ -179,25 +187,14 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
             {canShowDescription && (
               <section className="cpm-drawer__section">
                 <h3 className="cpm-drawer__section-title">Description</h3>
-                <p className="cpm-drawer__body">{place.about}</p>
+                <p className="cpm-drawer__body">{place.description ?? place.about}</p>
               </section>
             )}
 
-            {(place.website || socialLinks.length > 0 || place.phone) && (
+            {(socialLinks.length > 0) && (
               <section className="cpm-drawer__section">
                 <h3 className="cpm-drawer__section-title">Links</h3>
                 <div className="cpm-drawer__links">
-                  {place.website && (
-                    <a
-                      className="cpm-drawer__link"
-                      href={place.website}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Website
-                    </a>
-                  )}
-                  {place.phone && <span className="cpm-drawer__link muted">{place.phone}</span>}
                   {socialLinks.map((social) => (
                     <a
                       key={social.key}
@@ -213,38 +210,13 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
               </section>
             )}
 
-            {place.paymentNote && (
+            {fullAddress && (
               <section className="cpm-drawer__section">
-                <h3 className="cpm-drawer__section-title">Payment note</h3>
-                <p className="cpm-drawer__body">{place.paymentNote}</p>
-              </section>
-            )}
-
-            {(place.amenities?.length ?? 0) > 0 && (
-              <section className="cpm-drawer__section">
-                <h3 className="cpm-drawer__section-title">Amenities</h3>
-                <div className="cpm-drawer__pill-row">
-                  {(place.amenities ?? []).map((amenity) => (
-                    <span key={amenity} className="cpm-drawer__pill">
-                      {amenity}
-                    </span>
-                  ))}
-                </div>
+                <h3 className="cpm-drawer__section-title">Address</h3>
+                <p className="cpm-drawer__body">{fullAddress}</p>
               </section>
             )}
           </div>
-
-          <footer className="cpm-drawer__footer">
-            <div className="cpm-drawer__submitter">
-              <span className="cpm-drawer__muted">Submitted by</span>
-              <span className="cpm-drawer__submitter-name">
-                {place.submitterName || VERIFICATION_LABELS[place.verification]}
-              </span>
-            </div>
-            <div className="cpm-drawer__updated">
-              Updated: {new Date(place.updatedAt).toLocaleDateString()}
-            </div>
-          </footer>
         </div>
       </div>
     );
