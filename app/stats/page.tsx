@@ -1,3 +1,5 @@
-export default function StatsPage() {
-  return <div>Stats page placeholder</div>;
+import StatsPage from "../../components/stats/StatsPage";
+
+export default function Stats() {
+  return <StatsPage />;
 }

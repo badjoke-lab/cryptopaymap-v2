@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import type { Place } from "../../../types/places";
 
-const places: Place[] = [
+export const places: Place[] = [
   {
     id: "cpm:tokyo:owner-cafe-1",
     name: "Satoshi Coffee",
