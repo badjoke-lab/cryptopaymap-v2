@@ -33,6 +33,8 @@ type ChartSeries = {
 const chartColors = {
   owner: '#0ea5e9',
   community: '#f97316',
+  directory: '#8b5cf6',
+  unverified: '#f43f5e',
   total: '#22c55e',
 };
 
@@ -227,7 +229,16 @@ export default function StatsPage() {
         color: chartColors.community,
         values: state.data.verificationTrends.weekly.map((entry) => entry.community),
       },
-      { label: 'Total places', color: chartColors.total, values: state.data.verificationTrends.weekly.map((entry) => entry.total) },
+      {
+        label: 'Directory verified',
+        color: chartColors.directory,
+        values: state.data.verificationTrends.weekly.map((entry) => entry.directory),
+      },
+      {
+        label: 'Unverified listings',
+        color: chartColors.unverified,
+        values: state.data.verificationTrends.weekly.map((entry) => entry.unverified),
+      },
     ];
   }, [state.data]);
 
@@ -245,7 +256,16 @@ export default function StatsPage() {
         color: chartColors.community,
         values: state.data.verificationTrends.monthly.map((entry) => entry.community),
       },
-      { label: 'Total places', color: chartColors.total, values: state.data.verificationTrends.monthly.map((entry) => entry.total) },
+      {
+        label: 'Directory verified',
+        color: chartColors.directory,
+        values: state.data.verificationTrends.monthly.map((entry) => entry.directory),
+      },
+      {
+        label: 'Unverified listings',
+        color: chartColors.unverified,
+        values: state.data.verificationTrends.monthly.map((entry) => entry.unverified),
+      },
     ];
   }, [state.data]);
 
@@ -323,7 +343,7 @@ export default function StatsPage() {
           <Card
             eyebrow="Weekly"
             title="Verification trend"
-            description="Owner and community verified places by week."
+            description="Owner, community, directory, and unverified places by week."
           >
             <LineChart
               labels={state.data.verificationTrends.weekly.map((entry) => formatPeriodLabel(entry.date))}
@@ -334,7 +354,7 @@ export default function StatsPage() {
           <Card
             eyebrow="Monthly"
             title="Verification trend"
-            description="Aggregated monthly progress for owners and community."
+            description="Aggregated monthly progress across all verification types."
           >
             <BarChart
               labels={state.data.verificationTrends.monthly.map((entry) => formatPeriodLabel(entry.month))}
