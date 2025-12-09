@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "npm run test:stats",
+    "test:stats": "tsc --project tsconfig.test.json && node --test .tmp-tests/tests/*.js && rm -rf .tmp-tests"
   },
   "dependencies": {
     "leaflet": "^1.9.4",
