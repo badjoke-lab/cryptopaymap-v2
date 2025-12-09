@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import type { Place } from "../../../types/places";
-import { places } from "../places/route";
+import { mockPlaces } from "../../../lib/mockPlaces";
 
 type VerificationCategory = Place["verification"];
 
@@ -47,7 +47,7 @@ function calculateStats(data: Place[]): StatsResponse {
 export async function GET() {
   // In a real implementation this would query Neon and transform the data.
   // For now, use the available place dataset as the ETL source.
-  const stats = calculateStats(places);
+  const stats = calculateStats(mockPlaces);
 
   return NextResponse.json(stats);
 }
