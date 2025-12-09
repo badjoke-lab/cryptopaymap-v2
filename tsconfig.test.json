@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": ".tmp-tests",
+    "module": "CommonJS"
+  },
+  "include": ["tests/**/*.ts", "lib/stats/**/*.ts"],
+  "exclude": ["node_modules"]
+}
