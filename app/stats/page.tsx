@@ -4,6 +4,7 @@ import { type ReactNode, useEffect, useMemo, useState } from 'react';
 
 import type { CategoryTrendPoint, CountryRanking } from '@/lib/stats/dashboard';
 import type { MonthlyTrendPoint, WeeklyTrendPoint } from '@/lib/stats/trends';
+import type { VerificationKey } from '@/lib/types/stats';
 import { CountrySortKey, filterCategoryTrends, formatPeriodLabel, getCategoryNames, sortCountries } from '@/lib/stats/utils';
 
 type StatsResponse = {
@@ -30,21 +31,21 @@ type ChartSeries = {
   values: number[];
 };
 
-const verificationSeries = [
+const chartColors: Record<VerificationKey, string> = {
+  total: '#7c3aed',
+  owner: '#fbbf24',
+  community: '#3b82f6',
+  directory: '#14b8a6',
+  unverified: '#9ca3af',
+};
+
+const VERIFICATION_SERIES: { key: VerificationKey; label: string }[] = [
   { key: 'total', label: 'Total places' },
   { key: 'owner', label: 'Owner verified' },
   { key: 'community', label: 'Community verified' },
   { key: 'directory', label: 'Directory verified' },
   { key: 'unverified', label: 'Unverified listings' },
-] as const;
-
-const chartColors: Record<(typeof verificationSeries)[number]['key'], string> = {
-  owner: '#0ea5e9',
-  community: '#f97316',
-  directory: '#8b5cf6',
-  unverified: '#f43f5e',
-  total: '#22c55e',
-};
+];
 
 function Legend({ series }: { series: ChartSeries[] }) {
   return (
@@ -223,36 +224,36 @@ export default function StatsPage() {
     fetchStats();
   }, []);
 
-  const weeklySeries = useMemo(() => {
-    const data = state.data;
-    if (!data) return [] as ChartSeries[];
+  const data = state.data;
 
-    return verificationSeries.map((series) => ({
+  const weeklySeries = useMemo<ChartSeries[]>(() => {
+    if (!data) return [];
+
+    return VERIFICATION_SERIES.map((series) => ({
       label: series.label,
       color: chartColors[series.key],
       values: data.verificationTrends.weekly.map((entry) => entry[series.key]),
     }));
-  }, [state.data]);
+  }, [data]);
 
-  const monthlySeries = useMemo(() => {
-    const data = state.data;
-    if (!data) return [] as ChartSeries[];
+  const monthlySeries = useMemo<ChartSeries[]>(() => {
+    if (!data) return [];
 
-    return verificationSeries.map((series) => ({
+    return VERIFICATION_SERIES.map((series) => ({
       label: series.label,
       color: chartColors[series.key],
       values: data.verificationTrends.monthly.map((entry) => entry[series.key]),
     }));
-  }, [state.data]);
+  }, [data]);
 
   const sortedCountries = useMemo(
-    () => sortCountries(state.data?.countries ?? [], countrySort, countryLimit),
-    [state.data?.countries, countrySort, countryLimit],
+    () => (data ? sortCountries(data.countries, countrySort, countryLimit) : []),
+    [data, countrySort, countryLimit],
   );
 
   const countrySeries = useMemo<ChartSeries[]>(
     () =>
-      verificationSeries.map((series) => ({
+      VERIFICATION_SERIES.map((series) => ({
         label: series.label,
         color: chartColors[series.key],
         values: sortedCountries.map((country) => country[series.key]),
@@ -260,22 +261,22 @@ export default function StatsPage() {
     [sortedCountries],
   );
 
-  const categoryNames = useMemo(() => (state.data ? getCategoryNames(state.data.categoryTrends.weekly) : []), [state.data]);
+  const categoryNames = useMemo(() => (data ? getCategoryNames(data.categoryTrends.weekly) : []), [data]);
 
   const weeklyCategory = useMemo(() => {
-    if (!state.data || !selectedCategory) return [] as CategoryTrendPoint[];
-    return filterCategoryTrends(state.data.categoryTrends.weekly, selectedCategory);
-  }, [selectedCategory, state.data]);
+    if (!data || !selectedCategory) return [] as CategoryTrendPoint[];
+    return filterCategoryTrends(data.categoryTrends.weekly, selectedCategory);
+  }, [selectedCategory, data]);
 
   const monthlyCategory = useMemo(() => {
-    if (!state.data || !selectedCategory) return [] as CategoryTrendPoint[];
-    return filterCategoryTrends(state.data.categoryTrends.monthly, selectedCategory);
-  }, [selectedCategory, state.data]);
+    if (!data || !selectedCategory) return [] as CategoryTrendPoint[];
+    return filterCategoryTrends(data.categoryTrends.monthly, selectedCategory);
+  }, [selectedCategory, data]);
 
   const weeklyCategorySeries = useMemo(() => {
     if (!weeklyCategory.length) return [] as ChartSeries[];
 
-    return verificationSeries.map((series) => ({
+    return VERIFICATION_SERIES.map((series) => ({
       label: series.label,
       color: chartColors[series.key],
       values: weeklyCategory.map((entry) => entry[series.key]),
@@ -285,12 +286,48 @@ export default function StatsPage() {
   const monthlyCategorySeries = useMemo(() => {
     if (!monthlyCategory.length) return [] as ChartSeries[];
 
-    return verificationSeries.map((series) => ({
+    return VERIFICATION_SERIES.map((series) => ({
       label: series.label,
       color: chartColors[series.key],
       values: monthlyCategory.map((entry) => entry[series.key]),
     }));
   }, [monthlyCategory]);
+
+  if (state.loading) {
+    return (
+      <main className="flex min-h-screen flex-col gap-8 bg-gray-50 px-6 py-8 text-gray-900">
+        <header className="max-w-5xl">
+          <p className="text-sm uppercase tracking-wide text-sky-700">Stats</p>
+          <h1 className="mt-2 text-3xl font-semibold">Marketplace dashboard</h1>
+          <p className="mt-2 text-gray-600">
+            Country rankings and category momentum for the CryptoPayMap community. Data below is seeded for
+            development and visualization purposes.
+          </p>
+        </header>
+        <p className="text-gray-700">Loading stats…</p>
+      </main>
+    );
+  }
+
+  if (state.error) {
+    return (
+      <main className="flex min-h-screen flex-col gap-8 bg-gray-50 px-6 py-8 text-gray-900">
+        <header className="max-w-5xl">
+          <p className="text-sm uppercase tracking-wide text-sky-700">Stats</p>
+          <h1 className="mt-2 text-3xl font-semibold">Marketplace dashboard</h1>
+          <p className="mt-2 text-gray-600">
+            Country rankings and category momentum for the CryptoPayMap community. Data below is seeded for
+            development and visualization purposes.
+          </p>
+        </header>
+        <p className="rounded-md bg-red-50 px-4 py-3 text-red-700">Failed to load data: {state.error}</p>
+      </main>
+    );
+  }
+
+  if (!data) {
+    return null;
+  }
 
   return (
     <main className="flex min-h-screen flex-col gap-8 bg-gray-50 px-6 py-8 text-gray-900">
@@ -298,17 +335,12 @@ export default function StatsPage() {
         <p className="text-sm uppercase tracking-wide text-sky-700">Stats</p>
         <h1 className="mt-2 text-3xl font-semibold">Marketplace dashboard</h1>
         <p className="mt-2 text-gray-600">
-          Country rankings and category momentum for the CryptoPayMap community. Data below is seeded for
-          development and visualization purposes.
+          Country rankings and category momentum for the CryptoPayMap community. Data below is seeded for development and
+          visualization purposes.
         </p>
       </header>
 
-      {state.loading && <p className="text-gray-700">Loading stats…</p>}
-      {state.error && (
-        <p className="rounded-md bg-red-50 px-4 py-3 text-red-700">Failed to load data: {state.error}</p>
-      )}
-
-      {state.data && weeklySeries && monthlySeries && (
+      {weeklySeries && monthlySeries && (
         <section className="grid gap-6 md:grid-cols-2">
           <Card
             eyebrow="Weekly"
@@ -316,7 +348,7 @@ export default function StatsPage() {
             description="Owner, community, directory, and unverified places by week."
           >
             <LineChart
-              labels={state.data.verificationTrends.weekly.map((entry) => formatPeriodLabel(entry.label))}
+              labels={data.verificationTrends.weekly.map((entry) => formatPeriodLabel(entry.label))}
               series={weeklySeries}
             />
           </Card>
@@ -327,14 +359,14 @@ export default function StatsPage() {
             description="Aggregated monthly progress across all verification types."
           >
             <BarChart
-              labels={state.data.verificationTrends.monthly.map((entry) => formatPeriodLabel(entry.label))}
+              labels={data.verificationTrends.monthly.map((entry) => formatPeriodLabel(entry.label))}
               series={monthlySeries}
             />
           </Card>
         </section>
       )}
 
-      {state.data && (
+      {
         <section className="grid gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2">
             <Card
@@ -379,7 +411,7 @@ export default function StatsPage() {
               <h2 className="text-xl font-semibold">Current leaderboard</h2>
               <p className="text-sm text-gray-600">Sorted by total verified listings.</p>
               <ol className="mt-4 space-y-3 text-sm text-gray-800">
-                {sortCountries(state.data.countries).map((entry, index) => (
+                {sortCountries(data.countries).map((entry, index) => (
                   <li key={entry.country} className="flex items-center justify-between rounded-md bg-gray-50 px-3 py-2">
                     <div className="flex items-center gap-3">
                       <span className="text-xs font-semibold text-gray-500">#{index + 1}</span>
@@ -395,9 +427,9 @@ export default function StatsPage() {
             </div>
           </div>
         </section>
-      )}
+      }
 
-      {state.data && weeklyCategorySeries && monthlyCategorySeries && (
+      {weeklyCategorySeries && monthlyCategorySeries && (
         <section className="grid gap-6 md:grid-cols-2">
           <Card
             eyebrow="Category focus"

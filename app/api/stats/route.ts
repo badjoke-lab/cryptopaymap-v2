@@ -2,33 +2,23 @@ import { NextResponse } from "next/server";
 
 import { categoryTrends, countryRankings } from "@/lib/stats/dashboard";
 import { monthlyTrends, weeklyTrends } from "@/lib/stats/trends";
+import {
+  normalizeCategoryTrendPoint,
+  normalizeCountryRanking,
+  normalizeTrendPoint,
+} from "@/lib/stats/utils";
 
 export async function GET() {
   const verificationTrends = {
-    weekly: weeklyTrends.map((point) => ({
-      ...point,
-      total: point.owner + point.community + point.directory + point.unverified,
-    })),
-    monthly: monthlyTrends.map((point) => ({
-      ...point,
-      total: point.owner + point.community + point.directory + point.unverified,
-    })),
+    weekly: weeklyTrends.map(normalizeTrendPoint),
+    monthly: monthlyTrends.map(normalizeTrendPoint),
   };
 
-  const countries = countryRankings.map((country) => ({
-    ...country,
-    total: country.owner + country.community + country.directory + country.unverified,
-  }));
+  const countries = countryRankings.map(normalizeCountryRanking);
 
   const categoryTrendsWithTotals = {
-    weekly: categoryTrends.weekly.map((point) => ({
-      ...point,
-      total: point.owner + point.community + point.directory + point.unverified,
-    })),
-    monthly: categoryTrends.monthly.map((point) => ({
-      ...point,
-      total: point.owner + point.community + point.directory + point.unverified,
-    })),
+    weekly: categoryTrends.weekly.map(normalizeCategoryTrendPoint),
+    monthly: categoryTrends.monthly.map(normalizeCategoryTrendPoint),
   };
 
   return NextResponse.json({
