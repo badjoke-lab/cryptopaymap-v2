@@ -1,6 +1,53 @@
+import type { VerificationKey, VerificationTotals } from "@/lib/types/stats";
 import type { CategoryTrendPoint, CountryRanking } from "./dashboard";
 
+export const VERIFICATION_KEYS: VerificationKey[] = [
+  "total",
+  "owner",
+  "community",
+  "directory",
+  "unverified",
+];
+
 export type CountrySortKey = "total" | "owner" | "community";
+
+export function normalizeVerificationTotals(values: Partial<Record<VerificationKey, number>>): VerificationTotals {
+  const owner = values.owner ?? 0;
+  const community = values.community ?? 0;
+  const directory = values.directory ?? 0;
+  const unverified = values.unverified ?? 0;
+  const total = values.total ?? owner + community + directory + unverified;
+
+  return { total, owner, community, directory, unverified };
+}
+
+export function normalizeTrendPoint<T extends { label: string }>(
+  point: T & Partial<Record<VerificationKey, number>>,
+): T & VerificationTotals {
+  return {
+    ...point,
+    ...normalizeVerificationTotals(point),
+  };
+}
+
+export function normalizeCountryRanking(
+  country: { country: string } & Partial<Record<VerificationKey, number>>,
+): CountryRanking {
+  return {
+    country: country.country,
+    ...normalizeVerificationTotals(country),
+  };
+}
+
+export function normalizeCategoryTrendPoint(
+  trend: { period: string; category: string } & Partial<Record<VerificationKey, number>>,
+): CategoryTrendPoint {
+  return {
+    period: trend.period,
+    category: trend.category,
+    ...normalizeVerificationTotals(trend),
+  };
+}
 
 export function sortCountries(
   countries: CountryRanking[],
