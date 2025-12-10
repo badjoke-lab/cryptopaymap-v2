@@ -47,9 +47,15 @@ const VERIFICATION_SERIES: { key: VerificationKey; label: string }[] = [
   { key: 'unverified', label: 'Unverified listings' },
 ];
 
+const MAX_AXIS_LABELS = 8;
+
+function getLabelStep(labels: string[]) {
+  return Math.max(1, Math.ceil(labels.length / MAX_AXIS_LABELS));
+}
+
 function Legend({ series }: { series: ChartSeries[] }) {
   return (
-    <div className="mt-4 flex flex-wrap gap-4 text-sm text-gray-700">
+    <div className="stats-legend mt-4 flex w-full flex-wrap gap-x-4 gap-y-2 text-sm leading-snug text-gray-700">
       {series.map((item) => (
         <div key={item.label} className="flex items-center gap-2">
           <span className="h-3 w-3 rounded-sm" style={{ backgroundColor: item.color }} />
@@ -64,6 +70,7 @@ function LineChart({ labels, series }: { labels: string[]; series: ChartSeries[]
   const width = 520;
   const height = 260;
   const padding = 32;
+  const labelStep = getLabelStep(labels);
 
   const maxValue = Math.max(...series.flatMap((item) => item.values), 1);
   const yScale = (value: number) => height - padding - (value / maxValue) * (height - padding * 2);
@@ -73,8 +80,8 @@ function LineChart({ labels, series }: { labels: string[]; series: ChartSeries[]
   const tickValues = Array.from({ length: tickCount + 1 }, (_, index) => Math.round((maxValue / tickCount) * index));
 
   return (
-    <div className="rounded-md bg-gray-50 p-4">
-      <svg viewBox={`0 0 ${width} ${height}`} className="h-80 w-full">
+    <div className="stats-chart-shell rounded-md bg-gray-50 p-4 sm:p-5">
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-64 min-h-[16rem] w-full sm:h-72 lg:h-80">
         {tickValues.map((tick) => {
           const y = yScale(tick);
           return (
@@ -103,10 +110,17 @@ function LineChart({ labels, series }: { labels: string[]; series: ChartSeries[]
         ))}
 
         {labels.map((label, index) => {
+          if (index % labelStep !== 0) return null;
           const x = xScale(index);
           const y = height - padding + 16;
           return (
-            <text key={label + index} x={x} y={y} className="fill-gray-500 text-[10px]" textAnchor="middle">
+            <text
+              key={label + index}
+              x={x}
+              y={y}
+              className="fill-gray-500 text-[9px] sm:text-[10px]"
+              textAnchor="middle"
+            >
               {label}
             </text>
           );
@@ -124,6 +138,7 @@ function BarChart({ labels, series }: { labels: string[]; series: ChartSeries[] 
   const padding = 32;
   const groupWidth = (width - padding * 2) / Math.max(labels.length, 1);
   const barWidth = groupWidth / (series.length + 1);
+  const labelStep = getLabelStep(labels);
 
   const maxValue = Math.max(...series.flatMap((item) => item.values), 1);
   const yScale = (value: number) => (value / maxValue) * (height - padding * 2);
@@ -132,8 +147,8 @@ function BarChart({ labels, series }: { labels: string[]; series: ChartSeries[] 
   const tickValues = Array.from({ length: tickCount + 1 }, (_, index) => Math.round((maxValue / tickCount) * index));
 
   return (
-    <div className="rounded-md bg-gray-50 p-4">
-      <svg viewBox={`0 0 ${width} ${height}`} className="h-80 w-full">
+    <div className="stats-chart-shell rounded-md bg-gray-50 p-4 sm:p-5">
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-64 min-h-[16rem] w-full sm:h-72 lg:h-80">
         {tickValues.map((tick) => {
           const y = height - padding - yScale(tick);
           return (
@@ -171,9 +186,16 @@ function BarChart({ labels, series }: { labels: string[]; series: ChartSeries[] 
                   />
                 );
               })}
-              <text x={baseX + groupWidth / 2} y={labelY} className="fill-gray-500 text-[10px]" textAnchor="middle">
-                {label}
-              </text>
+              {labelIndex % labelStep === 0 ? (
+                <text
+                  x={baseX + groupWidth / 2}
+                  y={labelY}
+                  className="fill-gray-500 text-[9px] sm:text-[10px]"
+                  textAnchor="middle"
+                >
+                  {label}
+                </text>
+              ) : null}
             </g>
           );
         })}
@@ -184,14 +206,26 @@ function BarChart({ labels, series }: { labels: string[]; series: ChartSeries[] 
   );
 }
 
-function Card({ title, eyebrow, description, children }: { title: string; eyebrow: string; description: string; children: ReactNode }) {
+function Card({
+  title,
+  eyebrow,
+  description,
+  children,
+  className,
+}: {
+  title: string;
+  eyebrow: string;
+  description: string;
+  children: ReactNode;
+  className?: string;
+}) {
   return (
-    <div className="rounded-lg bg-white p-5 shadow-sm ring-1 ring-gray-200">
+    <div className={`stats-card rounded-lg bg-white p-5 shadow-sm ring-1 ring-gray-200 sm:p-6 ${className ?? ''}`}>
       <div className="mb-4 flex items-start justify-between gap-4">
-        <div>
+        <div className="space-y-1">
           <p className="text-sm font-medium text-sky-700">{eyebrow}</p>
-          <h2 className="text-xl font-semibold">{title}</h2>
-          <p className="text-sm text-gray-600">{description}</p>
+          <h2 className="text-xl font-semibold leading-snug sm:text-[22px]">{title}</h2>
+          <p className="text-sm leading-relaxed text-gray-600 sm:max-w-2xl">{description}</p>
         </div>
       </div>
       {children}
@@ -295,32 +329,36 @@ export default function StatsPage() {
 
   if (state.loading) {
     return (
-      <main className="flex min-h-screen flex-col gap-8 bg-gray-50 px-6 py-8 text-gray-900">
-        <header className="max-w-5xl">
-          <p className="text-sm uppercase tracking-wide text-sky-700">Stats</p>
-          <h1 className="mt-2 text-3xl font-semibold">Marketplace dashboard</h1>
-          <p className="mt-2 text-gray-600">
-            Country rankings and category momentum for the CryptoPayMap community. Data below is seeded for
-            development and visualization purposes.
-          </p>
-        </header>
-        <p className="text-gray-700">Loading stats…</p>
+      <main className="stats-page flex min-h-screen flex-col gap-8 bg-gray-50 px-4 py-8 text-gray-900 sm:px-6 lg:px-10">
+        <div className="mx-auto flex w-full max-w-6xl flex-col gap-8">
+          <header className="max-w-4xl space-y-2">
+            <p className="text-sm uppercase tracking-wide text-sky-700">Stats</p>
+            <h1 className="text-3xl font-semibold leading-tight">Marketplace dashboard</h1>
+            <p className="text-sm leading-relaxed text-gray-600 sm:text-base">
+              Country rankings and category momentum for the CryptoPayMap community. Data below is seeded for development
+              and visualization purposes.
+            </p>
+          </header>
+          <p className="text-gray-700">Loading stats…</p>
+        </div>
       </main>
     );
   }
 
   if (state.error) {
     return (
-      <main className="flex min-h-screen flex-col gap-8 bg-gray-50 px-6 py-8 text-gray-900">
-        <header className="max-w-5xl">
-          <p className="text-sm uppercase tracking-wide text-sky-700">Stats</p>
-          <h1 className="mt-2 text-3xl font-semibold">Marketplace dashboard</h1>
-          <p className="mt-2 text-gray-600">
-            Country rankings and category momentum for the CryptoPayMap community. Data below is seeded for
-            development and visualization purposes.
-          </p>
-        </header>
-        <p className="rounded-md bg-red-50 px-4 py-3 text-red-700">Failed to load data: {state.error}</p>
+      <main className="stats-page flex min-h-screen flex-col gap-8 bg-gray-50 px-4 py-8 text-gray-900 sm:px-6 lg:px-10">
+        <div className="mx-auto flex w-full max-w-6xl flex-col gap-8">
+          <header className="max-w-4xl space-y-2">
+            <p className="text-sm uppercase tracking-wide text-sky-700">Stats</p>
+            <h1 className="text-3xl font-semibold leading-tight">Marketplace dashboard</h1>
+            <p className="text-sm leading-relaxed text-gray-600 sm:text-base">
+              Country rankings and category momentum for the CryptoPayMap community. Data below is seeded for development
+              and visualization purposes.
+            </p>
+          </header>
+          <p className="rounded-md bg-red-50 px-4 py-3 text-red-700">Failed to load data: {state.error}</p>
+        </div>
       </main>
     );
   }
@@ -330,147 +368,148 @@ export default function StatsPage() {
   }
 
   return (
-    <main className="flex min-h-screen flex-col gap-8 bg-gray-50 px-6 py-8 text-gray-900">
-      <header className="max-w-5xl">
-        <p className="text-sm uppercase tracking-wide text-sky-700">Stats</p>
-        <h1 className="mt-2 text-3xl font-semibold">Marketplace dashboard</h1>
-        <p className="mt-2 text-gray-600">
-          Country rankings and category momentum for the CryptoPayMap community. Data below is seeded for development and
-          visualization purposes.
-        </p>
-      </header>
+    <main className="stats-page flex min-h-screen flex-col bg-gray-50 px-4 py-8 text-gray-900 sm:px-6 lg:px-10">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-8">
+        <header className="max-w-4xl space-y-2">
+          <p className="text-sm uppercase tracking-wide text-sky-700">Stats</p>
+          <h1 className="text-3xl font-semibold leading-tight">Marketplace dashboard</h1>
+          <p className="text-sm leading-relaxed text-gray-600 sm:text-base">
+            Country rankings and category momentum for the CryptoPayMap community. Data below is seeded for development
+            and visualization purposes.
+          </p>
+        </header>
 
-      {weeklySeries && monthlySeries && (
-        <section className="grid gap-6 md:grid-cols-2">
-          <Card
-            eyebrow="Weekly"
-            title="Verification trend"
-            description="Owner, community, directory, and unverified places by week."
-          >
-            <LineChart
-              labels={data.verificationTrends.weekly.map((entry) => formatPeriodLabel(entry.label))}
-              series={weeklySeries}
-            />
-          </Card>
-
-          <Card
-            eyebrow="Monthly"
-            title="Verification trend"
-            description="Aggregated monthly progress across all verification types."
-          >
-            <BarChart
-              labels={data.verificationTrends.monthly.map((entry) => formatPeriodLabel(entry.label))}
-              series={monthlySeries}
-            />
-          </Card>
-        </section>
-      )}
-
-      {
-        <section className="grid gap-6 lg:grid-cols-3">
-          <div className="lg:col-span-2">
+        {weeklySeries && monthlySeries && (
+          <section className="grid gap-6 md:grid-cols-2">
             <Card
-              eyebrow="Leaderboard"
-              title="Country rankings"
-              description="Top countries by verification mix across total, owner, community, directory, and unverified listings."
+              eyebrow="Weekly"
+              title="Verification trend"
+              description="Owner, community, directory, and unverified places by week."
             >
-              <div className="mb-4 flex flex-wrap gap-4">
-                <label className="flex items-center gap-2 text-sm text-gray-700">
-                  Sort by
-                  <select
-                    className="rounded-md border border-gray-300 bg-white px-2 py-1 text-sm"
-                    value={countrySort}
-                    onChange={(event) => setCountrySort(event.target.value as CountrySortKey)}
-                  >
-                    <option value="total">Total</option>
-                    <option value="owner">Owner</option>
-                    <option value="community">Community</option>
-                  </select>
-                </label>
-                <label className="flex items-center gap-2 text-sm text-gray-700">
-                  Show top
-                  <select
-                    className="rounded-md border border-gray-300 bg-white px-2 py-1 text-sm"
-                    value={countryLimit}
-                    onChange={(event) => setCountryLimit(Number(event.target.value))}
-                  >
-                    <option value={4}>4</option>
-                    <option value={6}>6</option>
-                    <option value={8}>8</option>
-                  </select>
-                </label>
-              </div>
-
-              <BarChart labels={sortedCountries.map((item) => item.country)} series={countrySeries} />
+              <LineChart
+                labels={data.verificationTrends.weekly.map((entry) => formatPeriodLabel(entry.label))}
+                series={weeklySeries}
+              />
             </Card>
-          </div>
 
-          <div className="lg:col-span-1">
-            <div className="rounded-lg bg-white p-5 shadow-sm ring-1 ring-gray-200">
-              <p className="text-sm font-medium text-sky-700">Highlights</p>
-              <h2 className="text-xl font-semibold">Current leaderboard</h2>
-              <p className="text-sm text-gray-600">Sorted by total verified listings.</p>
-              <ol className="mt-4 space-y-3 text-sm text-gray-800">
-                {sortCountries(data.countries).map((entry, index) => (
-                  <li key={entry.country} className="flex items-center justify-between rounded-md bg-gray-50 px-3 py-2">
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs font-semibold text-gray-500">#{index + 1}</span>
-                      <span className="font-medium">{entry.country}</span>
-                    </div>
-                    <span className="text-right text-gray-600">
-                      {entry.total} total · {entry.owner} owner · {entry.community} community · {entry.directory} directory ·
-                      {entry.unverified} unverified
-                    </span>
-                  </li>
-                ))}
-              </ol>
-            </div>
-          </div>
-        </section>
-      }
+            <Card
+              eyebrow="Monthly"
+              title="Verification trend"
+              description="Aggregated monthly progress across all verification types."
+            >
+              <BarChart
+                labels={data.verificationTrends.monthly.map((entry) => formatPeriodLabel(entry.label))}
+                series={monthlySeries}
+              />
+            </Card>
+          </section>
+        )}
 
-      {weeklyCategorySeries && monthlyCategorySeries && (
         <section className="grid gap-6 md:grid-cols-2">
           <Card
-            eyebrow="Category focus"
-            title="Weekly category trend"
-            description="Compare how each category is growing week over week."
+            eyebrow="Leaderboard"
+            title="Country rankings"
+            description="Top countries by verification mix across total, owner, community, directory, and unverified listings."
           >
-            <div className="mb-4">
+            <div className="mb-4 flex flex-wrap gap-4">
               <label className="flex items-center gap-2 text-sm text-gray-700">
-                Select category
+                Sort by
                 <select
                   className="rounded-md border border-gray-300 bg-white px-2 py-1 text-sm"
-                  value={selectedCategory}
-                  onChange={(event) => setSelectedCategory(event.target.value)}
+                  value={countrySort}
+                  onChange={(event) => setCountrySort(event.target.value as CountrySortKey)}
                 >
-                  {categoryNames.map((name) => (
-                    <option key={name} value={name}>
-                      {name}
-                    </option>
-                  ))}
+                  <option value="total">Total</option>
+                  <option value="owner">Owner</option>
+                  <option value="community">Community</option>
+                </select>
+              </label>
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                Show top
+                <select
+                  className="rounded-md border border-gray-300 bg-white px-2 py-1 text-sm"
+                  value={countryLimit}
+                  onChange={(event) => setCountryLimit(Number(event.target.value))}
+                >
+                  <option value={4}>4</option>
+                  <option value={6}>6</option>
+                  <option value={8}>8</option>
                 </select>
               </label>
             </div>
 
-            <LineChart
-              labels={weeklyCategory.map((entry) => formatPeriodLabel(entry.period))}
-              series={weeklyCategorySeries}
-            />
+            <BarChart labels={sortedCountries.map((item) => item.country)} series={countrySeries} />
           </Card>
 
           <Card
-            eyebrow="Category focus"
-            title="Monthly category trend"
-            description="Verification mix across total, owner, community, directory, and unverified listings for the chosen category."
+            eyebrow="Highlights"
+            title="Current leaderboard"
+            description="Sorted by total verified listings."
+            className="h-full"
           >
-            <BarChart
-              labels={monthlyCategory.map((entry) => formatPeriodLabel(entry.period))}
-              series={monthlyCategorySeries}
-            />
+            <ol className="mt-2 space-y-3 text-sm text-gray-800">
+              {sortCountries(data.countries).map((entry, index) => (
+                <li
+                  key={entry.country}
+                  className="flex flex-col gap-2 rounded-md bg-gray-50 px-3 py-2 sm:flex-row sm:items-start sm:justify-between"
+                >
+                  <div className="flex items-center gap-3 text-left">
+                    <span className="text-xs font-semibold text-gray-500">#{index + 1}</span>
+                    <span className="font-medium">{entry.country}</span>
+                  </div>
+                  <span className="text-left text-gray-600 sm:text-right">
+                    {entry.total} total · {entry.owner} owner · {entry.community} community · {entry.directory} directory ·{' '}
+                    {entry.unverified} unverified
+                  </span>
+                </li>
+              ))}
+            </ol>
           </Card>
+
+          {weeklyCategorySeries && monthlyCategorySeries && (
+            <Card
+              eyebrow="Category focus"
+              title="Weekly category trend"
+              description="Compare how each category is growing week over week."
+            >
+              <div className="mb-4">
+                <label className="flex items-center gap-2 text-sm text-gray-700">
+                  Select category
+                  <select
+                    className="rounded-md border border-gray-300 bg-white px-2 py-1 text-sm"
+                    value={selectedCategory}
+                    onChange={(event) => setSelectedCategory(event.target.value)}
+                  >
+                    {categoryNames.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <LineChart
+                labels={weeklyCategory.map((entry) => formatPeriodLabel(entry.period))}
+                series={weeklyCategorySeries}
+              />
+            </Card>
+          )}
+
+          {weeklyCategorySeries && monthlyCategorySeries && (
+            <Card
+              eyebrow="Category focus"
+              title="Monthly category trend"
+              description="Verification mix across total, owner, community, directory, and unverified listings for the chosen category."
+            >
+              <BarChart
+                labels={monthlyCategory.map((entry) => formatPeriodLabel(entry.period))}
+                series={monthlyCategorySeries}
+              />
+            </Card>
+          )}
         </section>
-      )}
+      </div>
     </main>
   );
 }
