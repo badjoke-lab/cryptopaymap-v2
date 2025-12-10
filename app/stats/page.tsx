@@ -224,22 +224,24 @@ export default function StatsPage() {
   }, []);
 
   const weeklySeries = useMemo(() => {
-    if (!state.data) return null;
+    const data = state.data;
+    if (!data) return [] as ChartSeries[];
 
     return verificationSeries.map((series) => ({
       label: series.label,
       color: chartColors[series.key],
-      values: state.data.verificationTrends.weekly.map((entry) => entry[series.key]),
+      values: data.verificationTrends.weekly.map((entry) => entry[series.key]),
     }));
   }, [state.data]);
 
   const monthlySeries = useMemo(() => {
-    if (!state.data) return null;
+    const data = state.data;
+    if (!data) return [] as ChartSeries[];
 
     return verificationSeries.map((series) => ({
       label: series.label,
       color: chartColors[series.key],
-      values: state.data.verificationTrends.monthly.map((entry) => entry[series.key]),
+      values: data.verificationTrends.monthly.map((entry) => entry[series.key]),
     }));
   }, [state.data]);
 
@@ -271,7 +273,7 @@ export default function StatsPage() {
   }, [selectedCategory, state.data]);
 
   const weeklyCategorySeries = useMemo(() => {
-    if (!weeklyCategory.length) return null;
+    if (!weeklyCategory.length) return [] as ChartSeries[];
 
     return verificationSeries.map((series) => ({
       label: series.label,
@@ -281,7 +283,7 @@ export default function StatsPage() {
   }, [weeklyCategory]);
 
   const monthlyCategorySeries = useMemo(() => {
-    if (!monthlyCategory.length) return null;
+    if (!monthlyCategory.length) return [] as ChartSeries[];
 
     return verificationSeries.map((series) => ({
       label: series.label,
