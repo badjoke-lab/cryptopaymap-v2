@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
-import { categoryTrends, countryRankings } from "@/lib/stats/dashboard";
+import { places } from "@/lib/data/places";
+import { categoryTrends } from "@/lib/stats/dashboard";
+import { computeDashboardStats } from "@/lib/stats/aggregate";
 import { monthlyTrends, weeklyTrends } from "@/lib/stats/trends";
 import {
   normalizeCategoryTrendPoint,
@@ -14,7 +16,8 @@ export async function GET() {
     monthly: monthlyTrends.map(normalizeTrendPoint),
   };
 
-  const countries = countryRankings.map(normalizeCountryRanking);
+  const { byCountry, byCategory, byChain, kpi } = computeDashboardStats(places);
+  const countries = byCountry.map(normalizeCountryRanking);
 
   const categoryTrendsWithTotals = {
     weekly: categoryTrends.weekly.map(normalizeCategoryTrendPoint),
@@ -25,5 +28,9 @@ export async function GET() {
     verificationTrends,
     countries,
     categoryTrends: categoryTrendsWithTotals,
+    byCountry,
+    byCategory,
+    byChain,
+    kpi,
   });
 }
