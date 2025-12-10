@@ -30,7 +30,15 @@ type ChartSeries = {
   values: number[];
 };
 
-const chartColors = {
+const verificationSeries = [
+  { key: 'total', label: 'Total places' },
+  { key: 'owner', label: 'Owner verified' },
+  { key: 'community', label: 'Community verified' },
+  { key: 'directory', label: 'Directory verified' },
+  { key: 'unverified', label: 'Unverified listings' },
+] as const;
+
+const chartColors: Record<(typeof verificationSeries)[number]['key'], string> = {
   owner: '#0ea5e9',
   community: '#f97316',
   directory: '#8b5cf6',
@@ -216,57 +224,25 @@ export default function StatsPage() {
   }, []);
 
   const weeklySeries = useMemo(() => {
-    if (!state.data) return null;
+    const data = state.data;
+    if (!data) return [] as ChartSeries[];
 
-    return [
-      {
-        label: 'Owner verified',
-        color: chartColors.owner,
-        values: state.data.verificationTrends.weekly.map((entry) => entry.owner),
-      },
-      {
-        label: 'Community verified',
-        color: chartColors.community,
-        values: state.data.verificationTrends.weekly.map((entry) => entry.community),
-      },
-      {
-        label: 'Directory verified',
-        color: chartColors.directory,
-        values: state.data.verificationTrends.weekly.map((entry) => entry.directory),
-      },
-      {
-        label: 'Unverified listings',
-        color: chartColors.unverified,
-        values: state.data.verificationTrends.weekly.map((entry) => entry.unverified),
-      },
-    ];
+    return verificationSeries.map((series) => ({
+      label: series.label,
+      color: chartColors[series.key],
+      values: data.verificationTrends.weekly.map((entry) => entry[series.key]),
+    }));
   }, [state.data]);
 
   const monthlySeries = useMemo(() => {
-    if (!state.data) return null;
+    const data = state.data;
+    if (!data) return [] as ChartSeries[];
 
-    return [
-      {
-        label: 'Owner verified',
-        color: chartColors.owner,
-        values: state.data.verificationTrends.monthly.map((entry) => entry.owner),
-      },
-      {
-        label: 'Community verified',
-        color: chartColors.community,
-        values: state.data.verificationTrends.monthly.map((entry) => entry.community),
-      },
-      {
-        label: 'Directory verified',
-        color: chartColors.directory,
-        values: state.data.verificationTrends.monthly.map((entry) => entry.directory),
-      },
-      {
-        label: 'Unverified listings',
-        color: chartColors.unverified,
-        values: state.data.verificationTrends.monthly.map((entry) => entry.unverified),
-      },
-    ];
+    return verificationSeries.map((series) => ({
+      label: series.label,
+      color: chartColors[series.key],
+      values: data.verificationTrends.monthly.map((entry) => entry[series.key]),
+    }));
   }, [state.data]);
 
   const sortedCountries = useMemo(
@@ -275,10 +251,12 @@ export default function StatsPage() {
   );
 
   const countrySeries = useMemo<ChartSeries[]>(
-    () => [
-      { label: 'Owner verified', color: chartColors.owner, values: sortedCountries.map((country) => country.owner) },
-      { label: 'Community verified', color: chartColors.community, values: sortedCountries.map((country) => country.community) },
-    ],
+    () =>
+      verificationSeries.map((series) => ({
+        label: series.label,
+        color: chartColors[series.key],
+        values: sortedCountries.map((country) => country[series.key]),
+      })),
     [sortedCountries],
   );
 
@@ -295,31 +273,23 @@ export default function StatsPage() {
   }, [selectedCategory, state.data]);
 
   const weeklyCategorySeries = useMemo(() => {
-    if (!weeklyCategory.length) return null;
+    if (!weeklyCategory.length) return [] as ChartSeries[];
 
-    return [
-      { label: 'Owner verified', color: chartColors.owner, values: weeklyCategory.map((entry) => entry.owner) },
-      {
-        label: 'Community verified',
-        color: chartColors.community,
-        values: weeklyCategory.map((entry) => entry.community),
-      },
-      { label: 'Total places', color: chartColors.total, values: weeklyCategory.map((entry) => entry.total) },
-    ];
+    return verificationSeries.map((series) => ({
+      label: series.label,
+      color: chartColors[series.key],
+      values: weeklyCategory.map((entry) => entry[series.key]),
+    }));
   }, [weeklyCategory]);
 
   const monthlyCategorySeries = useMemo(() => {
-    if (!monthlyCategory.length) return null;
+    if (!monthlyCategory.length) return [] as ChartSeries[];
 
-    return [
-      { label: 'Owner verified', color: chartColors.owner, values: monthlyCategory.map((entry) => entry.owner) },
-      {
-        label: 'Community verified',
-        color: chartColors.community,
-        values: monthlyCategory.map((entry) => entry.community),
-      },
-      { label: 'Total places', color: chartColors.total, values: monthlyCategory.map((entry) => entry.total) },
-    ];
+    return verificationSeries.map((series) => ({
+      label: series.label,
+      color: chartColors[series.key],
+      values: monthlyCategory.map((entry) => entry[series.key]),
+    }));
   }, [monthlyCategory]);
 
   return (
@@ -346,7 +316,7 @@ export default function StatsPage() {
             description="Owner, community, directory, and unverified places by week."
           >
             <LineChart
-              labels={state.data.verificationTrends.weekly.map((entry) => formatPeriodLabel(entry.date))}
+              labels={state.data.verificationTrends.weekly.map((entry) => formatPeriodLabel(entry.label))}
               series={weeklySeries}
             />
           </Card>
@@ -357,7 +327,7 @@ export default function StatsPage() {
             description="Aggregated monthly progress across all verification types."
           >
             <BarChart
-              labels={state.data.verificationTrends.monthly.map((entry) => formatPeriodLabel(entry.month))}
+              labels={state.data.verificationTrends.monthly.map((entry) => formatPeriodLabel(entry.label))}
               series={monthlySeries}
             />
           </Card>
@@ -370,7 +340,7 @@ export default function StatsPage() {
             <Card
               eyebrow="Leaderboard"
               title="Country rankings"
-              description="Top countries by number of owner and community verified listings."
+              description="Top countries by verification mix across total, owner, community, directory, and unverified listings."
             >
               <div className="mb-4 flex flex-wrap gap-4">
                 <label className="flex items-center gap-2 text-sm text-gray-700">
@@ -415,7 +385,10 @@ export default function StatsPage() {
                       <span className="text-xs font-semibold text-gray-500">#{index + 1}</span>
                       <span className="font-medium">{entry.country}</span>
                     </div>
-                    <span className="text-gray-600">{entry.total} places</span>
+                    <span className="text-right text-gray-600">
+                      {entry.total} total · {entry.owner} owner · {entry.community} community · {entry.directory} directory ·
+                      {entry.unverified} unverified
+                    </span>
                   </li>
                 ))}
               </ol>
@@ -457,7 +430,7 @@ export default function StatsPage() {
           <Card
             eyebrow="Category focus"
             title="Monthly category trend"
-            description="Owner and community verified totals for the chosen category."
+            description="Verification mix across total, owner, community, directory, and unverified listings for the chosen category."
           >
             <BarChart
               labels={monthlyCategory.map((entry) => formatPeriodLabel(entry.period))}
