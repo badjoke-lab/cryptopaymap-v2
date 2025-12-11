@@ -16,6 +16,7 @@ import {
 import Drawer from "./Drawer";
 import MobileBottomSheet from "./MobileBottomSheet";
 import type { Place } from "../../types/places";
+import { safeFetch } from "@/lib/safeFetch";
 
 const HEADER_HEIGHT = 0;
 
@@ -42,8 +43,12 @@ export default function MapClient() {
   const markerLayerRef = useRef<import("leaflet").LayerGroup | null>(null);
   const renderFrameRef = useRef<number | null>(null);
   const clusterIndexRef = useRef<SuperclusterIndex | null>(null);
+  const fetchPlacesRef = useRef<() => Promise<void>>();
+  const leafletRef = useRef<typeof import("leaflet") | null>(null);
   const markersRef = useRef<Map<string, import("leaflet").Marker>>(new Map());
   const [places, setPlaces] = useState<Place[]>([]);
+  const [isFetchingPlaces, setIsFetchingPlaces] = useState(true);
+  const [placesError, setPlacesError] = useState<string | null>(null);
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<"full" | null>(null);
@@ -51,18 +56,16 @@ export default function MapClient() {
   const bottomSheetRef = useRef<HTMLDivElement | null>(null);
   const [isMobile, setIsMobile] = useState(false);
 
-  const openDrawerForPlace = useCallback(
-    (placeId: string) => {
-      if (selectedPlaceId === placeId) {
-        return;
+  const openDrawerForPlace = useCallback((placeId: string) => {
+    setSelectedPlaceId((prev) => {
+      if (prev === placeId) {
+        return prev;
       }
-
-      setSelectedPlaceId(placeId);
-      setDrawerOpen(true);
-      setDrawerMode("full");
-    },
-    [selectedPlaceId],
-  );
+      return placeId;
+    });
+    setDrawerOpen(true);
+    setDrawerMode("full");
+  }, []);
 
   const closeDrawer = useCallback(() => {
     setSelectedPlaceId(null);
@@ -87,8 +90,95 @@ export default function MapClient() {
       }
     };
 
+    const renderClusters = (clusters: ClusterResult[]) => {
+      const L = leafletRef.current;
+      const map = mapInstanceRef.current;
+
+      if (!markerLayerRef.current || !L || !map) return;
+
+      stopRenderFrame();
+      markerLayerRef.current.clearLayers();
+
+      markersRef.current.clear();
+
+      const tasks = clusters.map((clusterItem) => () => {
+        if (!markerLayerRef.current || !map) return;
+
+        if (clusterItem.type === "cluster") {
+          const [lng, lat] = clusterItem.coordinates;
+          const clusterIcon = L.divIcon({
+            html: `<div class="cluster-marker__inner">${clusterItem.pointCount}</div>`,
+            className: "cluster-marker",
+            iconSize: [44, 44],
+            iconAnchor: [22, 22],
+          });
+
+          const marker = L.marker([lat, lng], { icon: clusterIcon });
+          marker.on("click", () => {
+            const expansionZoom = clusterIndexRef.current?.getClusterExpansionZoom(
+              clusterItem.id,
+            );
+            if (expansionZoom !== undefined) {
+              map.flyTo([lat, lng], expansionZoom, { animate: true });
+            }
+          });
+
+          markerLayerRef.current?.addLayer(marker);
+          return;
+        }
+
+        const [lng, lat] = clusterItem.coordinates;
+        const icon = L.divIcon({
+          html: `<div class="cpm-pin cpm-pin-${clusterItem.verification}">${PIN_SVGS[clusterItem.verification]}</div>`,
+          className: "",
+          iconSize: [32, 32],
+          iconAnchor: [16, 32],
+        });
+        const marker = L.marker([lat, lng], { icon });
+        marker.on("click", (event: import("leaflet").LeafletMouseEvent) => {
+          event.originalEvent.stopPropagation();
+          openDrawerForPlace(clusterItem.id);
+        });
+        markerLayerRef.current.addLayer(marker);
+        markersRef.current.set(clusterItem.id, marker);
+      });
+
+      const processChunk = () => {
+        const start = performance.now();
+        while (tasks.length && performance.now() - start < 12) {
+          const task = tasks.shift();
+          task?.();
+        }
+
+        if (tasks.length) {
+          renderFrameRef.current = requestAnimationFrame(processChunk);
+        } else {
+          renderFrameRef.current = null;
+        }
+      };
+
+      processChunk();
+    };
+
+    const updateVisibleMarkers = () => {
+      const map = mapInstanceRef.current;
+      if (!markerLayerRef.current || !clusterIndexRef.current || !map) return;
+      const bounds = map.getBounds();
+      const bbox: [number, number, number, number] = [
+        bounds.getWest(),
+        bounds.getSouth(),
+        bounds.getEast(),
+        bounds.getNorth(),
+      ];
+
+      const zoom = map.getZoom();
+      const clusters = clusterIndexRef.current.getClusters(bbox, zoom);
+      renderClusters(clusters);
+    };
+
     const initializeMap = async () => {
       const L = await import("leaflet");
+      leafletRef.current = L;
 
       if (!isMounted || !mapContainerRef.current || mapInstanceRef.current) return;
 
@@ -115,90 +205,11 @@ export default function MapClient() {
       markerLayer.addTo(map);
       markerLayerRef.current = markerLayer;
 
-      const renderClusters = (clusters: ClusterResult[]) => {
-        if (!markerLayerRef.current) return;
-
-        stopRenderFrame();
-        markerLayerRef.current.clearLayers();
-
-        markersRef.current.clear();
-
-        const tasks = clusters.map((clusterItem) => () => {
-          if (!markerLayerRef.current) return;
-
-          if (clusterItem.type === "cluster") {
-            const [lng, lat] = clusterItem.coordinates;
-            const clusterIcon = L.divIcon({
-              html: `<div class="cluster-marker__inner">${clusterItem.pointCount}</div>`,
-              className: "cluster-marker",
-              iconSize: [44, 44],
-              iconAnchor: [22, 22],
-            });
-
-            const marker = L.marker([lat, lng], { icon: clusterIcon });
-            marker.on("click", () => {
-              const expansionZoom = clusterIndexRef.current?.getClusterExpansionZoom(
-                clusterItem.id,
-              );
-              if (expansionZoom !== undefined) {
-                map.flyTo([lat, lng], expansionZoom, { animate: true });
-              }
-            });
-
-            markerLayerRef.current?.addLayer(marker);
-            return;
-          }
-
-          const [lng, lat] = clusterItem.coordinates;
-          const icon = createPinIcon(clusterItem.verification);
-          const marker = L.marker([lat, lng], { icon });
-          marker.on("click", (event: import("leaflet").LeafletMouseEvent) => {
-            event.originalEvent.stopPropagation();
-            openDrawerForPlace(clusterItem.id);
-          });
-          markerLayerRef.current.addLayer(marker);
-          markersRef.current.set(clusterItem.id, marker);
-        });
-
-        const processChunk = () => {
-          const start = performance.now();
-          while (tasks.length && performance.now() - start < 12) {
-            const task = tasks.shift();
-            task?.();
-          }
-
-          if (tasks.length) {
-            renderFrameRef.current = requestAnimationFrame(processChunk);
-          } else {
-            renderFrameRef.current = null;
-          }
-        };
-
-        processChunk();
-      };
-
-      const updateVisibleMarkers = () => {
-        if (!markerLayerRef.current || !clusterIndexRef.current) return;
-        const bounds = map.getBounds();
-        const bbox: [number, number, number, number] = [
-          bounds.getWest(),
-          bounds.getSouth(),
-          bounds.getEast(),
-          bounds.getNorth(),
-        ];
-
-        const zoom = map.getZoom();
-        const clusters = clusterIndexRef.current.getClusters(bbox, zoom);
-        renderClusters(clusters);
-      };
-
       const fetchPlacesAndBuildIndex = async () => {
+        setIsFetchingPlaces(true);
+        setPlacesError(null);
         try {
-          const response = await fetch("/api/places");
-          if (!response.ok) {
-            throw new Error(`Failed to fetch places: ${response.statusText}`);
-          }
-          const fetchedPlaces: Place[] = await response.json();
+          const fetchedPlaces = await safeFetch<Place[]>("/api/places");
           if (!isMounted) return;
           setPlaces(fetchedPlaces);
           const pins = fetchedPlaces.map(placeToPin);
@@ -206,12 +217,16 @@ export default function MapClient() {
           updateVisibleMarkers();
         } catch (error) {
           console.error(error);
+          if (!isMounted) return;
+          setPlacesError("Failed to load places. Please try again.\nスポット情報の取得に失敗しました。再読み込みしてください。");
         }
+        if (isMounted) setIsFetchingPlaces(false);
       };
 
       map.on("moveend zoomend", updateVisibleMarkers);
       mapInstanceRef.current = map;
 
+      fetchPlacesRef.current = fetchPlacesAndBuildIndex;
       await fetchPlacesAndBuildIndex();
     };
 
@@ -226,7 +241,7 @@ export default function MapClient() {
         mapInstanceRef.current = null;
       }
     };
-  }, []);
+  }, [openDrawerForPlace]);
 
   const selectedPlace = useMemo(
     () =>
@@ -295,6 +310,32 @@ export default function MapClient() {
         ["--header-height" as string]: `${HEADER_HEIGHT}px`,
       }}
     >
+      {isFetchingPlaces && (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-gray-100/90 text-gray-700">
+          <div className="h-10 w-10 animate-spin rounded-full border-4 border-blue-200 border-t-blue-500" />
+          <p className="mt-3 text-sm font-medium">Loading map…</p>
+        </div>
+      )}
+      {placesError && (
+        <div className="absolute inset-x-0 top-4 z-30 mx-auto w-[min(90%,480px)] rounded-md border border-red-100 bg-white/95 p-4 shadow-lg backdrop-blur">
+          <p className="text-sm leading-relaxed text-red-700">
+            Failed to load places. Please try again.
+            <br />
+            スポット情報の取得に失敗しました。再読み込みしてください。
+          </p>
+          <button
+            type="button"
+            onClick={() => fetchPlacesRef.current?.()}
+            disabled={isFetchingPlaces}
+            className="mt-3 inline-flex items-center gap-2 rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-400"
+          >
+            {isFetchingPlaces && (
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/60 border-t-white" aria-hidden />
+            )}
+            Retry
+          </button>
+        </div>
+      )}
       <div
         id="map"
         ref={mapContainerRef}

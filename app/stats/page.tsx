@@ -1,12 +1,13 @@
 'use client';
 
-import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 
 import type { CategoryTrendPoint } from '@/lib/stats/dashboard';
 import type { CategoryStats, ChainStats, CountryStats, StatsKPI } from '@/lib/stats/aggregate';
 import type { MonthlyTrendPoint, WeeklyTrendPoint } from '@/lib/stats/trends';
 import type { VerificationKey } from '@/lib/types/stats';
 import { filterCategoryTrends, formatPeriodLabel, getCategoryNames } from '@/lib/stats/utils';
+import { safeFetch } from '@/lib/safeFetch';
 
 type StatsResponse = {
   verificationTrends: {
@@ -297,24 +298,22 @@ export default function StatsPage() {
   const [state, setState] = useState<FetchState>({ loading: true });
   const [selectedCategory, setSelectedCategory] = useState<string>('');
 
-  useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        const response = await fetch('/api/stats');
-        if (!response.ok) {
-          throw new Error('Unable to load stats');
-        }
-        const data = (await response.json()) as StatsResponse;
-        setState({ loading: false, data });
-        const categories = getCategoryNames(data.categoryTrends.weekly);
-        setSelectedCategory(categories[0] ?? '');
-      } catch (error) {
-        setState({ loading: false, error: (error as Error).message });
-      }
-    };
-
-    fetchStats();
+  const fetchStats = useCallback(async () => {
+    setState({ loading: true });
+    try {
+      const data = await safeFetch<StatsResponse>('/api/stats');
+      setState({ loading: false, data });
+      const categories = getCategoryNames(data.categoryTrends.weekly);
+      setSelectedCategory(categories[0] ?? '');
+    } catch (error) {
+      setState({ loading: false, error: (error as Error).message });
+      setSelectedCategory('');
+    }
   }, []);
+
+  useEffect(() => {
+    fetchStats();
+  }, [fetchStats]);
 
   const data = state.data;
 
@@ -373,15 +372,52 @@ export default function StatsPage() {
   if (state.loading) {
     return (
       <main className="stats-page flex min-h-screen flex-col gap-8 bg-gray-50 px-4 py-8 text-gray-900 sm:px-6 lg:px-10">
-        <div className="mx-auto flex w-full max-w-6xl flex-col gap-8">
-          <header className="max-w-4xl space-y-2">
-            <p className="text-sm uppercase tracking-wide text-sky-700">Stats</p>
-            <h1 className="text-3xl font-semibold leading-tight">Marketplace dashboard</h1>
-            <p className="text-sm leading-relaxed text-gray-600 sm:text-base">
-              Country rankings and category momentum for the CryptoPayMap community. Data below is seeded for development and visualization purposes.
-            </p>
+        <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 animate-pulse">
+          <header className="max-w-4xl space-y-3">
+            <div className="h-4 w-16 rounded bg-sky-100" />
+            <div className="h-8 w-64 rounded bg-gray-200" />
+            <div className="h-4 w-full max-w-2xl rounded bg-gray-200" />
+            <div className="h-4 w-full max-w-xl rounded bg-gray-200" />
           </header>
-          <p className="text-gray-700">Loading stats…</p>
+
+          <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {[...Array(4)].map((_, index) => (
+              <div key={index} className="rounded-lg bg-white p-4 shadow-sm">
+                <div className="h-4 w-24 rounded bg-gray-200" />
+                <div className="mt-3 h-7 w-32 rounded bg-gray-300" />
+                <div className="mt-2 h-3 w-20 rounded bg-gray-200" />
+              </div>
+            ))}
+          </section>
+
+          <section className="grid gap-6 md:grid-cols-2">
+            {[...Array(2)].map((_, index) => (
+              <div key={index} className="rounded-md bg-gray-100 p-4 sm:p-5">
+                <div className="h-5 w-24 rounded bg-gray-200" />
+                <div className="mt-2 h-6 w-48 rounded bg-gray-200" />
+                <div className="mt-4 h-40 rounded bg-white" />
+              </div>
+            ))}
+          </section>
+
+          <section className="grid gap-6 lg:grid-cols-3">
+            <div className="lg:col-span-2 rounded-md bg-white p-4 shadow-sm">
+              <div className="flex flex-col gap-2">
+                <div className="h-4 w-28 rounded bg-gray-200" />
+                <div className="h-5 w-56 rounded bg-gray-200" />
+              </div>
+              <div className="mt-4 h-48 rounded bg-gray-100" />
+            </div>
+            <div className="rounded-md bg-white p-4 shadow-sm">
+              <div className="h-4 w-24 rounded bg-gray-200" />
+              <div className="mt-2 h-5 w-40 rounded bg-gray-200" />
+              <div className="mt-4 space-y-3">
+                {[...Array(4)].map((_, idx) => (
+                  <div key={idx} className="h-10 rounded bg-gray-100" />
+                ))}
+              </div>
+            </div>
+          </section>
         </div>
       </main>
     );
@@ -398,7 +434,21 @@ export default function StatsPage() {
               Country rankings and category momentum for the CryptoPayMap community. Data below is seeded for development and visualization purposes.
             </p>
           </header>
-          <p className="rounded-md bg-red-50 px-4 py-3 text-red-700">Failed to load data: {state.error}</p>
+          <div className="flex flex-col gap-3 rounded-md bg-red-50 px-4 py-3 text-red-700">
+            <p className="font-medium">Failed to load stats. Please try again later.</p>
+            <p className="text-sm">統計データの取得に失敗しました。時間をおいて再度お試しください。</p>
+            <button
+              type="button"
+              onClick={fetchStats}
+              disabled={state.loading}
+              className="inline-flex max-w-fit items-center gap-2 rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-400"
+            >
+              {state.loading && (
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/60 border-t-white" aria-hidden />
+              )}
+              <span>Retry</span>
+            </button>
+          </div>
         </div>
       </main>
     );
