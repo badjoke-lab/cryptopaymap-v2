@@ -25,8 +25,15 @@ type StatsResponse = {
   kpi: StatsKPI;
 };
 
+type FetchStatus = "idle" | "loading" | "success" | "error";
+
+type StatsTrendsResponse = {
+  weekly: WeeklyTrendPoint[];
+  monthly: MonthlyTrendPoint[];
+};
+
 type FetchState = {
-  loading: boolean;
+  status: FetchStatus;
   error?: string;
   data?: StatsResponse;
 };
@@ -295,18 +302,28 @@ function StackedBar({
 }
 
 export default function StatsPage() {
-  const [state, setState] = useState<FetchState>({ loading: true });
+  const [state, setState] = useState<FetchState>({ status: "loading" });
   const [selectedCategory, setSelectedCategory] = useState<string>('');
 
   const fetchStats = useCallback(async () => {
-    setState({ loading: true });
+    setState({ status: "loading" });
     try {
-      const data = await safeFetch<StatsResponse>('/api/stats');
-      setState({ loading: false, data });
+      const [statsSnapshot, trendsSnapshot] = await Promise.all([
+        safeFetch<StatsResponse>('/api/stats'),
+        safeFetch<StatsTrendsResponse>('/api/stats/trends'),
+      ]);
+
+      const data: StatsResponse = {
+        ...statsSnapshot,
+        verificationTrends:
+          statsSnapshot.verificationTrends ?? trendsSnapshot,
+      };
+
+      setState({ status: "success", data });
       const categories = getCategoryNames(data.categoryTrends.weekly);
       setSelectedCategory(categories[0] ?? '');
     } catch (error) {
-      setState({ loading: false, error: (error as Error).message });
+      setState({ status: "error", error: 'Failed to load stats. Please try again.' });
       setSelectedCategory('');
     }
   }, []);
@@ -369,7 +386,11 @@ export default function StatsPage() {
     }));
   }, [monthlyCategory]);
 
-  if (state.loading) {
+  const showLoading = state.status === "loading";
+  const showError = state.status === "error";
+  const errorMessage = state.error ?? 'Failed to load stats. Please try again.';
+
+  if (showLoading) {
     return (
       <main className="stats-page flex min-h-screen flex-col gap-8 bg-gray-50 px-4 py-8 text-gray-900 sm:px-6 lg:px-10">
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 animate-pulse">
@@ -423,10 +444,30 @@ export default function StatsPage() {
     );
   }
 
-  if (state.error) {
+  const errorBanner = showError ? (
+    <div className="flex flex-col gap-3 rounded-md border border-red-100 bg-red-50 px-4 py-3 text-red-700">
+      <p className="font-medium">{errorMessage}</p>
+      <p className="text-sm">統計データの取得に失敗しました。再度お試しください。</p>
+      <div className="flex flex-wrap gap-3">
+        <button
+          type="button"
+          onClick={fetchStats}
+          disabled={showLoading}
+          className="inline-flex max-w-fit items-center gap-2 rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-400"
+        >
+          {showLoading && (
+            <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/60 border-t-white" aria-hidden />
+          )}
+          <span>Retry</span>
+        </button>
+      </div>
+    </div>
+  ) : null;
+
+  if (!data) {
     return (
       <main className="stats-page flex min-h-screen flex-col gap-8 bg-gray-50 px-4 py-8 text-gray-900 sm:px-6 lg:px-10">
-        <div className="mx-auto flex w-full max-w-6xl flex-col gap-8">
+        <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
           <header className="max-w-4xl space-y-2">
             <p className="text-sm uppercase tracking-wide text-sky-700">Stats</p>
             <h1 className="text-3xl font-semibold leading-tight">Marketplace dashboard</h1>
@@ -434,28 +475,14 @@ export default function StatsPage() {
               Country rankings and category momentum for the CryptoPayMap community. Data below is seeded for development and visualization purposes.
             </p>
           </header>
-          <div className="flex flex-col gap-3 rounded-md bg-red-50 px-4 py-3 text-red-700">
-            <p className="font-medium">Failed to load stats. Please try again later.</p>
-            <p className="text-sm">統計データの取得に失敗しました。時間をおいて再度お試しください。</p>
-            <button
-              type="button"
-              onClick={fetchStats}
-              disabled={state.loading}
-              className="inline-flex max-w-fit items-center gap-2 rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-400"
-            >
-              {state.loading && (
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/60 border-t-white" aria-hidden />
-              )}
-              <span>Retry</span>
-            </button>
+          {errorBanner}
+          <div className="rounded-lg bg-white px-5 py-6 text-center text-gray-700 shadow-sm ring-1 ring-gray-200">
+            <p className="text-base font-semibold text-gray-900">No stats data to display.</p>
+            <p className="mt-1 text-sm text-gray-600">Please retry or refresh the page once connectivity is restored.</p>
           </div>
         </div>
       </main>
     );
-  }
-
-  if (!data) {
-    return null;
   }
 
   const verifiedTotal = data.kpi.ownerCount + data.kpi.communityCount;
@@ -472,6 +499,8 @@ export default function StatsPage() {
             Country rankings, category momentum, and crypto support for the CryptoPayMap community. Data below is seeded for development and visualization purposes.
           </p>
         </header>
+
+        {errorBanner}
 
         {weeklySeries && monthlySeries && (
           <section className="grid gap-6 md:grid-cols-2">
