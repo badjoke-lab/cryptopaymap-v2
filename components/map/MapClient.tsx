@@ -47,7 +47,9 @@ export default function MapClient() {
   const leafletRef = useRef<typeof import("leaflet") | null>(null);
   const markersRef = useRef<Map<string, import("leaflet").Marker>>(new Map());
   const [places, setPlaces] = useState<Place[]>([]);
-  const [isFetchingPlaces, setIsFetchingPlaces] = useState(true);
+  const [placesStatus, setPlacesStatus] = useState<
+    "idle" | "loading" | "success" | "error"
+  >("loading");
   const [placesError, setPlacesError] = useState<string | null>(null);
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -206,7 +208,9 @@ export default function MapClient() {
       markerLayerRef.current = markerLayer;
 
       const fetchPlacesAndBuildIndex = async () => {
-        setIsFetchingPlaces(true);
+        if (!isMounted) return;
+
+        setPlacesStatus("loading");
         setPlacesError(null);
         try {
           const fetchedPlaces = await safeFetch<Place[]>("/api/places");
@@ -215,12 +219,15 @@ export default function MapClient() {
           const pins = fetchedPlaces.map(placeToPin);
           clusterIndexRef.current = createSuperclusterIndex(pins);
           updateVisibleMarkers();
+          setPlacesStatus("success");
         } catch (error) {
           console.error(error);
           if (!isMounted) return;
-          setPlacesError("Failed to load places. Please try again.\nスポット情報の取得に失敗しました。再読み込みしてください。");
+          setPlacesError(
+            "Failed to load places. Please try again.\nスポット情報の取得に失敗しました。再読み込みしてください。",
+          );
+          setPlacesStatus("error");
         }
-        if (isMounted) setIsFetchingPlaces(false);
       };
 
       map.on("moveend zoomend", updateVisibleMarkers);
@@ -310,7 +317,7 @@ export default function MapClient() {
         ["--header-height" as string]: `${HEADER_HEIGHT}px`,
       }}
     >
-      {isFetchingPlaces && (
+      {placesStatus === "loading" && (
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-gray-100/90 text-gray-700">
           <div className="h-10 w-10 animate-spin rounded-full border-4 border-blue-200 border-t-blue-500" />
           <p className="mt-3 text-sm font-medium">Loading map…</p>
@@ -326,10 +333,10 @@ export default function MapClient() {
           <button
             type="button"
             onClick={() => fetchPlacesRef.current?.()}
-            disabled={isFetchingPlaces}
+            disabled={placesStatus === "loading"}
             className="mt-3 inline-flex items-center gap-2 rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-400"
           >
-            {isFetchingPlaces && (
+            {placesStatus === "loading" && (
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/60 border-t-white" aria-hidden />
             )}
             Retry
