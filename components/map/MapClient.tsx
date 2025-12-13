@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 // Leaflet core CSS
 import "leaflet/dist/leaflet.css";
@@ -17,6 +18,14 @@ import Drawer from "./Drawer";
 import MobileBottomSheet from "./MobileBottomSheet";
 import type { Place } from "../../types/places";
 import { safeFetch } from "@/lib/safeFetch";
+import FiltersPanel from "./FiltersPanel";
+import {
+  buildQueryFromFilters,
+  defaultFilterState,
+  FilterMeta,
+  FilterState,
+  parseFiltersFromSearchParams,
+} from "@/lib/filters";
 
 const HEADER_HEIGHT = 0;
 
@@ -38,6 +47,9 @@ const placeToPin = (place: Place): Pin => ({
 });
 
 export default function MapClient() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<import("leaflet").Map | null>(null);
   const markerLayerRef = useRef<import("leaflet").LayerGroup | null>(null);
@@ -46,6 +58,7 @@ export default function MapClient() {
   const fetchPlacesRef = useRef<() => Promise<void>>();
   const leafletRef = useRef<typeof import("leaflet") | null>(null);
   const markersRef = useRef<Map<string, import("leaflet").Marker>>(new Map());
+  const filtersRef = useRef<FilterState>(defaultFilterState);
   const [places, setPlaces] = useState<Place[]>([]);
   const [placesStatus, setPlacesStatus] = useState<
     "idle" | "loading" | "success" | "error"
@@ -57,6 +70,10 @@ export default function MapClient() {
   const drawerRef = useRef<HTMLDivElement | null>(null);
   const bottomSheetRef = useRef<HTMLDivElement | null>(null);
   const [isMobile, setIsMobile] = useState(false);
+  const [filterMeta, setFilterMeta] = useState<FilterMeta | null>(null);
+  const [filters, setFilters] = useState<FilterState>(defaultFilterState);
+  const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
+  const hasHydratedFiltersRef = useRef(false);
 
   const openDrawerForPlace = useCallback((placeId: string) => {
     setSelectedPlaceId((prev) => {
@@ -74,6 +91,50 @@ export default function MapClient() {
     setDrawerOpen(false);
     setDrawerMode(null);
   }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    safeFetch<FilterMeta>("/api/filters/meta")
+      .then((meta) => {
+        if (isMounted) {
+          setFilterMeta(meta);
+        }
+      })
+      .catch(() => {
+        /* noop - filters can still be applied manually */
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (hasHydratedFiltersRef.current) return;
+    const parsedFilters = parseFiltersFromSearchParams(
+      new URLSearchParams(searchParams.toString()),
+      filterMeta ?? undefined,
+    );
+    setFilters(parsedFilters);
+    filtersRef.current = parsedFilters;
+
+    if (filterMeta) {
+      hasHydratedFiltersRef.current = true;
+    }
+  }, [filterMeta, searchParams]);
+
+  useEffect(() => {
+    filtersRef.current = filters;
+  }, [filters]);
+
+  useEffect(() => {
+    if (!hasHydratedFiltersRef.current) return;
+    const nextQuery = buildQueryFromFilters(filters);
+    const currentQuery = searchParams.toString() ? `?${searchParams.toString()}` : "";
+    if (nextQuery !== currentQuery) {
+      router.replace(`${pathname}${nextQuery}`, { scroll: false });
+    }
+  }, [filters, pathname, router, searchParams]);
 
   useEffect(() => {
     let isMounted = true;
@@ -213,7 +274,8 @@ export default function MapClient() {
         setPlacesStatus("loading");
         setPlacesError(null);
         try {
-          const fetchedPlaces = await safeFetch<Place[]>("/api/places");
+          const query = buildQueryFromFilters(filtersRef.current);
+          const fetchedPlaces = await safeFetch<Place[]>(`/api/places${query}`);
           if (!isMounted) return;
           setPlaces(fetchedPlaces);
           const pins = fetchedPlaces.map(placeToPin);
@@ -263,6 +325,73 @@ export default function MapClient() {
       closeDrawer();
     }
   }, [closeDrawer, selectedPlace, selectedPlaceId]);
+
+  useEffect(() => {
+    if (!fetchPlacesRef.current) return;
+    const timeout = window.setTimeout(() => {
+      fetchPlacesRef.current?.();
+    }, 150);
+
+    return () => window.clearTimeout(timeout);
+  }, [filters]);
+
+  const hasActiveFilters = useMemo(
+    () =>
+      Boolean(
+        filters.category ||
+          filters.chains.length ||
+          filters.verifications.length ||
+          filters.country ||
+          filters.city,
+      ),
+    [filters],
+  );
+
+  const renderPlaceList = useCallback(() => {
+    if (!places.length) {
+      return (
+        <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm text-gray-600">
+          No places match the current filters.
+        </div>
+      );
+    }
+
+    return (
+      <div className="divide-y divide-gray-100 overflow-hidden rounded-lg border border-gray-100">
+        {places.map((place) => (
+          <button
+            key={place.id}
+            type="button"
+            onClick={() => openDrawerForPlace(place.id)}
+            className="flex w-full items-start gap-3 bg-white px-3 py-2 text-left transition hover:bg-gray-50"
+          >
+            <div className="mt-0.5 h-2 w-2 rounded-full bg-gray-400" aria-hidden />
+            <div className="flex flex-col gap-1">
+              <span className="text-sm font-semibold text-gray-900">{place.name}</span>
+              <span className="text-xs text-gray-600">{place.category}</span>
+              <span className="text-xs text-gray-500">{[place.city, place.country].filter(Boolean).join(", ")}</span>
+            </div>
+          </button>
+        ))}
+      </div>
+    );
+  }, [openDrawerForPlace, places]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || places.length === 0) return;
+
+    const targetPlace =
+      (filters.city &&
+        places.find((place) => place.city === filters.city && (!filters.country || place.country === filters.country))) ||
+      (filters.country && places.find((place) => place.country === filters.country)) ||
+      null;
+
+    if (targetPlace) {
+      const targetZoom = filters.city ? Math.max(map.getZoom(), 8) : Math.max(map.getZoom(), 4);
+      map.flyTo([targetPlace.lat, targetPlace.lng], targetZoom, { animate: true });
+    }
+  }, [filters.city, filters.country, places]);
 
   useEffect(() => {
     markersRef.current.forEach((marker, id) => {
@@ -341,6 +470,63 @@ export default function MapClient() {
             )}
             Retry
           </button>
+        </div>
+      )}
+      <div className="absolute left-3 right-3 top-3 z-30 flex items-center justify-between gap-2 md:hidden">
+        <button
+          type="button"
+          onClick={() => setFiltersPanelOpen(true)}
+          className="flex items-center gap-2 rounded-full border border-gray-200 bg-white/95 px-4 py-2 text-sm font-semibold text-gray-800 shadow-sm backdrop-blur"
+        >
+          <span>Filter</span>
+          {hasActiveFilters && <span className="h-2 w-2 rounded-full bg-blue-500" aria-hidden />}
+        </button>
+        <div className="rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-gray-700 shadow-sm">
+          {places.length} places
+        </div>
+      </div>
+      {!isMobile && (
+        <aside className="pointer-events-auto absolute left-4 top-4 z-30 hidden w-[340px] max-h-[calc(100%-2rem)] flex-col gap-4 overflow-y-auto rounded-2xl border border-gray-200 bg-white/95 p-4 shadow-xl backdrop-blur md:flex">
+          <FiltersPanel
+            filters={filters}
+            meta={filterMeta}
+            onChange={setFilters}
+            onClear={() => setFilters(defaultFilterState)}
+            disabled={placesStatus === "loading"}
+          />
+          <div className="rounded-md bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-700">
+            Showing {places.length} place{places.length === 1 ? "" : "s"}
+          </div>
+          <div className="h-px bg-gray-100" />
+          <div className="flex flex-col gap-2">{renderPlaceList()}</div>
+        </aside>
+      )}
+      {isMobile && filtersPanelOpen && (
+        <div className="absolute inset-0 z-40 flex items-start justify-center bg-black/40 p-4 md:hidden">
+          <div className="mt-8 w-full max-w-md rounded-2xl bg-white p-4 shadow-2xl">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-base font-semibold text-gray-900">Filters</h3>
+              <button
+                type="button"
+                className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-sm font-medium text-gray-700"
+                onClick={() => setFiltersPanelOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+            <FiltersPanel
+              filters={filters}
+              meta={filterMeta}
+              onChange={setFilters}
+              onClear={() => setFilters(defaultFilterState)}
+              disabled={placesStatus === "loading"}
+              showHeading={false}
+            />
+            <div className="mt-4 space-y-2">
+              <div className="text-sm font-semibold text-gray-800">Places ({places.length})</div>
+              <div className="max-h-48 overflow-y-auto rounded-xl border border-gray-100 p-2">{renderPlaceList()}</div>
+            </div>
+          </div>
         </div>
       )}
       <div
