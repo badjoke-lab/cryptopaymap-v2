@@ -137,7 +137,7 @@ export default function MapClient() {
   }, [filters, pathname, router, searchParams]);
 
   useEffect(() => {
-    let isMounted = true;
+    if (typeof window === "undefined") return;
 
     const updateIsMobile = () => {
       setIsMobile(window.innerWidth <= 768);
@@ -145,6 +145,14 @@ export default function MapClient() {
 
     updateIsMobile();
     window.addEventListener("resize", updateIsMobile);
+
+    return () => {
+      window.removeEventListener("resize", updateIsMobile);
+    };
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
 
     const stopRenderFrame = () => {
       if (renderFrameRef.current !== null) {
@@ -303,7 +311,6 @@ export default function MapClient() {
 
     return () => {
       isMounted = false;
-      window.removeEventListener("resize", updateIsMobile);
       stopRenderFrame();
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
@@ -478,7 +485,7 @@ export default function MapClient() {
           onClick={() => setFiltersPanelOpen(true)}
           className="flex items-center gap-2 rounded-full border border-gray-200 bg-white/95 px-4 py-2 text-sm font-semibold text-gray-800 shadow-sm backdrop-blur"
         >
-          <span>Filter</span>
+          <span>Filters</span>
           {hasActiveFilters && <span className="h-2 w-2 rounded-full bg-blue-500" aria-hidden />}
         </button>
         <div className="rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-gray-700 shadow-sm">
