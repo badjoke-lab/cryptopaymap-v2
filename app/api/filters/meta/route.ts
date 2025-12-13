@@ -1,3 +1,9 @@
+import { NextResponse } from "next/server";
+
+import { places } from "@/lib/data/places";
+import { deriveFilterMeta } from "@/lib/filters";
+
 export async function GET() {
-  return Response.json({ message: 'Filters meta API placeholder' });
+  const meta = deriveFilterMeta(places);
+  return NextResponse.json(meta);
 }
