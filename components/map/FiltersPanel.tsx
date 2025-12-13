@@ -37,7 +37,10 @@ export function FiltersPanel({ filters, meta, onChange, onClear, disabled, showH
   };
 
   const isCityDisabled = !filters.country;
-  const cityOptions = filters.country && meta?.citiesByCountry[filters.country];
+  const cityOptions: string[] =
+    filters.country && meta?.citiesByCountry[filters.country]
+      ? meta.citiesByCountry[filters.country]
+      : [];
 
   return (
     <div className="flex flex-col gap-4">
@@ -128,17 +131,17 @@ export function FiltersPanel({ filters, meta, onChange, onClear, disabled, showH
             className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:cursor-not-allowed disabled:bg-gray-50"
             value={filters.city ?? ""}
             onChange={(event) =>
-              onChange({ ...filters, city: event.target.value ? event.target.value : null })
-            }
-            disabled={disabled || isCityDisabled}
-          >
-            <option value="">All cities</option>
-            {cityOptions?.map((city) => (
-              <option key={city} value={city}>
-                {city}
-              </option>
-            ))}
-          </select>
+            onChange({ ...filters, city: event.target.value ? event.target.value : null })
+          }
+          disabled={disabled || isCityDisabled}
+        >
+          <option value="">All cities</option>
+          {cityOptions.map((city) => (
+            <option key={city} value={city}>
+              {city}
+            </option>
+          ))}
+        </select>
         </label>
       </div>
 
