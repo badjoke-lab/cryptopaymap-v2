@@ -143,16 +143,18 @@ export default function MapClient() {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const updateViewport = () => {
-      setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
-      setViewportReady(true);
+    const measureViewport = () => window.innerWidth < MOBILE_BREAKPOINT;
+    const handleResize = () => {
+      setIsMobile(measureViewport());
     };
 
-    updateViewport();
-    window.addEventListener("resize", updateViewport);
+    setIsMobile(measureViewport());
+    setViewportReady(true);
+
+    window.addEventListener("resize", handleResize);
 
     return () => {
-      window.removeEventListener("resize", updateViewport);
+      window.removeEventListener("resize", handleResize);
     };
   }, []);
 
