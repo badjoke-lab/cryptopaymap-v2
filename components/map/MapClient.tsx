@@ -28,6 +28,7 @@ import {
 } from "@/lib/filters";
 
 const HEADER_HEIGHT = 0;
+const MOBILE_BREAKPOINT = 1024;
 
 const DEFAULT_COORDINATES: [number, number] = [20, 0];
 const DEFAULT_ZOOM = 2;
@@ -70,6 +71,7 @@ export default function MapClient() {
   const drawerRef = useRef<HTMLDivElement | null>(null);
   const bottomSheetRef = useRef<HTMLDivElement | null>(null);
   const [isMobile, setIsMobile] = useState(false);
+  const [hasViewportWidth, setHasViewportWidth] = useState(false);
   const [filterMeta, setFilterMeta] = useState<FilterMeta | null>(null);
   const [filters, setFilters] = useState<FilterState>(defaultFilterState);
   const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
@@ -140,7 +142,8 @@ export default function MapClient() {
     if (typeof window === "undefined") return;
 
     const updateIsMobile = () => {
-      setIsMobile(window.innerWidth <= 768);
+      setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
+      setHasViewportWidth(true);
     };
 
     updateIsMobile();
@@ -445,6 +448,9 @@ export default function MapClient() {
     };
   }, [closeDrawer, drawerOpen, selectedPlaceId]);
 
+  const showMobileLayout = hasViewportWidth && isMobile;
+  const showDesktopLayout = hasViewportWidth && !isMobile;
+
   return (
     <div
       className="relative w-full"
@@ -479,20 +485,22 @@ export default function MapClient() {
           </button>
         </div>
       )}
-      <div className="absolute left-3 right-3 top-3 z-30 flex items-center justify-between gap-2 md:hidden">
-        <button
-          type="button"
-          onClick={() => setFiltersPanelOpen(true)}
-          className="flex items-center gap-2 rounded-full border border-gray-200 bg-white/95 px-4 py-2 text-sm font-semibold text-gray-800 shadow-sm backdrop-blur"
-        >
-          <span>Filters</span>
-          {hasActiveFilters && <span className="h-2 w-2 rounded-full bg-blue-500" aria-hidden />}
-        </button>
-        <div className="rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-gray-700 shadow-sm">
-          {places.length} places
+      {showMobileLayout && (
+        <div className="absolute left-3 right-3 top-3 z-30 flex items-center justify-between gap-2 md:hidden">
+          <button
+            type="button"
+            onClick={() => setFiltersPanelOpen(true)}
+            className="flex items-center gap-2 rounded-full border border-gray-200 bg-white/95 px-4 py-2 text-sm font-semibold text-gray-800 shadow-sm backdrop-blur"
+          >
+            <span>Filters</span>
+            {hasActiveFilters && <span className="h-2 w-2 rounded-full bg-blue-500" aria-hidden />}
+          </button>
+          <div className="rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-gray-700 shadow-sm">
+            {places.length} places
+          </div>
         </div>
-      </div>
-      {!isMobile && (
+      )}
+      {showDesktopLayout && (
         <aside className="pointer-events-auto absolute left-4 top-4 z-30 hidden w-[340px] max-h-[calc(100%-2rem)] flex-col gap-4 overflow-y-auto rounded-2xl border border-gray-200 bg-white/95 p-4 shadow-xl backdrop-blur md:flex">
           <FiltersPanel
             filters={filters}
@@ -508,7 +516,7 @@ export default function MapClient() {
           <div className="flex flex-col gap-2">{renderPlaceList()}</div>
         </aside>
       )}
-      {isMobile && filtersPanelOpen && (
+      {showMobileLayout && filtersPanelOpen && (
         <div className="absolute inset-0 z-40 flex items-start justify-center bg-black/40 p-4 md:hidden">
           <div className="mt-8 w-full max-w-md rounded-2xl bg-white p-4 shadow-2xl">
             <div className="mb-3 flex items-center justify-between">
@@ -542,7 +550,7 @@ export default function MapClient() {
         data-selected-place={selectedPlaceId ?? ""}
         className="absolute inset-0 w-full"
       />
-      {!isMobile && (
+      {showDesktopLayout && (
         <Drawer
           place={selectedPlace}
           isOpen={drawerOpen && Boolean(selectedPlace)}
@@ -552,7 +560,7 @@ export default function MapClient() {
           headerHeight={HEADER_HEIGHT}
         />
       )}
-      {isMobile && (
+      {showMobileLayout && (
         <MobileBottomSheet
           place={selectedPlace}
           isOpen={drawerOpen && Boolean(selectedPlace)}
