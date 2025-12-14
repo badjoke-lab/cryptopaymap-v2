@@ -28,7 +28,6 @@ import {
 } from "@/lib/filters";
 
 const HEADER_HEIGHT = 0;
-const MOBILE_BREAKPOINT = 768;
 
 const DEFAULT_COORDINATES: [number, number] = [20, 0];
 const DEFAULT_ZOOM = 2;
@@ -70,11 +69,9 @@ export default function MapClient() {
   const [drawerMode, setDrawerMode] = useState<"full" | null>(null);
   const drawerRef = useRef<HTMLDivElement | null>(null);
   const bottomSheetRef = useRef<HTMLDivElement | null>(null);
-  const [isMobile, setIsMobile] = useState(false);
-  const [viewportReady, setViewportReady] = useState(false);
   const [filterMeta, setFilterMeta] = useState<FilterMeta | null>(null);
   const [filters, setFilters] = useState<FilterState>(defaultFilterState);
-  const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const hasHydratedFiltersRef = useRef(false);
 
   const openDrawerForPlace = useCallback((placeId: string) => {
@@ -95,8 +92,6 @@ export default function MapClient() {
   }, []);
 
   useEffect(() => {
-    if (!viewportReady) return;
-
     let isMounted = true;
     safeFetch<FilterMeta>("/api/filters/meta")
       .then((meta) => {
@@ -111,7 +106,7 @@ export default function MapClient() {
     return () => {
       isMounted = false;
     };
-  }, [viewportReady]);
+  }, []);
 
   useEffect(() => {
     if (hasHydratedFiltersRef.current) return;
@@ -141,26 +136,6 @@ export default function MapClient() {
   }, [filters, pathname, router, searchParams]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const measureViewport = () => window.innerWidth < MOBILE_BREAKPOINT;
-    const handleResize = () => {
-      setIsMobile(measureViewport());
-    };
-
-    setIsMobile(measureViewport());
-    setViewportReady(true);
-
-    window.addEventListener("resize", handleResize);
-
-    return () => {
-      window.removeEventListener("resize", handleResize);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!viewportReady) return;
-
     let isMounted = true;
 
     const stopRenderFrame = () => {
@@ -326,7 +301,7 @@ export default function MapClient() {
         mapInstanceRef.current = null;
       }
     };
-  }, [openDrawerForPlace, viewportReady]);
+  }, [openDrawerForPlace]);
 
   const selectedPlace = useMemo(
     () =>
@@ -454,72 +429,16 @@ export default function MapClient() {
     };
   }, [closeDrawer, drawerOpen, selectedPlaceId]);
 
-  const showMobileLayout = viewportReady && isMobile;
-  const showDesktopLayout = viewportReady && !isMobile;
-
-  if (!viewportReady) {
-    return (
-      <div
-        className="relative w-full"
-        style={{
-          height: `calc(100vh - ${HEADER_HEIGHT}px)`,
-          ["--header-height" as string]: `${HEADER_HEIGHT}px`,
-        }}
-      />
-    );
-  }
-
   return (
     <div
-      className="relative w-full"
+      className="relative flex w-full"
       style={{
         height: `calc(100vh - ${HEADER_HEIGHT}px)`,
         ["--header-height" as string]: `${HEADER_HEIGHT}px`,
       }}
     >
-      {placesStatus === "loading" && (
-        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-gray-100/90 text-gray-700">
-          <div className="h-10 w-10 animate-spin rounded-full border-4 border-blue-200 border-t-blue-500" />
-          <p className="mt-3 text-sm font-medium">Loading map…</p>
-        </div>
-      )}
-      {placesError && (
-        <div className="absolute inset-x-0 top-4 z-30 mx-auto w-[min(90%,480px)] rounded-md border border-red-100 bg-white/95 p-4 shadow-lg backdrop-blur">
-          <p className="text-sm leading-relaxed text-red-700">
-            Failed to load places. Please try again.
-            <br />
-            スポット情報の取得に失敗しました。再読み込みしてください。
-          </p>
-          <button
-            type="button"
-            onClick={() => fetchPlacesRef.current?.()}
-            disabled={placesStatus === "loading"}
-            className="mt-3 inline-flex items-center gap-2 rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-400"
-          >
-            {placesStatus === "loading" && (
-              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/60 border-t-white" aria-hidden />
-            )}
-            Retry
-          </button>
-        </div>
-      )}
-      {showMobileLayout && (
-        <div className="absolute left-3 right-3 top-3 z-30 flex items-center justify-between gap-2 md:hidden">
-          <button
-            type="button"
-            onClick={() => setFiltersPanelOpen(true)}
-            className="flex items-center gap-2 rounded-full border border-gray-200 bg-white/95 px-4 py-2 text-sm font-semibold text-gray-800 shadow-sm backdrop-blur"
-          >
-            <span>Filters</span>
-            {hasActiveFilters && <span className="h-2 w-2 rounded-full bg-blue-500" aria-hidden />}
-          </button>
-          <div className="rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-gray-700 shadow-sm">
-            {places.length} places
-          </div>
-        </div>
-      )}
-      {showDesktopLayout && (
-        <aside className="pointer-events-auto absolute left-4 top-4 z-30 hidden w-[340px] max-h-[calc(100%-2rem)] flex-col gap-4 overflow-y-auto rounded-2xl border border-gray-200 bg-white/95 p-4 shadow-xl backdrop-blur md:flex">
+      <aside className="hidden h-full w-80 flex-col border-r border-gray-200 bg-white lg:flex">
+        <div className="flex-1 overflow-y-auto p-4">
           <FiltersPanel
             filters={filters}
             meta={filterMeta}
@@ -527,65 +446,108 @@ export default function MapClient() {
             onClear={() => setFilters(defaultFilterState)}
             disabled={placesStatus === "loading"}
           />
-          <div className="rounded-md bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-700">
+          <div className="mt-4 rounded-md bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-700">
             Showing {places.length} place{places.length === 1 ? "" : "s"}
           </div>
-          <div className="h-px bg-gray-100" />
-          <div className="flex flex-col gap-2">{renderPlaceList()}</div>
-        </aside>
-      )}
-      {showMobileLayout && filtersPanelOpen && (
-        <div className="absolute inset-0 z-40 flex items-start justify-center bg-black/40 p-4 md:hidden">
-          <div className="mt-8 w-full max-w-md rounded-2xl bg-white p-4 shadow-2xl">
-            <div className="mb-3 flex items-center justify-between">
+          <div className="mt-4 h-px bg-gray-100" />
+          <div className="mt-4 flex flex-col gap-2">{renderPlaceList()}</div>
+        </div>
+      </aside>
+      <div className="relative flex-1 bg-gray-50">
+        {placesStatus === "loading" && (
+          <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-gray-100/90 text-gray-700">
+            <div className="h-10 w-10 animate-spin rounded-full border-4 border-blue-200 border-t-blue-500" />
+            <p className="mt-3 text-sm font-medium">Loading map…</p>
+          </div>
+        )}
+        {placesError && (
+          <div className="absolute inset-x-0 top-4 z-50 mx-auto w-[min(90%,480px)] rounded-md border border-red-100 bg-white/95 p-4 shadow-lg backdrop-blur">
+            <p className="text-sm leading-relaxed text-red-700">
+              Failed to load places. Please try again.
+              <br />
+              スポット情報の取得に失敗しました。再読み込みしてください。
+            </p>
+            <button
+              type="button"
+              onClick={() => fetchPlacesRef.current?.()}
+              disabled={placesStatus === "loading"}
+              className="mt-3 inline-flex items-center gap-2 rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-400"
+            >
+              {placesStatus === "loading" && (
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/60 border-t-white" aria-hidden />
+              )}
+              Retry
+            </button>
+          </div>
+        )}
+        <div className="absolute inset-x-0 top-2 z-[60] flex justify-center lg:hidden">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setFiltersOpen(true)}
+              className="flex items-center gap-2 rounded-full border border-gray-200 bg-white/95 px-4 py-2 text-sm font-semibold text-gray-800 shadow-sm backdrop-blur"
+            >
+              <span>Filters</span>
+              {hasActiveFilters && <span className="h-2 w-2 rounded-full bg-blue-500" aria-hidden />}
+            </button>
+            <div className="rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-gray-700 shadow-sm">
+              {places.length} places
+            </div>
+          </div>
+        </div>
+        {filtersOpen && (
+          <div className="fixed inset-x-0 bottom-0 z-[70] mx-auto max-h-[70vh] w-full rounded-t-2xl bg-white shadow-lg lg:hidden">
+            <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
               <h3 className="text-base font-semibold text-gray-900">Filters</h3>
               <button
                 type="button"
                 className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-sm font-medium text-gray-700"
-                onClick={() => setFiltersPanelOpen(false)}
+                onClick={() => setFiltersOpen(false)}
               >
                 Close
               </button>
             </div>
-            <FiltersPanel
-              filters={filters}
-              meta={filterMeta}
-              onChange={setFilters}
-              onClear={() => setFilters(defaultFilterState)}
-              disabled={placesStatus === "loading"}
-              showHeading={false}
-            />
-            <div className="mt-4 space-y-2">
-              <div className="text-sm font-semibold text-gray-800">Places ({places.length})</div>
-              <div className="max-h-48 overflow-y-auto rounded-xl border border-gray-100 p-2">{renderPlaceList()}</div>
+            <div className="max-h-[calc(70vh-56px)] overflow-y-auto p-4">
+              <FiltersPanel
+                filters={filters}
+                meta={filterMeta}
+                onChange={setFilters}
+                onClear={() => setFilters(defaultFilterState)}
+                disabled={placesStatus === "loading"}
+                showHeading={false}
+              />
+              <div className="mt-4 space-y-2">
+                <div className="text-sm font-semibold text-gray-800">Places ({places.length})</div>
+                <div className="max-h-48 overflow-y-auto rounded-xl border border-gray-100 p-2">{renderPlaceList()}</div>
+              </div>
             </div>
           </div>
+        )}
+        <div
+          id="map"
+          ref={mapContainerRef}
+          data-selected-place={selectedPlaceId ?? ""}
+          className="absolute inset-0 w-full"
+        />
+        <div className="hidden lg:block">
+          <Drawer
+            place={selectedPlace}
+            isOpen={drawerOpen && Boolean(selectedPlace)}
+            mode={drawerMode}
+            onClose={closeDrawer}
+            ref={drawerRef}
+            headerHeight={HEADER_HEIGHT}
+          />
         </div>
-      )}
-      <div
-        id="map"
-        ref={mapContainerRef}
-        data-selected-place={selectedPlaceId ?? ""}
-        className="absolute inset-0 w-full"
-      />
-      {showDesktopLayout && (
-        <Drawer
-          place={selectedPlace}
-          isOpen={drawerOpen && Boolean(selectedPlace)}
-          mode={drawerMode}
-          onClose={closeDrawer}
-          ref={drawerRef}
-          headerHeight={HEADER_HEIGHT}
-        />
-      )}
-      {showMobileLayout && (
-        <MobileBottomSheet
-          place={selectedPlace}
-          isOpen={drawerOpen && Boolean(selectedPlace)}
-          onClose={closeDrawer}
-          ref={bottomSheetRef}
-        />
-      )}
+        <div className="lg:hidden">
+          <MobileBottomSheet
+            place={selectedPlace}
+            isOpen={drawerOpen && Boolean(selectedPlace)}
+            onClose={closeDrawer}
+            ref={bottomSheetRef}
+          />
+        </div>
+      </div>
     </div>
   );
 }
