@@ -486,11 +486,12 @@ export default function MapClient() {
             </button>
           </div>
         )}
-        <div className="absolute inset-x-0 top-2 z-[60] flex justify-center lg:hidden">
-          <div className="flex items-center gap-2">
+        <div className="pointer-events-none fixed inset-x-0 top-2 z-[60] flex justify-center lg:hidden">
+          <div className="flex items-center gap-2 pointer-events-auto">
             <button
               type="button"
               onClick={toggleFilters}
+              data-testid="map-filters-toggle"
               className="flex items-center gap-2 rounded-full border border-gray-200 bg-white/95 px-4 py-2 text-sm font-semibold text-gray-800 shadow-sm backdrop-blur"
             >
               <span>Filters</span>
