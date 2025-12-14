@@ -74,6 +74,9 @@ export default function MapClient() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const hasHydratedFiltersRef = useRef(false);
 
+  const openFilters = useCallback(() => setFiltersOpen(true), []);
+  const closeFilters = useCallback(() => setFiltersOpen(false), []);
+
   const openDrawerForPlace = useCallback((placeId: string) => {
     setSelectedPlaceId((prev) => {
       if (prev === placeId) {
@@ -484,7 +487,7 @@ export default function MapClient() {
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setFiltersOpen(true)}
+              onClick={openFilters}
               className="flex items-center gap-2 rounded-full border border-gray-200 bg-white/95 px-4 py-2 text-sm font-semibold text-gray-800 shadow-sm backdrop-blur"
             >
               <span>Filters</span>
@@ -502,7 +505,7 @@ export default function MapClient() {
               <button
                 type="button"
                 className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-sm font-medium text-gray-700"
-                onClick={() => setFiltersOpen(false)}
+                onClick={closeFilters}
               >
                 Close
               </button>
