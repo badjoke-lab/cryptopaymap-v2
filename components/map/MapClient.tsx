@@ -28,7 +28,7 @@ import {
 } from "@/lib/filters";
 
 const HEADER_HEIGHT = 0;
-const MOBILE_BREAKPOINT = 1024;
+const MOBILE_BREAKPOINT = 768;
 
 const DEFAULT_COORDINATES: [number, number] = [20, 0];
 const DEFAULT_ZOOM = 2;
@@ -71,7 +71,7 @@ export default function MapClient() {
   const drawerRef = useRef<HTMLDivElement | null>(null);
   const bottomSheetRef = useRef<HTMLDivElement | null>(null);
   const [isMobile, setIsMobile] = useState(false);
-  const [hasViewportWidth, setHasViewportWidth] = useState(false);
+  const [viewportReady, setViewportReady] = useState(false);
   const [filterMeta, setFilterMeta] = useState<FilterMeta | null>(null);
   const [filters, setFilters] = useState<FilterState>(defaultFilterState);
   const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
@@ -95,6 +95,8 @@ export default function MapClient() {
   }, []);
 
   useEffect(() => {
+    if (!viewportReady) return;
+
     let isMounted = true;
     safeFetch<FilterMeta>("/api/filters/meta")
       .then((meta) => {
@@ -109,7 +111,7 @@ export default function MapClient() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [viewportReady]);
 
   useEffect(() => {
     if (hasHydratedFiltersRef.current) return;
@@ -141,20 +143,22 @@ export default function MapClient() {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const updateIsMobile = () => {
+    const updateViewport = () => {
       setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
-      setHasViewportWidth(true);
+      setViewportReady(true);
     };
 
-    updateIsMobile();
-    window.addEventListener("resize", updateIsMobile);
+    updateViewport();
+    window.addEventListener("resize", updateViewport);
 
     return () => {
-      window.removeEventListener("resize", updateIsMobile);
+      window.removeEventListener("resize", updateViewport);
     };
   }, []);
 
   useEffect(() => {
+    if (!viewportReady) return;
+
     let isMounted = true;
 
     const stopRenderFrame = () => {
@@ -320,7 +324,7 @@ export default function MapClient() {
         mapInstanceRef.current = null;
       }
     };
-  }, [openDrawerForPlace]);
+  }, [openDrawerForPlace, viewportReady]);
 
   const selectedPlace = useMemo(
     () =>
@@ -448,8 +452,20 @@ export default function MapClient() {
     };
   }, [closeDrawer, drawerOpen, selectedPlaceId]);
 
-  const showMobileLayout = hasViewportWidth && isMobile;
-  const showDesktopLayout = hasViewportWidth && !isMobile;
+  const showMobileLayout = viewportReady && isMobile;
+  const showDesktopLayout = viewportReady && !isMobile;
+
+  if (!viewportReady) {
+    return (
+      <div
+        className="relative w-full"
+        style={{
+          height: `calc(100vh - ${HEADER_HEIGHT}px)`,
+          ["--header-height" as string]: `${HEADER_HEIGHT}px`,
+        }}
+      />
+    );
+  }
 
   return (
     <div
