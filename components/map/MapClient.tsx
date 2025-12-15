@@ -253,15 +253,6 @@ export default function MapClient() {
         attribution: "&copy; OpenStreetMap contributors",
       }).addTo(map);
 
-      // --- PIN アイコン ---
-      const createPinIcon = (verification: PinType) =>
-        L.divIcon({
-          html: `<div class="cpm-pin cpm-pin-${verification}">${PIN_SVGS[verification]}</div>`,
-          className: "",
-          iconSize: [32, 32],
-          iconAnchor: [16, 32],
-        });
-
       const markerLayer = L.layerGroup();
       markerLayer.addTo(map);
       markerLayerRef.current = markerLayer;
@@ -344,10 +335,12 @@ export default function MapClient() {
     [filters],
   );
 
-  const renderMobileFilters = () => (
-    <>
-      <div className="pointer-events-none fixed inset-x-0 top-2 z-[60] flex justify-center lg:hidden">
-        <div className="flex items-center gap-2 pointer-events-auto">
+  // ▼ モバイル用フィルタ UI（z-index を Leaflet より上にして fixed 配置）
+  const renderMobileFilters = () => {
+    return (
+      <div className="pointer-events-none fixed inset-x-0 top-0 z-[1000] lg:hidden">
+        {/* 上部の「Filters」ボタン + 件数 */}
+        <div className="pointer-events-auto mt-3 flex items-center justify-center gap-2">
           <button
             type="button"
             onClick={toggleFilters}
@@ -355,46 +348,57 @@ export default function MapClient() {
             className="flex items-center gap-2 rounded-full border border-gray-200 bg-white/95 px-4 py-2 text-sm font-semibold text-gray-800 shadow-sm backdrop-blur"
           >
             <span>Filters</span>
-            {hasActiveFilters && <span className="h-2 w-2 rounded-full bg-blue-500" aria-hidden />}
+            {hasActiveFilters && (
+              <span
+                className="h-2 w-2 rounded-full bg-blue-500"
+                aria-hidden
+              />
+            )}
           </button>
           <div className="rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-gray-700 shadow-sm">
-            {places.length} places
+            {places.length} place{places.length === 1 ? "" : "s"}
           </div>
         </div>
-      </div>
-      {filtersOpen && (
-        <div
-          className="fixed inset-x-0 bottom-0 z-[70] mx-auto max-h-[70vh] w-full rounded-t-2xl bg-white shadow-lg lg:hidden"
-          data-testid="mobile-filters-sheet"
-        >
-          <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
-            <h3 className="text-base font-semibold text-gray-900">Filters</h3>
-            <button
-              type="button"
-              className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-sm font-medium text-gray-700"
-              onClick={closeFilters}
-            >
-              Close
-            </button>
-          </div>
-          <div className="max-h-[calc(70vh-56px)] overflow-y-auto p-4">
-            <FiltersPanel
-              filters={filters}
-              meta={filterMeta}
-              onChange={setFilters}
-              onClear={() => setFilters(defaultFilterState)}
-              disabled={placesStatus === "loading"}
-              showHeading={false}
-            />
-            <div className="mt-4 space-y-2">
-              <div className="text-sm font-semibold text-gray-800">Places ({places.length})</div>
-              <div className="max-h-48 overflow-y-auto rounded-xl border border-gray-100 p-2">{renderPlaceList()}</div>
+
+        {/* 下から出るフィルタシート */}
+        {filtersOpen && (
+          <div
+            className="pointer-events-auto fixed inset-x-0 bottom-0 z-[1010] mx-auto max-h-[70vh] w-full rounded-t-2xl bg-white shadow-lg lg:hidden"
+            data-testid="mobile-filters-sheet"
+          >
+            <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+              <h3 className="text-base font-semibold text-gray-900">Filters</h3>
+              <button
+                type="button"
+                className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-sm font-medium text-gray-700"
+                onClick={closeFilters}
+              >
+                Close
+              </button>
+            </div>
+            <div className="max-h-[calc(70vh-56px)] overflow-y-auto p-4">
+              <FiltersPanel
+                filters={filters}
+                meta={filterMeta}
+                onChange={setFilters}
+                onClear={() => setFilters(defaultFilterState)}
+                disabled={placesStatus === "loading"}
+                showHeading={false}
+              />
+              <div className="mt-4 space-y-2">
+                <div className="text-sm font-semibold text-gray-800">
+                  Places ({places.length})
+                </div>
+                <div className="max-h-48 overflow-y-auto rounded-xl border border-gray-100 p-2">
+                  {renderPlaceList()}
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-      )}
-    </>
-  );
+        )}
+      </div>
+    );
+  };
 
   const renderPlaceList = useCallback(() => {
     if (!places.length) {
@@ -416,9 +420,13 @@ export default function MapClient() {
           >
             <div className="mt-0.5 h-2 w-2 rounded-full bg-gray-400" aria-hidden />
             <div className="flex flex-col gap-1">
-              <span className="text-sm font-semibold text-gray-900">{place.name}</span>
+              <span className="text-sm font-semibold text-gray-900">
+                {place.name}
+              </span>
               <span className="text-xs text-gray-600">{place.category}</span>
-              <span className="text-xs text-gray-500">{[place.city, place.country].filter(Boolean).join(", ")}</span>
+              <span className="text-xs text-gray-500">
+                {[place.city, place.country].filter(Boolean).join(", ")}
+              </span>
             </div>
           </button>
         ))}
@@ -432,13 +440,22 @@ export default function MapClient() {
 
     const targetPlace =
       (filters.city &&
-        places.find((place) => place.city === filters.city && (!filters.country || place.country === filters.country))) ||
-      (filters.country && places.find((place) => place.country === filters.country)) ||
+        places.find(
+          (place) =>
+            place.city === filters.city &&
+            (!filters.country || place.country === filters.country),
+        )) ||
+      (filters.country &&
+        places.find((place) => place.country === filters.country)) ||
       null;
 
     if (targetPlace) {
-      const targetZoom = filters.city ? Math.max(map.getZoom(), 8) : Math.max(map.getZoom(), 4);
-      map.flyTo([targetPlace.lat, targetPlace.lng], targetZoom, { animate: true });
+      const targetZoom = filters.city
+        ? Math.max(map.getZoom(), 8)
+        : Math.max(map.getZoom(), 4);
+      map.flyTo([targetPlace.lat, targetPlace.lng], targetZoom, {
+        animate: true,
+      });
     }
   }, [filters.city, filters.country, places]);
 
@@ -462,7 +479,11 @@ export default function MapClient() {
       const target = event.target;
 
       if (target instanceof Element) {
-        if (target.closest(".leaflet-marker-icon, .cpm-pin, .cluster-marker")) {
+        if (
+          target.closest(
+            ".leaflet-marker-icon, .cpm-pin, .cluster-marker",
+          )
+        ) {
           return;
         }
       }
@@ -532,12 +553,16 @@ export default function MapClient() {
               className="mt-3 inline-flex items-center gap-2 rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-400"
             >
               {placesStatus === "loading" && (
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/60 border-t-white" aria-hidden />
+                <span
+                  className="h-4 w-4 animate-spin rounded-full border-2 border-white/60 border-t-white"
+                  aria-hidden
+                />
               )}
               Retry
             </button>
           </div>
         )}
+        {/* モバイル用フィルタは画面全体に fixed で被せる */}
         {renderMobileFilters()}
         <div
           id="map"
