@@ -344,6 +344,58 @@ export default function MapClient() {
     [filters],
   );
 
+  const renderMobileFilters = () => (
+    <>
+      <div className="pointer-events-none fixed inset-x-0 top-2 z-[60] flex justify-center lg:hidden">
+        <div className="flex items-center gap-2 pointer-events-auto">
+          <button
+            type="button"
+            onClick={toggleFilters}
+            data-testid="map-filters-toggle"
+            className="flex items-center gap-2 rounded-full border border-gray-200 bg-white/95 px-4 py-2 text-sm font-semibold text-gray-800 shadow-sm backdrop-blur"
+          >
+            <span>Filters</span>
+            {hasActiveFilters && <span className="h-2 w-2 rounded-full bg-blue-500" aria-hidden />}
+          </button>
+          <div className="rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-gray-700 shadow-sm">
+            {places.length} places
+          </div>
+        </div>
+      </div>
+      {filtersOpen && (
+        <div
+          className="fixed inset-x-0 bottom-0 z-[70] mx-auto max-h-[70vh] w-full rounded-t-2xl bg-white shadow-lg lg:hidden"
+          data-testid="mobile-filters-sheet"
+        >
+          <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+            <h3 className="text-base font-semibold text-gray-900">Filters</h3>
+            <button
+              type="button"
+              className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-sm font-medium text-gray-700"
+              onClick={closeFilters}
+            >
+              Close
+            </button>
+          </div>
+          <div className="max-h-[calc(70vh-56px)] overflow-y-auto p-4">
+            <FiltersPanel
+              filters={filters}
+              meta={filterMeta}
+              onChange={setFilters}
+              onClear={() => setFilters(defaultFilterState)}
+              disabled={placesStatus === "loading"}
+              showHeading={false}
+            />
+            <div className="mt-4 space-y-2">
+              <div className="text-sm font-semibold text-gray-800">Places ({places.length})</div>
+              <div className="max-h-48 overflow-y-auto rounded-xl border border-gray-100 p-2">{renderPlaceList()}</div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+
   const renderPlaceList = useCallback(() => {
     if (!places.length) {
       return (
@@ -486,50 +538,7 @@ export default function MapClient() {
             </button>
           </div>
         )}
-        <div className="pointer-events-none fixed inset-x-0 top-2 z-[60] flex justify-center lg:hidden">
-          <div className="flex items-center gap-2 pointer-events-auto">
-            <button
-              type="button"
-              onClick={toggleFilters}
-              data-testid="map-filters-toggle"
-              className="flex items-center gap-2 rounded-full border border-gray-200 bg-white/95 px-4 py-2 text-sm font-semibold text-gray-800 shadow-sm backdrop-blur"
-            >
-              <span>Filters</span>
-              {hasActiveFilters && <span className="h-2 w-2 rounded-full bg-blue-500" aria-hidden />}
-            </button>
-            <div className="rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-gray-700 shadow-sm">
-              {places.length} places
-            </div>
-          </div>
-        </div>
-        {filtersOpen && (
-          <div className="fixed inset-x-0 bottom-0 z-[70] mx-auto max-h-[70vh] w-full rounded-t-2xl bg-white shadow-lg lg:hidden">
-            <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
-              <h3 className="text-base font-semibold text-gray-900">Filters</h3>
-              <button
-                type="button"
-                className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-sm font-medium text-gray-700"
-                onClick={closeFilters}
-              >
-                Close
-              </button>
-            </div>
-            <div className="max-h-[calc(70vh-56px)] overflow-y-auto p-4">
-              <FiltersPanel
-                filters={filters}
-                meta={filterMeta}
-                onChange={setFilters}
-                onClear={() => setFilters(defaultFilterState)}
-                disabled={placesStatus === "loading"}
-                showHeading={false}
-              />
-              <div className="mt-4 space-y-2">
-                <div className="text-sm font-semibold text-gray-800">Places ({places.length})</div>
-                <div className="max-h-48 overflow-y-auto rounded-xl border border-gray-100 p-2">{renderPlaceList()}</div>
-              </div>
-            </div>
-          </div>
-        )}
+        {renderMobileFilters()}
         <div
           id="map"
           ref={mapContainerRef}
