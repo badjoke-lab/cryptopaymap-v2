@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
 
-import { SubmissionStatus, updateSubmissionStatus } from "@/lib/submissions";
+import { updateSubmissionStatus } from "@/lib/submissions";
 
-const ALLOWED_STATUSES: SubmissionStatus[] = ["approved", "rejected"];
+const ALLOWED_STATUSES = ["approved", "rejected"] as const;
+type AllowedStatus = (typeof ALLOWED_STATUSES)[number];
+
+function isAllowedStatus(value: unknown): value is AllowedStatus {
+  return typeof value === "string" && (ALLOWED_STATUSES as readonly string[]).includes(value);
+}
 
 export async function PATCH(
   request: Request,
@@ -15,14 +20,20 @@ export async function PATCH(
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const status = (body as { status?: SubmissionStatus }).status;
-  const reviewNote = typeof (body as { reviewNote?: unknown }).reviewNote === "string"
-    ? (body as { reviewNote: string }).reviewNote
-    : undefined;
+  const rawStatus = (body as { status?: unknown }).status;
+  const reviewNote =
+    typeof (body as { reviewNote?: unknown }).reviewNote === "string"
+      ? (body as { reviewNote: string }).reviewNote
+      : undefined;
 
-  if (!status || !ALLOWED_STATUSES.includes(status)) {
-    return NextResponse.json({ error: "Status must be 'approved' or 'rejected'" }, { status: 400 });
+  if (!isAllowedStatus(rawStatus)) {
+    return NextResponse.json(
+      { error: "Status must be 'approved' or 'rejected'" },
+      { status: 400 },
+    );
   }
+
+  const status = rawStatus; // <- type is now "approved" | "rejected"
 
   try {
     const updated = await updateSubmissionStatus(params.id, status, reviewNote);
