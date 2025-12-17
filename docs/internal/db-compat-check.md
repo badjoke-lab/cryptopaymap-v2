@@ -35,3 +35,11 @@ npm run db:compat-check
 ## Next steps
 - If failures persist, compare against `docs/db-v3.0.md`
 - After fixes, re-run the command until it passes
+
+## If the check reports missing tables/columns
+If `pnpm db:compat-check` fails because tables or columns are missing, run the minimal compatibility migration and re-check:
+
+```bash
+pnpm db:migrate:compat
+pnpm db:compat-check
+```
