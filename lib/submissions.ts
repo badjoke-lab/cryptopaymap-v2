@@ -1,71 +1,58 @@
-import { NextResponse } from "next/server";
+import { promises as fs } from "fs";
+import path from "path";
 
 export type SubmissionKind = "owner" | "community";
 
-export type SubmissionPlaceInput = {
-  name?: string;
-  country?: string;
-  city?: string;
-  address?: string;
-  category?: string;
-  lat?: unknown;
-  lng?: unknown;
-  accepted?: unknown;
-  about?: string;
-  paymentNote?: string;
-  website?: string;
-  twitter?: string;
-  instagram?: string;
-  facebook?: string;
-};
-
-export type SubmitterInput = {
-  name?: string;
-  email?: string;
-  role?: string;
-  notesForAdmin?: string;
-};
-
 export type SubmissionPayload = {
-  kind?: SubmissionKind;
-  place?: SubmissionPlaceInput;
-  submitter?: SubmitterInput;
-};
-
-export type NormalizedPlace = {
   name: string;
   country: string;
   city: string;
   address: string;
   category: string;
-  accepted: string[];
-  verification: SubmissionKind;
-  updatedAt: string;
-  lat?: number;
-  lng?: number;
+  acceptedChains: string[];
+  verificationRequest: SubmissionKind;
+  contactEmail?: string;
+  contactName?: string;
+  role?: string;
   about?: string;
   paymentNote?: string;
   website?: string;
   twitter?: string;
   instagram?: string;
   facebook?: string;
-  submitterName?: string;
-  submitterEmail?: string;
+  lat?: number;
+  lng?: number;
+  amenities?: string[];
+  notesForAdmin?: string;
+  termsAccepted?: boolean;
 };
 
+export type StoredSubmission = {
+  submissionId: string;
+  createdAt: string;
+  status: "pending";
+  suggestedPlaceId: string;
+  payload: SubmissionPayload;
+};
+
+type NormalizationResult =
+  | { ok: true; payload: SubmissionPayload }
+  | { ok: false; error: string };
+
 const ensureString = (value: unknown): string | undefined => {
-  if (typeof value === "string") return value.trim();
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed ? trimmed : undefined;
+  }
   return undefined;
 };
 
 const ensureStringArray = (value: unknown): string[] | undefined => {
-  if (Array.isArray(value)) {
-    const cleaned = value
-      .map((v) => (typeof v === "string" ? v.trim() : ""))
-      .filter(Boolean);
-    return cleaned.length ? cleaned : undefined;
-  }
-  return undefined;
+  if (!Array.isArray(value)) return undefined;
+  const cleaned = value
+    .map((v) => (typeof v === "string" ? v.trim() : ""))
+    .filter(Boolean);
+  return cleaned.length ? cleaned : undefined;
 };
 
 const ensureNumber = (value: unknown): number | undefined => {
@@ -74,67 +61,192 @@ const ensureNumber = (value: unknown): number | undefined => {
   return Number.isFinite(num) ? num : undefined;
 };
 
-export const validateAndNormalizeSubmission = (
-  payload: SubmissionPayload,
-  expectedKind: SubmissionKind,
-): { normalizedPlace: NormalizedPlace } | { error: string } => {
-  if (!payload || payload.kind !== expectedKind) {
-    return { error: "Invalid submission" };
-  }
+const slugify = (value: string): string =>
+  value
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-");
 
-  const { place = {}, submitter = {} } = payload;
+const generateRandomSuffix = () => Math.random().toString(36).slice(2, 7);
 
-  const name = ensureString(place.name);
-  const country = ensureString(place.country);
-  const city = ensureString(place.city);
-  const address = ensureString(place.address);
-  const category = ensureString(place.category);
-  const accepted = ensureStringArray(place.accepted);
-  const submitterName = ensureString(submitter.name);
-  const submitterEmail = ensureString(submitter.email);
-
-  if (!name || !country || !city || !address || !category || !accepted?.length || !submitterName || !submitterEmail) {
-    return { error: "Invalid submission" };
-  }
-
-  const normalizedPlace: NormalizedPlace = {
-    name,
-    country,
-    city,
-    address,
-    category,
-    accepted,
-    verification: expectedKind,
-    updatedAt: new Date().toISOString(),
-    about: ensureString(place.about),
-    paymentNote: ensureString(place.paymentNote),
-    website: ensureString(place.website),
-    twitter: ensureString(place.twitter),
-    instagram: ensureString(place.instagram),
-    facebook: ensureString(place.facebook),
-    lat: ensureNumber(place.lat),
-    lng: ensureNumber(place.lng),
-    submitterName,
-    submitterEmail,
-  };
-
-  return { normalizedPlace };
+const generateSubmissionId = () => {
+  const now = new Date();
+  const pad = (num: number) => num.toString().padStart(2, "0");
+  const date = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
+  const time = `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  return `sub-${date}-${time}-${generateRandomSuffix()}`;
 };
 
-export const handleSubmission = async (request: Request, expectedKind: SubmissionKind) => {
-  try {
-    const payload = (await request.json()) as SubmissionPayload;
-    const result = validateAndNormalizeSubmission(payload, expectedKind);
+const generateSuggestedPlaceId = (payload: SubmissionPayload) => {
+  const country = payload.country.toLowerCase();
+  const citySlug = slugify(payload.city || "city");
+  const nameSlug = slugify(payload.name || "place");
+  const categorySlug = slugify(payload.category || "category");
+  const suffix = generateRandomSuffix();
+  return `cpm:${country}-${citySlug}-${payload.verificationRequest}-${categorySlug}-${nameSlug}-${suffix}`;
+};
 
-    if ("error" in result) {
-      return NextResponse.json({ error: result.error }, { status: 400 });
+export const normalizeSubmission = (raw: unknown): NormalizationResult => {
+  if (!raw || typeof raw !== "object") {
+    return { ok: false, error: "Invalid JSON" };
+  }
+
+  const obj = raw as Record<string, unknown>;
+  const requiredFields: Array<[keyof SubmissionPayload, string | undefined]> = [
+    ["name", ensureString(obj.name)],
+    ["country", ensureString(obj.country)],
+    ["city", ensureString(obj.city)],
+    ["address", ensureString(obj.address)],
+    ["category", ensureString(obj.category)],
+  ];
+
+  const missing = requiredFields.filter(([, value]) => !value).map(([key]) => key);
+
+  const verificationRequest = obj.verificationRequest === "owner" || obj.verificationRequest === "community"
+    ? obj.verificationRequest
+    : undefined;
+
+  const acceptedChains = ensureStringArray(obj.acceptedChains);
+
+  if (!verificationRequest) missing.push("verificationRequest");
+  if (!acceptedChains?.length) missing.push("acceptedChains");
+
+  if (missing.length) {
+    return { ok: false, error: `Missing required fields: ${missing.join(", ")}` };
+  }
+
+  const payload: SubmissionPayload = {
+    name: requiredFields[0][1]!,
+    country: requiredFields[1][1]!,
+    city: requiredFields[2][1]!,
+    address: requiredFields[3][1]!,
+    category: requiredFields[4][1]!,
+    verificationRequest: verificationRequest as SubmissionKind,
+    acceptedChains: acceptedChains as string[],
+    contactEmail: ensureString(obj.contactEmail),
+    contactName: ensureString(obj.contactName),
+    role: ensureString(obj.role),
+    about: ensureString(obj.about),
+    paymentNote: ensureString(obj.paymentNote),
+    website: ensureString(obj.website),
+    twitter: ensureString(obj.twitter),
+    instagram: ensureString(obj.instagram),
+    facebook: ensureString(obj.facebook),
+    lat: ensureNumber(obj.lat),
+    lng: ensureNumber(obj.lng),
+    amenities: ensureStringArray(obj.amenities),
+    notesForAdmin: ensureString(obj.notesForAdmin),
+    termsAccepted: typeof obj.termsAccepted === "boolean" ? obj.termsAccepted : undefined,
+  };
+
+  if (payload.termsAccepted === false) {
+    return { ok: false, error: "Terms must be accepted" };
+  }
+
+  return { ok: true, payload };
+};
+
+export const persistSubmission = async (payload: SubmissionPayload): Promise<StoredSubmission> => {
+  const submissionId = generateSubmissionId();
+  const suggestedPlaceId = generateSuggestedPlaceId(payload);
+  const stored: StoredSubmission = {
+    submissionId,
+    createdAt: new Date().toISOString(),
+    status: "pending",
+    suggestedPlaceId,
+    payload,
+  };
+
+  const dir = path.join(process.cwd(), "data", "submissions");
+  await fs.mkdir(dir, { recursive: true });
+  const filePath = path.join(dir, `${submissionId}.json`);
+  await fs.writeFile(filePath, JSON.stringify(stored, null, 2), "utf8");
+
+  return stored;
+};
+
+export const handleUnifiedSubmission = async (request: Request) => {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return new Response(JSON.stringify({ ok: false, error: "Invalid JSON" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  try {
+    const normalized = normalizeSubmission(body);
+
+    if (!normalized.ok) {
+      return new Response(JSON.stringify({ ok: false, error: normalized.error }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
-    console.log(`[submission] ${expectedKind}`, { normalizedPlace: result.normalizedPlace, submitter: payload.submitter });
+    const record = await persistSubmission(normalized.payload);
 
-    return NextResponse.json({ status: "received", normalizedPlace: result.normalizedPlace });
+    return new Response(
+      JSON.stringify({ ok: true, submissionId: record.submissionId, suggestedPlaceId: record.suggestedPlaceId }),
+      { status: 201, headers: { "Content-Type": "application/json" } },
+    );
   } catch (error) {
-    console.error("[submission] error", error);
-    return NextResponse.json({ error: "Invalid submission" }, { status: 400 });
+    console.error("[submissions] unexpected", error);
+    return new Response(JSON.stringify({ ok: false, error: "Failed to process submission" }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+};
+
+export const handleLegacySubmission = async (request: Request, expectedKind: SubmissionKind) => {
+  try {
+    const body = await request.json();
+    const normalizedBody = {
+      name: (body.place?.name ?? body.name) as unknown,
+      country: (body.place?.country ?? body.country) as unknown,
+      city: (body.place?.city ?? body.city) as unknown,
+      address: (body.place?.address ?? body.address) as unknown,
+      category: (body.place?.category ?? body.category) as unknown,
+      acceptedChains: (body.place?.accepted ?? body.accepted) as unknown,
+      verificationRequest: expectedKind,
+      contactEmail: (body.submitter?.email ?? body.contactEmail) as unknown,
+      contactName: (body.submitter?.name ?? body.contactName) as unknown,
+      role: (body.submitter?.role ?? body.role) as unknown,
+      about: (body.place?.about ?? body.about) as unknown,
+      paymentNote: (body.place?.paymentNote ?? body.paymentNote) as unknown,
+      website: (body.place?.website ?? body.website) as unknown,
+      twitter: (body.place?.twitter ?? body.twitter) as unknown,
+      instagram: (body.place?.instagram ?? body.instagram) as unknown,
+      facebook: (body.place?.facebook ?? body.facebook) as unknown,
+      lat: (body.place?.lat ?? body.lat) as unknown,
+      lng: (body.place?.lng ?? body.lng) as unknown,
+      notesForAdmin: (body.submitter?.notesForAdmin ?? body.notesForAdmin) as unknown,
+    };
+
+    const normalized = normalizeSubmission(normalizedBody);
+    if (!normalized.ok) {
+      return new Response(JSON.stringify({ ok: false, error: normalized.error }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    const record = await persistSubmission(normalized.payload);
+
+    return new Response(
+      JSON.stringify({ ok: true, submissionId: record.submissionId, suggestedPlaceId: record.suggestedPlaceId }),
+      { status: 201, headers: { "Content-Type": "application/json" } },
+    );
+  } catch (error) {
+    console.error("[submissions] legacy", error);
+    return new Response(JSON.stringify({ ok: false, error: "Invalid submission" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 };
