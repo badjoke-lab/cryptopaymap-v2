@@ -27,12 +27,18 @@ export type SubmissionPayload = {
   termsAccepted?: boolean;
 };
 
+const submissionsDir = path.join(process.cwd(), "data", "submissions");
+
+export type SubmissionStatus = "pending" | "approved" | "rejected";
+
 export type StoredSubmission = {
   submissionId: string;
   createdAt: string;
-  status: "pending";
+  status: SubmissionStatus;
   suggestedPlaceId: string;
   payload: SubmissionPayload;
+  reviewNote?: string;
+  reviewedAt?: string;
 };
 
 type NormalizationResult =
@@ -159,12 +165,41 @@ export const persistSubmission = async (payload: SubmissionPayload): Promise<Sto
     payload,
   };
 
-  const dir = path.join(process.cwd(), "data", "submissions");
-  await fs.mkdir(dir, { recursive: true });
-  const filePath = path.join(dir, `${submissionId}.json`);
+  await fs.mkdir(submissionsDir, { recursive: true });
+  const filePath = path.join(submissionsDir, `${submissionId}.json`);
   await fs.writeFile(filePath, JSON.stringify(stored, null, 2), "utf8");
 
   return stored;
+};
+
+export const loadSubmissionById = async (submissionId: string): Promise<StoredSubmission> => {
+  const filePath = path.join(submissionsDir, `${submissionId}.json`);
+  const contents = await fs.readFile(filePath, "utf8");
+  return JSON.parse(contents) as StoredSubmission;
+};
+
+export const updateSubmissionStatus = async (
+  submissionId: string,
+  status: Exclude<SubmissionStatus, "pending">,
+  reviewNote?: string,
+): Promise<StoredSubmission> => {
+  const filePath = path.join(submissionsDir, `${submissionId}.json`);
+  const existing = await loadSubmissionById(submissionId);
+
+  const updated: StoredSubmission = {
+    ...existing,
+    status,
+    reviewedAt: new Date().toISOString(),
+  };
+
+  if (reviewNote !== undefined) {
+    updated.reviewNote = reviewNote;
+  }
+
+  await fs.mkdir(submissionsDir, { recursive: true });
+  await fs.writeFile(filePath, JSON.stringify(updated, null, 2), "utf8");
+
+  return updated;
 };
 
 export const handleUnifiedSubmission = async (request: Request) => {
