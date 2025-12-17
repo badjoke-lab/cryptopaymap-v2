@@ -1,5 +1,5 @@
-import { handleSubmission } from "@/lib/submissions";
+import { handleLegacySubmission } from "@/lib/submissions";
 
 export async function POST(request: Request) {
-  return handleSubmission(request, "owner");
+  return handleLegacySubmission(request, "owner");
 }

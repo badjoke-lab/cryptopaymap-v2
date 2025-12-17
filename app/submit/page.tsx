@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
-import type { NormalizedPlace, SubmissionKind } from "@/lib/submissions";
+import type { SubmissionKind } from "@/lib/submissions";
 import type { FilterMeta } from "@/lib/filters";
 
 type FormState = {
@@ -27,8 +27,10 @@ type FormState = {
 };
 
 type SubmissionResponse = {
-  status: string;
-  normalizedPlace: NormalizedPlace;
+  ok: boolean;
+  submissionId?: string;
+  suggestedPlaceId?: string;
+  error?: string;
 };
 
 const initialFormState: FormState = {
@@ -63,7 +65,6 @@ export default function SubmitPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [preview, setPreview] = useState<NormalizedPlace | null>(null);
   const [meta, setMeta] = useState<FilterMeta | null>(null);
 
   useEffect(() => {
@@ -127,50 +128,47 @@ export default function SubmitPage() {
     setIsSubmitting(true);
 
     const payload = {
-      kind: mode,
-      place: {
-        name: formState.name,
-        country: formState.country,
-        city: formState.city,
-        address: formState.address,
-        category: formState.category,
-        accepted: formState.accepted,
-        about: formState.about || undefined,
-        paymentNote: formState.paymentNote || undefined,
-        website: formState.website || undefined,
-        twitter: formState.twitter || undefined,
-        instagram: formState.instagram || undefined,
-        facebook: formState.facebook || undefined,
-        lat: formState.lat ? Number(formState.lat) : undefined,
-        lng: formState.lng ? Number(formState.lng) : undefined,
-      },
-      submitter: {
-        name: formState.submitterName,
-        email: formState.submitterEmail,
-        role: formState.role,
-        notesForAdmin: formState.notesForAdmin || undefined,
-      },
+      name: formState.name,
+      country: formState.country,
+      city: formState.city,
+      address: formState.address,
+      category: formState.category,
+      acceptedChains: formState.accepted,
+      verificationRequest: mode,
+      about: formState.about || undefined,
+      paymentNote: formState.paymentNote || undefined,
+      website: formState.website || undefined,
+      twitter: formState.twitter || undefined,
+      instagram: formState.instagram || undefined,
+      facebook: formState.facebook || undefined,
+      lat: formState.lat ? Number(formState.lat) : undefined,
+      lng: formState.lng ? Number(formState.lng) : undefined,
+      contactName: formState.submitterName,
+      contactEmail: formState.submitterEmail,
+      role: formState.role,
+      notesForAdmin: formState.notesForAdmin || undefined,
     };
 
     try {
-      const endpoint = mode === "owner" ? "/api/submissions/owner" : "/api/submissions/community";
-      const res = await fetch(endpoint, {
+      const res = await fetch("/api/submissions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
-        const error = await res.json().catch(() => ({}));
+        const error = (await res.json().catch(() => ({}))) as SubmissionResponse;
         throw new Error(error?.error || "Submission failed");
       }
 
       const data = (await res.json()) as SubmissionResponse;
-      setSuccessMessage("Submission received / 送信しました");
-      setPreview(data.normalizedPlace);
+      const suggestion = data.suggestedPlaceId ? ` Suggested ID: ${data.suggestedPlaceId}` : "";
+      setSuccessMessage(
+        `Thanks for your submission! / ご登録ありがとうございます。 We’ll review your place before publishing it on the map.${suggestion}`,
+      );
     } catch (error) {
       console.error(error);
-      setServerError("Submission failed. Please try again / 送信に失敗しました");
+      setServerError((error as Error)?.message || "Submission failed. Please try again / 送信に失敗しました");
     } finally {
       setIsSubmitting(false);
     }
@@ -178,7 +176,6 @@ export default function SubmitPage() {
 
   const resetForm = () => {
     setFormState(initialFormState);
-    setPreview(null);
     setSuccessMessage(null);
     setServerError(null);
     setErrors({});
@@ -505,29 +502,6 @@ export default function SubmitPage() {
           </div>
         </form>
 
-        {preview && (
-          <div className="rounded-lg bg-white p-4 shadow-sm border border-gray-100 space-y-2">
-            <h3 className="text-lg font-semibold text-gray-900">Preview (normalized)</h3>
-            <p className="text-sm text-gray-700">Verification: {preview.verification}</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-gray-800">
-              <div>
-                <p className="font-semibold">{preview.name}</p>
-                <p className="text-sm text-gray-700">
-                  {preview.city}, {preview.country}
-                </p>
-                <p className="text-sm text-gray-700">{preview.address}</p>
-                <p className="text-sm text-gray-700">Category: {preview.category}</p>
-              </div>
-              <div className="space-y-1 text-sm text-gray-700">
-                <p>Accepted: {preview.accepted.join(", ")}</p>
-                {preview.about && <p>About: {preview.about}</p>}
-                {preview.paymentNote && <p>Payment note: {preview.paymentNote}</p>}
-                <p>Submitter: {preview.submitterName}</p>
-                <p>Email: {preview.submitterEmail}</p>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );
