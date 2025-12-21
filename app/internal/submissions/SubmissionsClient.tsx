@@ -56,6 +56,7 @@ type SubmissionMessage = { type: "success" | "error"; text: string };
 export default function SubmissionsClient({ submissions: initialSubmissions }: Props) {
   const [submissions, setSubmissions] = useState(initialSubmissions);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [promotingId, setPromotingId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Record<string, SubmissionMessage | undefined>>({});
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>(() =>
     Object.fromEntries(initialSubmissions.map(({ data }) => [data.submissionId, data.reviewNote ?? ""])),
@@ -96,6 +97,51 @@ export default function SubmissionsClient({ submissions: initialSubmissions }: P
     approved: "Optional note for approval",
     rejected: "Reason for rejection (optional)",
   }), []);
+
+  const handlePromote = async (submissionId: string) => {
+    setPromotingId(submissionId);
+    setMessages((prev) => ({ ...prev, [submissionId]: undefined }));
+
+    try {
+      const response = await fetch(`/api/submissions/${submissionId}/promote`, { method: "POST" });
+
+      if (!response.ok) {
+        const error = (await response.json().catch(() => ({})) as { error?: string }).error;
+        setMessages((prev) => ({ ...prev, [submissionId]: { type: "error", text: error ?? "Failed to create place" } }));
+        return;
+      }
+
+      const payload = (await response.json()) as { place: { id: string }; submission?: StoredSubmission };
+      const linkedPlaceId = payload.place?.id;
+      const updatedSubmission = payload.submission;
+
+      setSubmissions((prev) =>
+        prev.map((entry) => {
+          if (entry.data.submissionId !== submissionId) return entry;
+
+          if (updatedSubmission) {
+            return { ...entry, data: updatedSubmission };
+          }
+
+          return {
+            ...entry,
+            data: {
+              ...entry.data,
+              linkedPlaceId,
+              promotedAt: new Date().toISOString(),
+            },
+          };
+        }),
+      );
+
+      setMessages((prev) => ({ ...prev, [submissionId]: { type: "success", text: "Place created." } }));
+    } catch (error) {
+      console.error("Failed to promote submission", error);
+      setMessages((prev) => ({ ...prev, [submissionId]: { type: "error", text: "Unexpected error" } }));
+    } finally {
+      setPromotingId(null);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -145,6 +191,8 @@ export default function SubmissionsClient({ submissions: initialSubmissions }: P
                   <DetailRow label="Created" value={formatDate(data.createdAt)} />
                   <DetailRow label="Reviewed" value={data.reviewedAt ? formatDate(data.reviewedAt) : "—"} />
                   <DetailRow label="Suggested place ID" value={data.suggestedPlaceId} />
+                  <DetailRow label="Linked place ID" value={data.linkedPlaceId ?? "—"} />
+                  <DetailRow label="Promoted at" value={data.promotedAt ? formatDate(data.promotedAt) : "—"} />
                 </div>
               </div>
 
@@ -211,6 +259,25 @@ export default function SubmissionsClient({ submissions: initialSubmissions }: P
             <div className="rounded-lg border border-gray-100 bg-gray-50 p-4">
               <h3 className="mb-3 text-sm font-semibold text-gray-800">Review actions</h3>
               <div className="space-y-3">
+                {data.status === "approved" && (
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      className="inline-flex items-center justify-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+                      onClick={() => handlePromote(data.submissionId)}
+                      disabled={promotingId === data.submissionId || Boolean(data.linkedPlaceId)}
+                    >
+                      {data.linkedPlaceId
+                        ? "Place created"
+                        : promotingId === data.submissionId
+                          ? "Creating..."
+                          : "Create Place"}
+                    </button>
+                    {data.linkedPlaceId && (
+                      <span className="text-sm text-gray-700">Linked to {data.linkedPlaceId}</span>
+                    )}
+                  </div>
+                )}
                 <label className="block text-sm font-medium text-gray-700" htmlFor={`review-note-${data.submissionId}`}>
                   Review note (optional)
                 </label>
