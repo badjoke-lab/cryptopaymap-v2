@@ -29,6 +29,17 @@ export type SubmissionPayload = {
 
 const submissionsDir = path.join(process.cwd(), "data", "submissions");
 
+const writeSubmissionToDisk = async (record: StoredSubmission) => {
+  await fs.mkdir(submissionsDir, { recursive: true });
+  const filePath = path.join(submissionsDir, `${record.submissionId}.json`);
+  await fs.writeFile(filePath, JSON.stringify(record, null, 2), "utf8");
+};
+
+export const saveSubmission = async (record: StoredSubmission): Promise<StoredSubmission> => {
+  await writeSubmissionToDisk(record);
+  return record;
+};
+
 export type SubmissionStatus = "pending" | "approved" | "rejected";
 
 export type StoredSubmission = {
@@ -36,6 +47,8 @@ export type StoredSubmission = {
   createdAt: string;
   status: SubmissionStatus;
   suggestedPlaceId: string;
+  linkedPlaceId?: string;
+  promotedAt?: string;
   payload: SubmissionPayload;
   reviewNote?: string;
   reviewedAt?: string;
@@ -165,9 +178,7 @@ export const persistSubmission = async (payload: SubmissionPayload): Promise<Sto
     payload,
   };
 
-  await fs.mkdir(submissionsDir, { recursive: true });
-  const filePath = path.join(submissionsDir, `${submissionId}.json`);
-  await fs.writeFile(filePath, JSON.stringify(stored, null, 2), "utf8");
+  await saveSubmission(stored);
 
   return stored;
 };
@@ -196,10 +207,7 @@ export const updateSubmissionStatus = async (
     updated.reviewNote = reviewNote;
   }
 
-  await fs.mkdir(submissionsDir, { recursive: true });
-  await fs.writeFile(filePath, JSON.stringify(updated, null, 2), "utf8");
-
-  return updated;
+  return saveSubmission(updated);
 };
 
 export const handleUnifiedSubmission = async (request: Request) => {
