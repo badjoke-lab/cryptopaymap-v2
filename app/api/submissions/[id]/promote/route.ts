@@ -64,6 +64,12 @@ export async function POST(_request: Request, { params }: { params: { id: string
       place = submissionToPlace(submission, { existingIds });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Invalid submission";
+      if (message.toLowerCase().includes("lat/lng")) {
+        return NextResponse.json(
+          { error: "Cannot promote: missing coordinates (lat/lng)." },
+          { status: 400 },
+        );
+      }
       return NextResponse.json({ error: message }, { status: 400 });
     }
 

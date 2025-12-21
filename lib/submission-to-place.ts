@@ -37,9 +37,18 @@ export const submissionToPlace = (
 ): Place => {
   const { payload } = submission;
 
-  if (!Number.isFinite(payload.lat) || !Number.isFinite(payload.lng)) {
-    throw new Error("Submission is missing coordinates");
+  const { lat: rawLat, lng: rawLng } = payload;
+  if (
+    typeof rawLat !== "number" ||
+    typeof rawLng !== "number" ||
+    !Number.isFinite(rawLat) ||
+    !Number.isFinite(rawLng)
+  ) {
+    throw new Error("Missing or invalid lat/lng");
   }
+
+  const lat = rawLat;
+  const lng = rawLng;
 
   const prefix = buildPlaceIdPrefix(submission);
   const suffix = findNextSuffix(options?.existingIds ?? [], prefix);
@@ -53,8 +62,8 @@ export const submissionToPlace = (
     name: payload.name,
     category: payload.category,
     verification,
-    lat: payload.lat,
-    lng: payload.lng,
+    lat,
+    lng,
     country: payload.country,
     city: payload.city,
     address_full: payload.address,
