@@ -8,36 +8,27 @@ import type { Place } from "@/types/places";
 const getPlaceChains = (place: Place) =>
   place.supported_crypto?.length ? place.supported_crypto : place.accepted ?? [];
 
-const optionalStringKeys = [
-  "address",
-  "address_full",
-  "about",
-  "paymentNote",
-  "website",
-  "phone",
-  "twitter",
-  "instagram",
-  "facebook",
-  "submitterName",
-  "updatedAt",
-  "coverImage",
-  "description",
-  "social_twitter",
-  "social_instagram",
-  "social_website",
-] satisfies (keyof Place)[];
+const u = (v: string | null | undefined): string | undefined => v ?? undefined;
 
-const sanitizeOptionalStrings = (place: Place): Place => {
-  const sanitized = { ...place } as Place;
-
-  for (const key of optionalStringKeys) {
-    if (sanitized[key] === null) {
-      sanitized[key] = undefined as Place[typeof key];
-    }
-  }
-
-  return sanitized;
-};
+const sanitizeOptionalStrings = (place: Place): Place => ({
+  ...place,
+  address: u(place.address),
+  address_full: u(place.address_full),
+  about: u(place.about),
+  paymentNote: u(place.paymentNote),
+  website: u(place.website),
+  phone: u(place.phone),
+  twitter: u(place.twitter),
+  instagram: u(place.instagram),
+  facebook: u(place.facebook),
+  submitterName: u(place.submitterName),
+  updatedAt: u(place.updatedAt),
+  coverImage: u(place.coverImage),
+  description: u(place.description),
+  social_twitter: u(place.social_twitter),
+  social_instagram: u(place.social_instagram),
+  social_website: u(place.social_website),
+});
 
 const allowedVerificationLevels: Place["verification"][] = [
   "unverified",
@@ -163,26 +154,26 @@ const loadPlacesFromDb = async (
         id: row.id,
         name: row.name,
         category: row.category ?? "unknown",
-        verification: sanitizeVerification(row.verification),
-        lat: Number(row.lat),
-        lng: Number(row.lng),
-        country: row.country ?? "",
-        city: row.city ?? "",
-        address: row.address ?? undefined,
-        address_full: row.address ?? undefined,
-        about: row.about ?? undefined,
-        paymentNote: undefined,
-        accepted: row.accepted_chains ?? [],
-        website: undefined,
-        phone: undefined,
-        twitter: undefined,
-        instagram: undefined,
-        facebook: undefined,
-        amenities: [],
-        submitterName: undefined,
-        images: [],
-        updatedAt: undefined,
-      };
+      verification: sanitizeVerification(row.verification),
+      lat: Number(row.lat),
+      lng: Number(row.lng),
+      country: row.country ?? "",
+      city: row.city ?? "",
+      address: u(row.address),
+      address_full: u(row.address),
+      about: u(row.about),
+      paymentNote: undefined,
+      accepted: row.accepted_chains ?? [],
+      website: undefined,
+      phone: undefined,
+      twitter: undefined,
+      instagram: undefined,
+      facebook: undefined,
+      amenities: [],
+      submitterName: undefined,
+      images: [],
+      updatedAt: undefined,
+    };
 
       return base;
     });
