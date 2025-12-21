@@ -8,6 +8,37 @@ import type { Place } from "@/types/places";
 const getPlaceChains = (place: Place) =>
   place.supported_crypto?.length ? place.supported_crypto : place.accepted ?? [];
 
+const optionalStringKeys = [
+  "address",
+  "address_full",
+  "about",
+  "paymentNote",
+  "website",
+  "phone",
+  "twitter",
+  "instagram",
+  "facebook",
+  "submitterName",
+  "updatedAt",
+  "coverImage",
+  "description",
+  "social_twitter",
+  "social_instagram",
+  "social_website",
+] satisfies (keyof Place)[];
+
+const sanitizeOptionalStrings = (place: Place): Place => {
+  const sanitized = { ...place } as Place;
+
+  for (const key of optionalStringKeys) {
+    if (sanitized[key] === null) {
+      sanitized[key] = undefined as Place[typeof key];
+    }
+  }
+
+  return sanitized;
+};
+
 const allowedVerificationLevels: Place["verification"][] = [
   "unverified",
   "owner",
@@ -137,20 +168,20 @@ const loadPlacesFromDb = async (
         lng: Number(row.lng),
         country: row.country ?? "",
         city: row.city ?? "",
-        address: row.address ?? null,
-        address_full: row.address ?? null,
-        about: row.about ?? null,
-        paymentNote: null,
+        address: row.address ?? undefined,
+        address_full: row.address ?? undefined,
+        about: row.about ?? undefined,
+        paymentNote: undefined,
         accepted: row.accepted_chains ?? [],
-        website: null,
-        phone: null,
-        twitter: null,
-        instagram: null,
-        facebook: null,
+        website: undefined,
+        phone: undefined,
+        twitter: undefined,
+        instagram: undefined,
+        facebook: undefined,
         amenities: [],
-        submitterName: null,
+        submitterName: undefined,
         images: [],
-        updatedAt: null,
+        updatedAt: undefined,
       };
 
       return base;
@@ -225,5 +256,5 @@ export async function GET(request: NextRequest) {
     return true;
   });
 
-  return NextResponse.json(filtered);
+  return NextResponse.json(filtered.map(sanitizeOptionalStrings));
 }
