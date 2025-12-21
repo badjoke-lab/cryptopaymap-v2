@@ -8,6 +8,21 @@ import type { Place } from "@/types/places";
 const getPlaceChains = (place: Place) =>
   place.supported_crypto?.length ? place.supported_crypto : place.accepted ?? [];
 
+const allowedVerificationLevels: Place["verification"][] = [
+  "unverified",
+  "owner",
+  "directory",
+  "community",
+];
+
+const sanitizeVerification = (value: string | null): Place["verification"] => {
+  if (value && allowedVerificationLevels.includes(value as Place["verification"])) {
+    return value as Place["verification"];
+  }
+
+  return "unverified";
+};
+
 const loadPlacesFromDb = async (
   filters: {
     category: string | null;
@@ -52,18 +67,47 @@ const loadPlacesFromDb = async (
       where.push(`p.city = $${params.length}`);
     }
 
+    where.push("p.lat IS NOT NULL");
+    where.push("p.lng IS NOT NULL");
+
     const hasVerifications = Boolean(tableChecks[0]?.verifications);
     const hasPayments = Boolean(tableChecks[0]?.payments);
 
-    const verificationSelect = hasVerifications ? ", COALESCE(v.status, 'unverified') AS verification" : ", 'unverified'::text AS verification";
+    const verificationColumns = hasVerifications
+      ? await client.query<{ column_name: string }>(
+          `SELECT column_name
+           FROM information_schema.columns
+           WHERE table_schema = 'public' AND table_name = 'verifications' AND column_name IN ('level', 'status')`,
+        )
+      : null;
+
+    const hasVerificationLevel = Boolean(verificationColumns?.rows.some((row) => row.column_name === "level"));
+    const hasVerificationStatus = Boolean(verificationColumns?.rows.some((row) => row.column_name === "status"));
+
+    const verificationField = hasVerifications && hasVerificationLevel ? "v.level" : null;
+    const reviewField = hasVerifications && hasVerificationStatus ? "v.status" : null;
+
+    const verificationSelect = verificationField
+      ? `, COALESCE(${verificationField}, 'unverified') AS verification`
+      : ", 'unverified'::text AS verification";
+
+    const reviewSelect = reviewField ? `, ${reviewField} AS review_status` : ", NULL::text AS review_status";
+
     const paymentsSelect = hasPayments ? ", array_agg(DISTINCT pa.asset) FILTER (WHERE pa.asset IS NOT NULL) AS accepted_chains" : "";
     const joinVerification = hasVerifications ? " LEFT JOIN verifications v ON v.place_id = p.id" : "";
     const joinPayments = hasPayments ? " LEFT JOIN payment_accepts pa ON pa.place_id = p.id" : "";
-    const groupBy = hasPayments
-      ? `GROUP BY p.id, p.name, p.category, p.city, p.country, p.lat, p.lng, p.address, p.about${hasVerifications ? ", v.status" : ""}`
-      : "";
 
-    const query = `SELECT p.id, p.name, p.category, p.city, p.country, p.lat, p.lng, p.address, p.about${verificationSelect}${paymentsSelect}
+    const groupByColumns = ["p.id", "p.name", "p.category", "p.city", "p.country", "p.lat", "p.lng", "p.address", "p.about"];
+    if (verificationField) {
+      groupByColumns.push(verificationField);
+    }
+    if (reviewField) {
+      groupByColumns.push(reviewField);
+    }
+
+    const groupBy = hasPayments ? `GROUP BY ${Array.from(new Set(groupByColumns)).join(", ")}` : "";
+
+    const query = `SELECT p.id, p.name, p.category, p.city, p.country, p.lat, p.lng, p.address, p.about${verificationSelect}${reviewSelect}${paymentsSelect}
       FROM places p${joinVerification}${joinPayments}
       ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
       ${groupBy}`;
@@ -78,7 +122,8 @@ const loadPlacesFromDb = async (
       lng: number;
       address: string | null;
       about: string | null;
-      verification: Place["verification"];
+      verification: string | null;
+      review_status: string | null;
       accepted_chains?: string[] | null;
     }>(query, params);
 
@@ -87,19 +132,26 @@ const loadPlacesFromDb = async (
         id: row.id,
         name: row.name,
         category: row.category ?? "unknown",
-        verification: row.verification ?? "unverified",
+        verification: sanitizeVerification(row.verification),
         lat: Number(row.lat),
         lng: Number(row.lng),
         country: row.country ?? "",
         city: row.city ?? "",
-        address: row.address ?? undefined,
-        address_full: row.address ?? undefined,
-        about: row.about ?? undefined,
+        address: row.address ?? null,
+        address_full: row.address ?? null,
+        about: row.about ?? null,
+        paymentNote: null,
+        accepted: row.accepted_chains ?? [],
+        website: null,
+        phone: null,
+        twitter: null,
+        instagram: null,
+        facebook: null,
+        amenities: [],
+        submitterName: null,
+        images: [],
+        updatedAt: null,
       };
-
-      if (hasPayments) {
-        base.accepted = row.accepted_chains ?? undefined;
-      }
 
       return base;
     });
@@ -138,6 +190,15 @@ export async function GET(request: NextRequest) {
   const hasVerificationFilters = verificationFilters.length > 0;
 
   const filtered = sourcePlaces.filter((place) => {
+    if (
+      place.lat === null ||
+      place.lng === null ||
+      Number.isNaN(place.lat) ||
+      Number.isNaN(place.lng)
+    ) {
+      return false;
+    }
+
     if (category && place.category !== category) {
       return false;
     }
