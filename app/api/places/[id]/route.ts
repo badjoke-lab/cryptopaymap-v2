@@ -96,8 +96,8 @@ const normalizeAccepted = (payments: PaymentAccept[], fallback?: string[]): stri
   const seen = new Set<string>();
 
   for (const payment of payments) {
-    const asset = payment.asset?.toUpperCase() ?? null;
-    const chain = payment.chain?.toUpperCase() ?? null;
+    const asset = payment.asset?.trim().toUpperCase() ?? null;
+    const chain = payment.chain?.trim().toUpperCase() ?? null;
     let label: string | null = null;
 
     if (chain === "LIGHTNING" || (asset === "BTC" && chain === "LIGHTNING")) {
