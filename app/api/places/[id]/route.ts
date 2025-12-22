@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { PoolClient } from "pg";
 
 import { getDbPool, hasDatabaseUrl } from "@/lib/db";
 import { places as fallbackPlaces } from "@/lib/data/places";
@@ -21,6 +22,8 @@ type Social = {
 type Media = {
   url: string;
 };
+
+type FallbackPlace = (typeof fallbackPlaces)[number];
 
 type DbPlace = {
   id: string;
@@ -61,6 +64,27 @@ const normalizeAmenities = (raw: string | null): string[] => {
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
+};
+
+const normalizeHours = (raw: string | null): string[] | null => {
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      const hours = parsed.map((value) => String(value).trim()).filter(Boolean);
+      return hours.length ? hours : null;
+    }
+  } catch (error) {
+    console.warn("[places-detail] failed to parse hours JSON", error);
+  }
+
+  const hours = raw
+    .split(/\r?\n|,/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  return hours.length ? hours : null;
 };
 
 const normalizeAccepted = (payments: PaymentAccept[], fallback?: string[]): string[] => {
@@ -144,10 +168,36 @@ const pickContactFromSocials = (socials: Social[]) => {
     }
   }
 
+  if (
+    !contact.website &&
+    !contact.phone &&
+    !contact.x &&
+    !contact.instagram &&
+    !contact.facebook
+  ) {
+    return null;
+  }
+
   return contact;
 };
 
-const loadPlaceDetailFromDb = async (id: string) => {
+const hasColumn = (
+  client: PoolClient,
+  table: string,
+  column: string,
+) =>
+  client.query<{ exists: boolean }>(
+    `SELECT EXISTS(
+       SELECT 1
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = $1
+         AND column_name = $2
+     ) AS exists`,
+    [table, column],
+  );
+
+const loadPlaceDetailFromDb = async (id: string, fallbackPlace?: FallbackPlace) => {
   if (!hasDatabaseUrl()) return null;
 
   const pool = getDbPool();
@@ -167,11 +217,21 @@ const loadPlaceDetailFromDb = async (id: string) => {
       return null;
     }
 
+    const hasVerificationLevel = tableChecks[0]?.verifications
+      ? (await hasColumn(client, "verifications", "level")).rows[0]?.exists
+      : false;
+
+    const joinVerification = hasVerificationLevel ? "LEFT JOIN verifications v ON v.place_id = p.id" : "";
+
+    const verificationSelect = hasVerificationLevel
+      ? "COALESCE(v.level, 'unverified') AS verification"
+      : "'unverified'::text AS verification";
+
     const { rows: placeRows } = await client.query<DbPlace>(
       `SELECT p.id, p.name, p.category, p.country, p.city, p.lat, p.lng, p.address, p.about, p.amenities, p.hours,
-        COALESCE(v.level, 'unverified') AS verification
+        ${verificationSelect}
        FROM places p
-       LEFT JOIN verifications v ON v.place_id = p.id
+       ${joinVerification}
        WHERE p.id = $1
        LIMIT 1`,
       [id],
@@ -228,11 +288,12 @@ const loadPlaceDetailFromDb = async (id: string) => {
       city: place.city ?? "",
       about: normalizeAbout(place.about, verification),
       about_short: normalizeAbout(place.about, verification),
-      hours: place.hours ?? null,
+      hours: normalizeHours(place.hours),
       amenities: normalizeAmenities(place.amenities),
-      accepted: normalizeAccepted(payments),
+      accepted: normalizeAccepted(payments, fallbackPlace?.accepted),
       contact: pickContactFromSocials(socials),
       images: normalizeImages(media, verification),
+      media: normalizeImages(media, verification),
       address_full: place.address ?? null,
       location: {
         address1: place.address ?? null,
@@ -242,10 +303,15 @@ const loadPlaceDetailFromDb = async (id: string) => {
       },
       payments: payments.length
         ? {
-            assets: normalizeAccepted(payments),
+            assets: normalizeAccepted(payments, fallbackPlace?.accepted),
             pages: [],
           }
-        : null,
+        : fallbackPlace?.accepted?.length
+          ? {
+              assets: normalizeAccepted([], fallbackPlace.accepted),
+              pages: [],
+            }
+          : null,
       socials,
     };
   } catch (error) {
@@ -272,26 +338,32 @@ const loadFallbackPlace = (id: string) => {
       (place.images ?? []).map((url) => ({ url })),
       verification,
     ),
-    contact: {
-      website: place.website ?? null,
-      phone: place.phone ?? null,
-      x: place.twitter ?? null,
-      instagram: place.instagram ?? null,
-      facebook: place.facebook ?? null,
-    },
+    contact:
+      place.website || place.phone || place.twitter || place.instagram || place.facebook
+        ? {
+            website: place.website ?? null,
+            phone: place.phone ?? null,
+            x: place.twitter ?? null,
+            instagram: place.instagram ?? null,
+            facebook: place.facebook ?? null,
+          }
+        : null,
     payments: place.accepted?.length
       ? {
           assets: normalizeAccepted([], place.accepted),
           pages: [],
         }
       : null,
+    media: normalizeImages((place.images ?? []).map((url) => ({ url })), verification),
   };
 };
 
 export async function GET(_request: NextRequest, { params }: { params: { id: string } }) {
   const { id } = params;
 
-  const dbPlace = await loadPlaceDetailFromDb(id);
+  const fallbackPlace = loadFallbackPlace(id);
+
+  const dbPlace = await loadPlaceDetailFromDb(id, fallbackPlace);
 
   if (dbPlace === undefined) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
@@ -300,8 +372,6 @@ export async function GET(_request: NextRequest, { params }: { params: { id: str
   if (dbPlace) {
     return NextResponse.json(dbPlace);
   }
-
-  const fallbackPlace = loadFallbackPlace(id);
 
   if (!fallbackPlace) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
