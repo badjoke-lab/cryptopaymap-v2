@@ -100,7 +100,12 @@ const normalizeAccepted = (payments: PaymentAccept[], fallback?: string[]): stri
     const chain = payment.chain?.trim().toUpperCase() ?? null;
     let label: string | null = null;
 
-    if (chain === "LIGHTNING" || chain === "LN" || (asset === "BTC" && chain === "LIGHTNING")) {
+    if (
+      chain === "LIGHTNING" ||
+      chain === "LN" ||
+      asset === "LIGHTNING" ||
+      (asset === "BTC" && chain === "LIGHTNING")
+    ) {
       label = "Lightning";
     } else if (asset) {
       label = asset;
@@ -242,7 +247,7 @@ const loadPlaceDetailFromDb = async (id: string, fallbackPlace?: FallbackPlace) 
     );
 
     if (!placeRows.length) {
-      return undefined;
+      return null;
     }
 
     const place = placeRows[0];
@@ -369,17 +374,13 @@ export async function GET(_request: NextRequest, { params }: { params: { id: str
 
   const dbPlace = await loadPlaceDetailFromDb(id, fallbackPlace);
 
-  if (dbPlace === undefined) {
-    return NextResponse.json({ error: "not_found" }, { status: 404 });
-  }
-
   if (dbPlace) {
     return NextResponse.json(dbPlace);
   }
 
-  if (!fallbackPlace) {
-    return NextResponse.json({ error: "not_found" }, { status: 404 });
+  if (fallbackPlace) {
+    return NextResponse.json(fallbackPlace);
   }
 
-  return NextResponse.json(fallbackPlace);
+  return NextResponse.json({ error: "not_found" }, { status: 404 });
 }
