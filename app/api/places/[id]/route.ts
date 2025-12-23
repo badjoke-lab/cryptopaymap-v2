@@ -100,7 +100,7 @@ const normalizeAccepted = (payments: PaymentAccept[], fallback?: string[]): stri
     const chain = payment.chain?.trim().toUpperCase() ?? null;
     let label: string | null = null;
 
-    if (chain === "LIGHTNING" || (asset === "BTC" && chain === "LIGHTNING")) {
+    if (chain === "LIGHTNING" || chain === "LN" || (asset === "BTC" && chain === "LIGHTNING")) {
       label = "Lightning";
     } else if (asset) {
       label = asset;
@@ -112,6 +112,10 @@ const normalizeAccepted = (payments: PaymentAccept[], fallback?: string[]): stri
       seen.add(label);
       normalized.push(label);
     }
+  }
+
+  if (normalized.length === 0 && fallback?.length) {
+    return fallback;
   }
 
   return normalized;
