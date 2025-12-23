@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDbPool, hasDatabaseUrl } from "@/lib/db";
 import { places } from "@/lib/data/places";
 import { normalizeCommaParams } from "@/lib/filters";
+import { normalizeAccepted, type PaymentAccept } from "@/lib/places/normalizeAccepted";
 import type { Place } from "@/types/places";
 
 const getPlaceChains = (place: Place) =>
@@ -114,25 +115,11 @@ const loadPlacesFromDb = async (
       : ", 'unverified'::text AS verification";
 
     const reviewSelect = reviewField ? `, ${reviewField} AS review_status` : ", NULL::text AS review_status";
-
-    const paymentsSelect = hasPayments ? ", array_agg(DISTINCT pa.asset) FILTER (WHERE pa.asset IS NOT NULL) AS accepted_chains" : "";
     const joinVerification = hasVerifications ? " LEFT JOIN verifications v ON v.place_id = p.id" : "";
-    const joinPayments = hasPayments ? " LEFT JOIN payment_accepts pa ON pa.place_id = p.id" : "";
 
-    const groupByColumns = ["p.id", "p.name", "p.category", "p.city", "p.country", "p.lat", "p.lng", "p.address", "p.about"];
-    if (verificationField) {
-      groupByColumns.push(verificationField);
-    }
-    if (reviewField) {
-      groupByColumns.push(reviewField);
-    }
-
-    const groupBy = hasPayments ? `GROUP BY ${Array.from(new Set(groupByColumns)).join(", ")}` : "";
-
-    const query = `SELECT p.id, p.name, p.category, p.city, p.country, p.lat, p.lng, p.address, p.about${verificationSelect}${reviewSelect}${paymentsSelect}
-      FROM places p${joinVerification}${joinPayments}
-      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
-      ${groupBy}`;
+    const query = `SELECT p.id, p.name, p.category, p.city, p.country, p.lat, p.lng, p.address, p.about${verificationSelect}${reviewSelect}
+      FROM places p${joinVerification}
+      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}`;
 
     const { rows } = await client.query<{
       id: string;
@@ -146,34 +133,59 @@ const loadPlacesFromDb = async (
       about: string | null;
       verification: string | null;
       review_status: string | null;
-      accepted_chains?: string[] | null;
     }>(query, params);
 
+    const placeIds = rows.map((row) => row.id);
+    const paymentsByPlace = new Map<string, PaymentAccept[]>();
+
+    if (hasPayments && placeIds.length) {
+      const { rows: paymentRows } = await client.query<{
+        place_id: string;
+        asset: string | null;
+        chain: string | null;
+      }>(
+        `SELECT place_id, asset, chain
+         FROM payment_accepts
+         WHERE place_id = ANY($1::text[])
+         ORDER BY id ASC`,
+        [placeIds],
+      );
+
+      for (const payment of paymentRows) {
+        const payments = paymentsByPlace.get(payment.place_id) ?? [];
+        payments.push({ asset: payment.asset, chain: payment.chain });
+        paymentsByPlace.set(payment.place_id, payments);
+      }
+    }
+
     const mapped = rows.map((row) => {
+      const payments = paymentsByPlace.get(row.id) ?? [];
+      const accepted = hasPayments ? normalizeAccepted(payments) : [];
+
       const base: Place = {
         id: row.id,
         name: row.name,
         category: row.category ?? "unknown",
-      verification: sanitizeVerification(row.verification),
-      lat: Number(row.lat),
-      lng: Number(row.lng),
-      country: row.country ?? "",
-      city: row.city ?? "",
-      address: u(row.address),
-      address_full: u(row.address),
-      about: u(row.about),
-      paymentNote: undefined,
-      accepted: row.accepted_chains ?? [],
-      website: undefined,
-      phone: undefined,
-      twitter: undefined,
-      instagram: undefined,
-      facebook: undefined,
-      amenities: [],
-      submitterName: undefined,
-      images: [],
-      updatedAt: undefined,
-    };
+        verification: sanitizeVerification(row.verification),
+        lat: Number(row.lat),
+        lng: Number(row.lng),
+        country: row.country ?? "",
+        city: row.city ?? "",
+        address: u(row.address),
+        address_full: u(row.address),
+        about: u(row.about),
+        paymentNote: undefined,
+        accepted,
+        website: undefined,
+        phone: undefined,
+        twitter: undefined,
+        instagram: undefined,
+        facebook: undefined,
+        amenities: [],
+        submitterName: undefined,
+        images: [],
+        updatedAt: undefined,
+      };
 
       return base;
     });
