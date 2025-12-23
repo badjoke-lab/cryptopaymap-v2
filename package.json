@@ -10,7 +10,8 @@
     "test": "npm run test:stats",
     "test:stats": "tsc --project tsconfig.test.json && node --test .tmp-tests/tests/*.js && rm -rf .tmp-tests",
     "db:compat-check": "tsx scripts/db_compat_check.ts",
-    "db:migrate:compat": "tsx scripts/db_apply_sql.ts migrations/compat_v3_min.sql"
+    "db:migrate:compat": "tsx scripts/db_apply_sql.ts migrations/compat_v3_min.sql",
+    "db:check": "node scripts/db-check.mjs"
   },
   "dependencies": {
     "leaflet": "^1.9.4",

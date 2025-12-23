@@ -59,6 +59,8 @@ const loadPlacesFromDb = async (
   const pool = getDbPool();
   const client = await pool.connect();
 
+  const fallbackPlacesById = new Map(places.map((place) => [place.id, place]));
+
   try {
     const { rows: tableChecks } = await client.query<{
       present: string | null;
@@ -160,7 +162,11 @@ const loadPlacesFromDb = async (
 
     const mapped = rows.map((row) => {
       const payments = paymentsByPlace.get(row.id) ?? [];
-      const accepted = hasPayments ? normalizeAccepted(payments) : [];
+      const fallback = fallbackPlacesById.get(row.id);
+      const fallbackAccepted = fallback?.accepted ?? fallback?.supported_crypto;
+      const accepted = hasPayments
+        ? normalizeAccepted(payments, fallbackAccepted)
+        : normalizeAccepted([], fallbackAccepted);
 
       const base: Place = {
         id: row.id,
