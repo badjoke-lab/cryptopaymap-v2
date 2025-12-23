@@ -3,7 +3,7 @@ import type { PoolClient } from "pg";
 
 import { getDbPool, hasDatabaseUrl } from "@/lib/db";
 import { places as fallbackPlaces } from "@/lib/data/places";
-import { normalizeAccepted, type PaymentAccept } from "@/lib/places/normalizeAccepted";
+import { normalizeAccepted, type PaymentAccept } from "@/lib/accepted";
 
 const allowedVerificationLevels = ["owner", "community", "directory", "unverified"] as const;
 

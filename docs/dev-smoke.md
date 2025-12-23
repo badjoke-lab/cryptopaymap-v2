@@ -16,4 +16,5 @@ npm run db:check -- antarctica-owner-1
 Expected highlights:
 - List API includes `Lightning` plus on-chain assets such as `BTC`, `ETH`, and `USDT` for `antarctica-owner-1`.
 - Detail API stays reachable (200) and reports the same accepted set including `Lightning`.
+- Accepted assets are normalized via the shared helper used by both routes, so the sets match even when falling back to JSON data.
 - DB smoke-check prints the place row, payment_accepts entries, and any verification record for the requested id.

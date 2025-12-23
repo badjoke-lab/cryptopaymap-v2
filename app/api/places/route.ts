@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDbPool, hasDatabaseUrl } from "@/lib/db";
 import { places } from "@/lib/data/places";
 import { normalizeCommaParams } from "@/lib/filters";
-import { normalizeAccepted, type PaymentAccept } from "@/lib/places/normalizeAccepted";
+import { normalizeAccepted, type PaymentAccept } from "@/lib/accepted";
 import type { Place } from "@/types/places";
 
 const getPlaceChains = (place: Place) =>
