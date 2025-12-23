@@ -35,7 +35,7 @@ type DbPlace = {
   lng: number;
   address: string | null;
   about: string | null;
-  amenities: string | null;
+  amenities: string[] | string | null;
   hours: string | null;
   verification: string | null;
 };
@@ -48,8 +48,12 @@ const sanitizeVerification = (value: string | null): Verification => {
   return "unverified";
 };
 
-const normalizeAmenities = (raw: string | null): string[] => {
+const normalizeAmenities = (raw: string[] | string | null): string[] => {
   if (!raw) return [];
+
+  if (Array.isArray(raw)) {
+    return raw.map((value) => String(value)).filter(Boolean);
+  }
 
   try {
     const parsed = JSON.parse(raw);
@@ -66,8 +70,13 @@ const normalizeAmenities = (raw: string | null): string[] => {
     .filter(Boolean);
 };
 
-const normalizeHours = (raw: string | null): string[] | null => {
+const normalizeHours = (raw: string[] | string | null): string[] | null => {
   if (!raw) return null;
+
+  if (Array.isArray(raw)) {
+    const hours = raw.map((value) => String(value).trim()).filter(Boolean);
+    return hours.length ? hours : null;
+  }
 
   try {
     const parsed = JSON.parse(raw);
@@ -230,14 +239,18 @@ const loadPlaceDetailFromDb = async (id: string, fallbackPlace?: FallbackPlace) 
       ? (await hasColumn(client, "verifications", "level")).rows[0]?.exists
       : false;
 
+    const hasHours = (await hasColumn(client, "places", "hours")).rows[0]?.exists;
+
     const joinVerification = hasVerificationLevel ? "LEFT JOIN verifications v ON v.place_id = p.id" : "";
 
     const verificationSelect = hasVerificationLevel
       ? "COALESCE(v.level, 'unverified') AS verification"
       : "'unverified'::text AS verification";
 
+    const hoursSelect = hasHours ? "p.hours" : "NULL::text AS hours";
+
     const { rows: placeRows } = await client.query<DbPlace>(
-      `SELECT p.id, p.name, p.category, p.country, p.city, p.lat, p.lng, p.address, p.about, p.amenities, p.hours,
+      `SELECT p.id, p.name, p.category, p.country, p.city, p.lat, p.lng, p.address, p.about, p.amenities, ${hoursSelect},
         ${verificationSelect}
        FROM places p
        ${joinVerification}
@@ -324,7 +337,8 @@ const loadPlaceDetailFromDb = async (id: string, fallbackPlace?: FallbackPlace) 
       socials,
     };
   } catch (error) {
-    console.error("[places-detail] failed to load from database", error);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("[places-detail] failed to load from database", message);
     return null;
   } finally {
     client.release();
