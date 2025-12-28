@@ -42,7 +42,6 @@ const sanitizeVerification = (value: string | null): Place["verification"] => {
   if (value && allowedVerificationLevels.includes(value as Place["verification"])) {
     return value as Place["verification"];
   }
-
   return "unverified";
 };
 
@@ -79,6 +78,7 @@ const loadPlacesFromDb = async (
 
     const where: string[] = [];
     const params: unknown[] = [];
+
     if (filters.category) {
       params.push(filters.category);
       where.push(`p.category = $${params.length}`);
@@ -102,12 +102,18 @@ const loadPlacesFromDb = async (
       ? await client.query<{ column_name: string }>(
           `SELECT column_name
            FROM information_schema.columns
-           WHERE table_schema = 'public' AND table_name = 'verifications' AND column_name IN ('level', 'status')`,
+           WHERE table_schema = 'public'
+             AND table_name = 'verifications'
+             AND column_name IN ('level', 'status')`,
         )
       : null;
 
-    const hasVerificationLevel = Boolean(verificationColumns?.rows.some((row) => row.column_name === "level"));
-    const hasVerificationStatus = Boolean(verificationColumns?.rows.some((row) => row.column_name === "status"));
+    const hasVerificationLevel = Boolean(
+      verificationColumns?.rows.some((row) => row.column_name === "level"),
+    );
+    const hasVerificationStatus = Boolean(
+      verificationColumns?.rows.some((row) => row.column_name === "status"),
+    );
 
     const verificationField = hasVerifications && hasVerificationLevel ? "v.level" : null;
     const reviewField = hasVerifications && hasVerificationStatus ? "v.status" : null;
@@ -140,22 +146,42 @@ const loadPlacesFromDb = async (
     const placeIds = rows.map((row) => row.id);
     const paymentsByPlace = new Map<string, PaymentAccept[]>();
 
+    let hasPreferredFlag = false;
+    if (hasPayments) {
+      const { rows: paymentCols } = await client.query<{ column_name: string }>(
+        `SELECT column_name
+         FROM information_schema.columns
+         WHERE table_schema = 'public'
+           AND table_name = 'payment_accepts'
+           AND column_name IN ('is_preferred')`,
+      );
+      hasPreferredFlag = paymentCols.some((r) => r.column_name === "is_preferred");
+    }
+
     if (hasPayments && placeIds.length) {
+      const preferredSelect = hasPreferredFlag ? "is_preferred" : "NULL::boolean AS is_preferred";
+      const preferredOrder = hasPreferredFlag ? "is_preferred DESC NULLS LAST," : "";
+
       const { rows: paymentRows } = await client.query<{
         place_id: string;
         asset: string | null;
         chain: string | null;
+        is_preferred: boolean | null;
       }>(
-        `SELECT place_id, asset, chain
+        `SELECT place_id, asset, chain, ${preferredSelect}
          FROM payment_accepts
          WHERE place_id = ANY($1::text[])
-         ORDER BY id ASC`,
+         ORDER BY place_id ASC, ${preferredOrder} id ASC`,
         [placeIds],
       );
 
       for (const payment of paymentRows) {
         const payments = paymentsByPlace.get(payment.place_id) ?? [];
-        payments.push({ asset: payment.asset, chain: payment.chain });
+        payments.push({
+          asset: payment.asset,
+          chain: payment.chain,
+          is_preferred: payment.is_preferred,
+        });
         paymentsByPlace.set(payment.place_id, payments);
       }
     }
@@ -164,6 +190,7 @@ const loadPlacesFromDb = async (
       const payments = paymentsByPlace.get(row.id) ?? [];
       const fallback = fallbackPlacesById.get(row.id);
       const fallbackAccepted = fallback?.accepted ?? fallback?.supported_crypto;
+
       const accepted = hasPayments
         ? normalizeAccepted(payments, fallbackAccepted)
         : normalizeAccepted([], fallbackAccepted);

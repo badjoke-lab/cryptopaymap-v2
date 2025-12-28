@@ -40,7 +40,6 @@ const sanitizeVerification = (value: string | null): Verification => {
   if (value && allowedVerificationLevels.includes(value as Verification)) {
     return value as Verification;
   }
-
   return "unverified";
 };
 
@@ -96,7 +95,6 @@ const normalizeAbout = (value: string | null, verification: Verification) => {
   if (verification === "unverified") {
     return "";
   }
-
   return value ?? "";
 };
 
@@ -104,7 +102,6 @@ const normalizeImages = (media: Media[], verification: Verification) => {
   if (verification === "directory" || verification === "unverified") {
     return [] as string[];
   }
-
   return media.map((item) => item.url).filter(Boolean);
 };
 
@@ -143,24 +140,14 @@ const pickContactFromSocials = (socials: Social[]) => {
     }
   }
 
-  if (
-    !contact.website &&
-    !contact.phone &&
-    !contact.x &&
-    !contact.instagram &&
-    !contact.facebook
-  ) {
+  if (!contact.website && !contact.phone && !contact.x && !contact.instagram && !contact.facebook) {
     return null;
   }
 
   return contact;
 };
 
-const hasColumn = (
-  client: PoolClient,
-  table: string,
-  column: string,
-) =>
+const hasColumn = (client: PoolClient, table: string, column: string) =>
   client.query<{ exists: boolean }>(
     `SELECT EXISTS(
        SELECT 1
@@ -223,12 +210,18 @@ const loadPlaceDetailFromDb = async (id: string, fallbackPlace?: FallbackPlace) 
     const place = placeRows[0];
     const verification = sanitizeVerification(place.verification);
 
+    const hasPreferredFlag =
+      tableChecks[0]?.payment_accepts
+        ? (await hasColumn(client, "payment_accepts", "is_preferred")).rows[0]?.exists
+        : false;
+
     const payments: PaymentAccept[] = tableChecks[0]?.payment_accepts
       ? (
           await client.query<PaymentAccept>(
-            `SELECT asset, chain
+            `SELECT asset, chain, ${hasPreferredFlag ? "is_preferred" : "NULL::boolean AS is_preferred"}
              FROM payment_accepts
-             WHERE place_id = $1`,
+             WHERE place_id = $1
+             ORDER BY ${hasPreferredFlag ? "is_preferred DESC NULLS LAST," : ""} id ASC`,
             [id],
           )
         ).rows
@@ -314,10 +307,7 @@ const loadFallbackPlace = (id: string) => {
     about: normalizeAbout(place.about ?? null, verification),
     about_short: normalizeAbout(place.about ?? null, verification),
     amenities: place.amenities ?? [],
-    images: normalizeImages(
-      (place.images ?? []).map((url) => ({ url })),
-      verification,
-    ),
+    images: normalizeImages((place.images ?? []).map((url) => ({ url })), verification),
     contact:
       place.website || place.phone || place.twitter || place.instagram || place.facebook
         ? {
@@ -342,7 +332,6 @@ export async function GET(_request: NextRequest, { params }: { params: { id: str
   const { id } = params;
 
   const fallbackPlace = loadFallbackPlace(id);
-
   const dbPlace = await loadPlaceDetailFromDb(id, fallbackPlace);
 
   if (dbPlace) {
