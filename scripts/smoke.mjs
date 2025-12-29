@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 import process from "node:process";
+import { normalizeAccepted } from "../lib/accepted.ts";
 
 const PORT = Number(process.env.PORT ?? 3100);
 const BASE_URL = process.env.SMOKE_BASE_URL ?? `http://localhost:${PORT}`;
@@ -43,6 +44,33 @@ const assertArrayEqual = (actual, expected, label) => {
       );
     }
   }
+};
+
+const assertUnique = (values, label) => {
+  const uniqueCount = new Set(values).size;
+  if (uniqueCount !== values.length) {
+    throw new Error(`${label} accepted has duplicates: ${JSON.stringify(values)}`);
+  }
+};
+
+const runUnitChecks = () => {
+  const payments = [
+    { asset: "ETH", chain: null, is_preferred: false },
+    { asset: "BTC", chain: null, is_preferred: true },
+    { asset: "USDT", chain: null, is_preferred: false },
+    { asset: "Lightning", chain: "lightning", is_preferred: true },
+    { asset: "btc", chain: "bitcoin", is_preferred: true },
+  ];
+
+  const expected = ["BTC", "Lightning", "ETH", "USDT"];
+  const normalized = normalizeAccepted(payments);
+  assertArrayEqual(normalized, expected, "unit normalizeAccepted");
+  assertUnique(normalized, "unit normalizeAccepted");
+
+  const secondPass = normalizeAccepted(payments);
+  assertArrayEqual(secondPass, normalized, "unit normalizeAccepted stability");
+
+  log("ok unit normalizeAccepted");
 };
 
 const checkDetail = async (id, { verification, accepted }) => {
@@ -96,7 +124,7 @@ const expectations = [
 
 const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
 
-const main = async () => {
+const runApiChecks = async () => {
   log(`starting dev server on :${PORT}`);
 
   const serverProcess = spawn(npmCmd, ["run", "dev", "--", "-p", String(PORT)], {
@@ -132,13 +160,28 @@ const main = async () => {
     }
 
     await checkList();
+    log("ok api");
+  } finally {
+    cleanup();
+  }
+};
+
+const main = async () => {
+  try {
+    runUnitChecks();
+
+    if (!process.env.DATABASE_URL) {
+      log("skip api checks (DATABASE_URL missing)");
+      log("PASS");
+      return;
+    }
+
+    await runApiChecks();
     log("PASS");
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`[smoke] FAIL: ${message}`);
     process.exitCode = 1;
-  } finally {
-    cleanup();
   }
 };
 
