@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 import process from "node:process";
+import { Pool } from "pg";
 import { normalizeAccepted } from "../lib/accepted.ts";
 
 const PORT = Number(process.env.PORT ?? 3100);
@@ -166,16 +167,119 @@ const runApiChecks = async () => {
   }
 };
 
+const runDbChecks = async () => {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) {
+    throw new Error("DATABASE_URL missing");
+  }
+
+  const pool = new Pool({ connectionString: databaseUrl });
+  const client = await pool.connect();
+
+  const antarcticaExpectations = {
+    "antarctica-owner-1": "owner",
+    "antarctica-community-1": "community",
+    "antarctica-directory-1": "directory",
+    "antarctica-unverified-1": "unverified",
+  };
+
+  try {
+    const { rows: placeCountRows } = await client.query("SELECT COUNT(*)::int AS count FROM places");
+    const placeCount = placeCountRows[0]?.count ?? 0;
+    if (placeCount <= 0) {
+      throw new Error("places count is 0");
+    }
+
+    const { rows: placeSampleRows } = await client.query(
+      "SELECT id, name, geom, lat, lng FROM places LIMIT 50",
+    );
+    for (const place of placeSampleRows) {
+      if (!place?.id || String(place.id).trim() === "") {
+        throw new Error("places sample has empty id");
+      }
+      if (!place?.name || String(place.name).trim() === "") {
+        throw new Error(`places sample ${place.id} has empty name`);
+      }
+      const hasGeom = place.geom != null;
+      const hasLatLng = place.lat != null && place.lng != null;
+      if (!hasGeom && !hasLatLng) {
+        throw new Error(`places sample ${place.id} missing geom/lat/lng`);
+      }
+    }
+
+    const { rows: verificationCountRows } = await client.query(
+      "SELECT COUNT(*)::int AS count FROM verifications",
+    );
+    const verificationCount = verificationCountRows[0]?.count ?? 0;
+    if (verificationCount <= 0) {
+      throw new Error("verifications count is 0");
+    }
+
+    const { rows: invalidLevelRows } = await client.query(
+      `SELECT place_id, level FROM verifications
+       WHERE level NOT IN ('owner', 'community', 'directory', 'unverified')
+       LIMIT 1`,
+    );
+    if (invalidLevelRows.length > 0) {
+      throw new Error(`invalid level: ${invalidLevelRows[0].level}`);
+    }
+
+    const { rows: invalidStatusRows } = await client.query(
+      `SELECT place_id, status FROM verifications
+       WHERE status NOT IN ('approved', 'pending', 'rejected')
+       LIMIT 1`,
+    );
+    if (invalidStatusRows.length > 0) {
+      throw new Error(`invalid status: ${invalidStatusRows[0].status}`);
+    }
+
+    const antarcticaIds = Object.keys(antarcticaExpectations);
+    const { rows: antarcticaPlaces } = await client.query(
+      "SELECT id FROM places WHERE id = ANY($1)",
+      [antarcticaIds],
+    );
+    const foundPlaceIds = new Set(antarcticaPlaces.map((row) => row.id));
+    for (const id of antarcticaIds) {
+      if (!foundPlaceIds.has(id)) {
+        throw new Error(`missing ${id} in places`);
+      }
+    }
+
+    const { rows: antarcticaVerifications } = await client.query(
+      "SELECT place_id, level FROM verifications WHERE place_id = ANY($1)",
+      [antarcticaIds],
+    );
+    const verificationByPlace = new Map(
+      antarcticaVerifications.map((row) => [row.place_id, row.level]),
+    );
+    for (const [id, expectedLevel] of Object.entries(antarcticaExpectations)) {
+      const actualLevel = verificationByPlace.get(id);
+      if (!actualLevel) {
+        throw new Error(`missing ${id} in verifications`);
+      }
+      if (actualLevel !== expectedLevel) {
+        throw new Error(`verification level mismatch for ${id}: expected ${expectedLevel}`);
+      }
+    }
+
+    log("ok db sanity");
+  } finally {
+    client.release();
+    await pool.end();
+  }
+};
+
 const main = async () => {
   try {
     runUnitChecks();
 
     if (!process.env.DATABASE_URL) {
-      log("skip api checks (DATABASE_URL missing)");
+      log("skip db/api checks (DATABASE_URL missing)");
       log("PASS");
       return;
     }
 
+    await runDbChecks();
     await runApiChecks();
     log("PASS");
   } catch (error) {
