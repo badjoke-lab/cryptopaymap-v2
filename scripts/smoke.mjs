@@ -58,6 +58,16 @@ const waitForReady = async (url, { timeoutMs = 30000, intervalMs = 500 } = {}) =
   throw new Error(`timed out waiting for ${url}`);
 };
 
+const readBodySnippet = async (response, limit = 200) => {
+  try {
+    const text = await response.text();
+    if (!text) return "<empty body>";
+    return text.length > limit ? `${text.slice(0, limit)}…` : text;
+  } catch {
+    return "<unreadable body>";
+  }
+};
+
 const assertArrayEqual = (actual, expected, label) => {
   if (!Array.isArray(actual)) {
     throw new Error(`${label} accepted is not an array`);
@@ -105,7 +115,10 @@ const runUnitChecks = () => {
 
 const checkDetail = async (id, { verification, accepted }) => {
   const response = await fetchWithRetry(`${BASE_URL}/api/places/${id}`, {}, { label: `detail ${id}` });
-  if (!response.ok) throw new Error(`detail ${id} returned ${response.status}`);
+  if (!response.ok) {
+    const snippet = await readBodySnippet(response);
+    throw new Error(`detail ${id} returned ${response.status}: ${snippet}`);
+  }
 
   let body;
   try {
@@ -115,19 +128,28 @@ const checkDetail = async (id, { verification, accepted }) => {
   }
 
   if (!body || typeof body !== "object") throw new Error(`detail ${id} returned non-object JSON`);
+  if (!("verification" in body)) {
+    throw new Error(`detail ${id} missing verification field`);
+  }
   if (body.verification !== verification) {
     throw new Error(
       `detail ${id} verification mismatch: expected ${verification}, got ${body.verification}`,
     );
   }
 
+  if (!("accepted" in body)) {
+    throw new Error(`detail ${id} missing accepted field`);
+  }
   assertArrayEqual(body.accepted, accepted, `detail ${id}`);
   log(`ok detail ${id}`);
 };
 
 const checkList = async () => {
   const response = await fetchWithRetry(`${BASE_URL}/api/places?country=AQ`, {}, { label: "list country=AQ" });
-  if (!response.ok) throw new Error(`list country=AQ returned ${response.status}`);
+  if (!response.ok) {
+    const snippet = await readBodySnippet(response);
+    throw new Error(`list country=AQ returned ${response.status}: ${snippet}`);
+  }
 
   let body;
   try {
@@ -140,6 +162,7 @@ const checkList = async () => {
 
   const record = body.find((place) => place?.id === "antarctica-owner-1");
   if (!record) throw new Error("list country=AQ missing antarctica-owner-1");
+  if (!("accepted" in record)) throw new Error("list country=AQ missing accepted field");
 
   assertArrayEqual(record.accepted, ["BTC", "Lightning", "ETH", "USDT"], "list country=AQ");
   log("ok list country=AQ");
@@ -147,7 +170,10 @@ const checkList = async () => {
 
 const checkHealth = async () => {
   const response = await fetchWithRetry(`${BASE_URL}/api/health`, {}, { label: "health" });
-  if (!response.ok) throw new Error(`health returned ${response.status}`);
+  if (!response.ok) {
+    const snippet = await readBodySnippet(response);
+    throw new Error(`health returned ${response.status}: ${snippet}`);
+  }
 
   let body;
   try {
