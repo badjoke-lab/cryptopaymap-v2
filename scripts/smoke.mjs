@@ -145,6 +145,24 @@ const checkList = async () => {
   log("ok list country=AQ");
 };
 
+const checkHealth = async () => {
+  const response = await fetchWithRetry(`${BASE_URL}/api/health`, {}, { label: "health" });
+  if (!response.ok) throw new Error(`health returned ${response.status}`);
+
+  let body;
+  try {
+    body = await response.json();
+  } catch {
+    throw new Error("health returned invalid JSON");
+  }
+
+  if (!body || typeof body !== "object") throw new Error("health returned non-object JSON");
+  if (!body.ok) throw new Error("health ok flag is false");
+  if (!body.db?.ok) throw new Error("health db ok flag is false");
+
+  log("ok health");
+};
+
 const expectations = [
   ["antarctica-owner-1", { verification: "owner", accepted: ["BTC", "Lightning", "ETH", "USDT"] }],
   ["antarctica-community-1", { verification: "community", accepted: ["BTC", "ETH"] }],
@@ -190,6 +208,7 @@ const runApiChecks = async () => {
     }
 
     await checkList();
+    await checkHealth();
     log("ok api");
   } finally {
     cleanup();
