@@ -32,6 +32,7 @@ const HEADER_HEIGHT = 0;
 
 const DEFAULT_COORDINATES: [number, number] = [20, 0];
 const DEFAULT_ZOOM = 2;
+const PAGE_LIMIT = 200;
 
 const PIN_SVGS: Record<PinType, string> = {
   owner: `<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><g><path d="M16 2 C10 2,6 6.5,6 12 C6 20,16 30,16 30 C16 30,26 20,26 12 C26 6.5,22 2,16 2Z" fill="#F59E0B" stroke="white" stroke-width="2"/><circle cx="16" cy="12" r="4" fill="white"/></g></svg>`,
@@ -59,12 +60,19 @@ export default function MapClient() {
   const fetchPlacesRef = useRef<() => Promise<void>>();
   const leafletRef = useRef<typeof import("leaflet") | null>(null);
   const markersRef = useRef<Map<string, import("leaflet").Marker>>(new Map());
+  const idleCallbackRef = useRef<number | null>(null);
+  const paginationOffsetRef = useRef(0);
+  const paginationHasMoreRef = useRef(true);
+  const paginationInFlightRef = useRef(false);
+  const paginationGenerationRef = useRef(0);
   const filtersRef = useRef<FilterState>(defaultFilterState);
   const [places, setPlaces] = useState<Place[]>([]);
   const [placesStatus, setPlacesStatus] = useState<
     "idle" | "loading" | "success" | "error"
   >("loading");
   const [placesError, setPlacesError] = useState<string | null>(null);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMorePlaces, setHasMorePlaces] = useState(true);
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<"full" | null>(null);
@@ -244,6 +252,27 @@ export default function MapClient() {
 
       if (!isMounted || !mapContainerRef.current || mapInstanceRef.current) return;
 
+      const clearIdleCallback = () => {
+        if (idleCallbackRef.current === null) return;
+        if ("cancelIdleCallback" in window) {
+          window.cancelIdleCallback(idleCallbackRef.current);
+        } else {
+          window.clearTimeout(idleCallbackRef.current);
+        }
+        idleCallbackRef.current = null;
+      };
+
+      const scheduleIdle = (callback: () => void) => {
+        clearIdleCallback();
+        if ("requestIdleCallback" in window) {
+          idleCallbackRef.current = window.requestIdleCallback(callback, {
+            timeout: 1200,
+          });
+        } else {
+          idleCallbackRef.current = window.setTimeout(callback, 300);
+        }
+      };
+
       // --- MAP 初期化 ---
       const map = L.map(mapContainerRef.current, {
         zoomControl: true,
@@ -258,50 +287,108 @@ export default function MapClient() {
       markerLayer.addTo(map);
       markerLayerRef.current = markerLayer;
 
-      const fetchPlacesAndBuildIndex = async () => {
-        if (!isMounted) return;
+      const loadPlacesPage = async ({
+        offset,
+        replace,
+      }: {
+        offset: number;
+        replace: boolean;
+      }) => {
+        if (!isMounted || paginationInFlightRef.current) return;
 
-        setPlacesStatus("loading");
-        setPlacesError(null);
+        paginationInFlightRef.current = true;
+        const generation = paginationGenerationRef.current;
+
+        if (replace) {
+          setPlacesStatus("loading");
+          setPlacesError(null);
+          setIsLoadingMore(false);
+        } else {
+          setIsLoadingMore(true);
+        }
+
         try {
           const filters = filtersRef.current;
           const query = buildQueryFromFilters(filters);
           const params = new URLSearchParams(query.replace("?", ""));
-          const useAllMode = Boolean(filters.country || filters.city);
+          params.set("limit", String(PAGE_LIMIT));
+          params.set("offset", String(offset));
+          const pageQuery = params.toString();
+          const page = await safeFetch<Place[]>(
+            `/api/places${pageQuery ? `?${pageQuery}` : ""}`,
+          );
 
-          let fetchedPlaces: Place[] = [];
-          if (useAllMode) {
-            params.set("mode", "all");
-            const modeQuery = params.toString();
-            fetchedPlaces = await safeFetch<Place[]>(`/api/places${modeQuery ? `?${modeQuery}` : ""}`);
-          } else {
-            const limit = 500;
-            let offset = 0;
-            params.set("limit", String(limit));
-            while (true) {
-              params.set("offset", String(offset));
-              const pageQuery = params.toString();
-              const page = await safeFetch<Place[]>(`/api/places${pageQuery ? `?${pageQuery}` : ""}`);
-              fetchedPlaces = fetchedPlaces.concat(page);
-              if (page.length < limit) {
-                break;
-              }
-              offset += limit;
-            }
-          }
-          if (!isMounted) return;
-          setPlaces(fetchedPlaces);
-          const pins = fetchedPlaces.map(placeToPin);
-          clusterIndexRef.current = createSuperclusterIndex(pins);
-          updateVisibleMarkers();
+          if (!isMounted || paginationGenerationRef.current !== generation) return;
+
+          const hasMore = page.length === PAGE_LIMIT;
+          paginationHasMoreRef.current = hasMore;
+          setHasMorePlaces(hasMore);
+
+          paginationOffsetRef.current = offset + page.length;
+
+          setPlaces((prev) => {
+            const next = replace ? page : prev.concat(page);
+            clusterIndexRef.current = createSuperclusterIndex(
+              next.map(placeToPin),
+            );
+            updateVisibleMarkers();
+            return next;
+          });
+
           setPlacesStatus("success");
         } catch (error) {
           console.error(error);
+          if (paginationGenerationRef.current !== generation) {
+            return;
+          }
           if (!isMounted) return;
           setPlacesError(
             "Failed to load places. Please try again.\nスポット情報の取得に失敗しました。再読み込みしてください。",
           );
           setPlacesStatus("error");
+          paginationHasMoreRef.current = false;
+          setHasMorePlaces(false);
+        } finally {
+          paginationInFlightRef.current = false;
+          setIsLoadingMore(false);
+          if (paginationGenerationRef.current !== generation) {
+            return;
+          }
+          if (isMounted && paginationHasMoreRef.current) {
+            scheduleNextPage();
+          }
+        }
+      };
+
+      const loadNextPage = () => {
+        if (!paginationHasMoreRef.current || paginationInFlightRef.current) return;
+        loadPlacesPage({ offset: paginationOffsetRef.current, replace: false });
+      };
+
+      const scheduleNextPage = () => {
+        if (!paginationHasMoreRef.current || paginationInFlightRef.current) return;
+        scheduleIdle(() => {
+          if (!paginationHasMoreRef.current || paginationInFlightRef.current) return;
+          loadNextPage();
+        });
+      };
+
+      const fetchPlacesAndBuildIndex = async () => {
+        if (!isMounted) return;
+        clearIdleCallback();
+        paginationGenerationRef.current += 1;
+        paginationOffsetRef.current = 0;
+        paginationHasMoreRef.current = true;
+        paginationInFlightRef.current = false;
+        setIsLoadingMore(false);
+        setHasMorePlaces(true);
+        setPlaces([]);
+        clusterIndexRef.current = createSuperclusterIndex([]);
+        updateVisibleMarkers();
+        await loadPlacesPage({ offset: 0, replace: true });
+        if (!isMounted) return;
+        if (paginationHasMoreRef.current) {
+          scheduleNextPage();
         }
       };
 
@@ -317,6 +404,14 @@ export default function MapClient() {
     return () => {
       isMounted = false;
       stopRenderFrame();
+      if (idleCallbackRef.current !== null) {
+        if ("cancelIdleCallback" in window) {
+          window.cancelIdleCallback(idleCallbackRef.current);
+        } else {
+          window.clearTimeout(idleCallbackRef.current);
+        }
+        idleCallbackRef.current = null;
+      }
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
@@ -416,6 +511,12 @@ export default function MapClient() {
                 <div className="max-h-48 overflow-y-auto rounded-xl border border-gray-100 p-2">
                   {renderPlaceList()}
                 </div>
+                {isLoadingMore && (
+                  <div className="flex items-center gap-2 text-xs font-semibold text-gray-500">
+                    <span className="h-3 w-3 animate-spin rounded-full border-2 border-blue-200 border-t-blue-500" />
+                    Loading more…
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -553,7 +654,20 @@ export default function MapClient() {
             Showing {places.length} place{places.length === 1 ? "" : "s"}
           </div>
           <div className="mt-4 h-px bg-gray-100" />
-          <div className="mt-4 flex flex-col gap-2">{renderPlaceList()}</div>
+          <div className="mt-4 flex flex-col gap-2">
+            {renderPlaceList()}
+            {isLoadingMore && (
+              <div className="flex items-center gap-2 rounded-md bg-white px-3 py-2 text-xs font-semibold text-gray-500 shadow-sm">
+                <span className="h-3 w-3 animate-spin rounded-full border-2 border-blue-200 border-t-blue-500" />
+                Loading more…
+              </div>
+            )}
+            {!hasMorePlaces && places.length > 0 && !placesError && (
+              <div className="text-xs font-semibold text-gray-400">
+                All places loaded.
+              </div>
+            )}
+          </div>
         </div>
       </aside>
       <div className="relative flex-1 bg-gray-50">
