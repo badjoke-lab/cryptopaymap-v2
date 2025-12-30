@@ -1,3 +1,4 @@
+import { normalizeAccepted } from "@/lib/accepted";
 import type { Place } from "@/types/places";
 
 type CountryNameMap = Record<string, string>;
@@ -13,6 +14,7 @@ const COUNTRY_NAMES: CountryNameMap = {
 export type FilterMeta = {
   categories: string[];
   chains: string[];
+  payments: string[];
   countries: { code: string; name: string }[];
   citiesByCountry: Record<string, string[]>;
   verificationStatuses: Place["verification"][];
@@ -21,14 +23,21 @@ export type FilterMeta = {
 export const deriveFilterMeta = (places: Place[]): FilterMeta => {
   const categorySet = new Set<string>();
   const chainSet = new Set<string>();
+  const paymentSet = new Set<string>();
   const countrySet = new Set<string>();
   const citiesMap = new Map<string, Set<string>>();
   const verificationSet = new Set<Place["verification"]>();
 
   places.forEach((place) => {
     if (place.category) categorySet.add(place.category);
-    (place.supported_crypto?.length ? place.supported_crypto : place.accepted ?? []).forEach((chain) => {
+    const acceptedPayments =
+      place.supported_crypto?.length ? place.supported_crypto : place.accepted ?? [];
+    acceptedPayments.forEach((chain) => {
       chainSet.add(chain);
+    });
+    const normalizedPayments = normalizeAccepted([], acceptedPayments);
+    normalizedPayments.forEach((payment) => {
+      paymentSet.add(payment);
     });
     if (place.country) {
       countrySet.add(place.country);
@@ -54,6 +63,7 @@ export const deriveFilterMeta = (places: Place[]): FilterMeta => {
   return {
     categories: Array.from(categorySet).sort((a, b) => a.localeCompare(b)),
     chains: Array.from(chainSet).sort((a, b) => a.localeCompare(b)),
+    payments: Array.from(paymentSet).sort((a, b) => a.localeCompare(b)),
     countries,
     citiesByCountry,
     verificationStatuses: Array.from(verificationSet).sort(),
@@ -63,17 +73,21 @@ export const deriveFilterMeta = (places: Place[]): FilterMeta => {
 export type FilterState = {
   category: string | null;
   chains: string[];
+  payments: string[];
   verifications: Place["verification"][];
   country: string | null;
   city: string | null;
+  search: string;
 };
 
 export const defaultFilterState: FilterState = {
   category: null,
   chains: [],
+  payments: [],
   verifications: [],
   country: null,
   city: null,
+  search: "",
 };
 
 export const normalizeCommaParams = (values: string[]): string[] =>
@@ -94,11 +108,17 @@ export const buildQueryFromFilters = (filters: FilterState): string => {
   if (filters.verifications.length) {
     params.set("verification", filters.verifications.join(","));
   }
+  if (filters.payments.length) {
+    params.set("payment", filters.payments.join(","));
+  }
   if (filters.country) {
     params.set("country", filters.country);
   }
   if (filters.city) {
     params.set("city", filters.city);
+  }
+  if (filters.search.trim()) {
+    params.set("q", filters.search.trim());
   }
 
   const queryString = params.toString();
@@ -111,19 +131,25 @@ export const parseFiltersFromSearchParams = (
 ): FilterState => {
   const availableCategories = new Set(meta?.categories ?? []);
   const availableChains = new Set(meta?.chains ?? []);
+  const availablePayments = new Set(meta?.payments ?? []);
   const availableVerifications = new Set(meta?.verificationStatuses ?? []);
   const availableCountries = new Set((meta?.countries ?? []).map((c) => c.code));
 
   const category = searchParams.get("category");
   const country = searchParams.get("country");
   const city = searchParams.get("city");
+  const search = searchParams.get("q")?.trim() ?? "";
 
   const chains = normalizeCommaParams(searchParams.getAll("chain"));
+  const payments = normalizeCommaParams(searchParams.getAll("payment"));
   const verifications = normalizeCommaParams(searchParams.getAll("verification")) as FilterState["verifications"];
 
   const filteredCategory = category && (!availableCategories.size || availableCategories.has(category)) ? category : null;
   const filteredCountry = country && (!availableCountries.size || availableCountries.has(country)) ? country : null;
   const filteredChains = chains.filter((chain) => !availableChains.size || availableChains.has(chain));
+  const filteredPayments = payments.filter(
+    (payment) => !availablePayments.size || availablePayments.has(payment),
+  );
   const filteredVerifications = verifications.filter(
     (verification) => !availableVerifications.size || availableVerifications.has(verification),
   ) as FilterState["verifications"];
@@ -137,7 +163,9 @@ export const parseFiltersFromSearchParams = (
     category: filteredCategory,
     chains: filteredChains,
     verifications: filteredVerifications,
+    payments: filteredPayments,
     country: filteredCountry,
     city: filteredCity,
+    search,
   };
 };

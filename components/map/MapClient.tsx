@@ -32,8 +32,8 @@ const HEADER_HEIGHT = 0;
 
 const DEFAULT_COORDINATES: [number, number] = [20, 0];
 const DEFAULT_ZOOM = 2;
-const MAX_CLIENT_LIMIT = 1000;
-const BBOX_PRECISION = 5;
+const MAX_CLIENT_LIMIT = 12000;
+const BBOX_PRECISION = 6;
 
 const PIN_SVGS: Record<PinType, string> = {
   owner: `<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><g><path d="M16 2 C10 2,6 6.5,6 12 C6 20,16 30,16 30 C16 30,26 20,26 12 C26 6.5,22 2,16 2Z" fill="#F59E0B" stroke="white" stroke-width="2"/><circle cx="16" cy="12" r="4" fill="white"/></g></svg>`,
@@ -279,7 +279,7 @@ export default function MapClient() {
 
     const getLimitForZoom = (zoom: number) => {
       const rawLimit =
-        zoom <= 2 ? 600 : zoom <= 4 ? 800 : zoom <= 6 ? 1000 : 1000;
+        zoom <= 2 ? 2000 : zoom <= 4 ? 4000 : zoom <= 6 ? 8000 : 12000;
       return Math.min(rawLimit, MAX_CLIENT_LIMIT);
     };
 
@@ -441,9 +441,11 @@ export default function MapClient() {
       Boolean(
         filters.category ||
           filters.chains.length ||
+          filters.payments.length ||
           filters.verifications.length ||
           filters.country ||
-          filters.city,
+          filters.city ||
+          filters.search.trim(),
       ),
     [filters],
   );
@@ -516,7 +518,7 @@ export default function MapClient() {
     if (!places.length) {
       return (
         <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm text-gray-600">
-          No places match the current filters.
+          No places found for current filters.
         </div>
       );
     }

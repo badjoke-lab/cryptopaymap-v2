@@ -23,7 +23,7 @@ const VERIFICATION_LABELS: Record<string, string> = {
 export function FiltersPanel({ filters, meta, onChange, onClear, disabled, showHeading = true }: FiltersPanelProps) {
   const handleCheckboxChange = (
     event: ChangeEvent<HTMLInputElement>,
-    key: "chains" | "verifications",
+    key: "chains" | "payments" | "verifications",
     value: string,
   ) => {
     const current = new Set(filters[key]);
@@ -46,6 +46,18 @@ export function FiltersPanel({ filters, meta, onChange, onClear, disabled, showH
     <div className="flex flex-col gap-4">
       {showHeading && <h3 className="text-sm font-semibold text-gray-900">Filters</h3>}
       <div className="grid grid-cols-1 gap-4 text-sm">
+        <label className="space-y-1">
+          <span className="text-xs font-semibold uppercase tracking-wide text-gray-600">Search</span>
+          <input
+            type="search"
+            className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            placeholder="Search by name or address"
+            value={filters.search}
+            onChange={(event) => onChange({ ...filters, search: event.target.value })}
+            disabled={disabled}
+          />
+        </label>
+
         <label className="space-y-1">
           <span className="text-xs font-semibold uppercase tracking-wide text-gray-600">Category</span>
           <select
@@ -81,6 +93,28 @@ export function FiltersPanel({ filters, meta, onChange, onClear, disabled, showH
               </label>
             ))}
             {!meta && <span className="text-xs text-gray-500">Loading options…</span>}
+          </div>
+        </fieldset>
+
+        <fieldset className="space-y-2">
+          <legend className="text-xs font-semibold uppercase tracking-wide text-gray-600">Payment</legend>
+          <div className="grid max-h-32 grid-cols-2 gap-2 overflow-y-auto rounded-md border border-gray-200 bg-white p-3 text-sm shadow-inner">
+            {meta?.payments.map((payment) => (
+              <label key={payment} className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  checked={filters.payments.includes(payment)}
+                  onChange={(event) => handleCheckboxChange(event, "payments", payment)}
+                  disabled={disabled}
+                />
+                <span>{payment}</span>
+              </label>
+            ))}
+            {!meta && <span className="text-xs text-gray-500">Loading options…</span>}
+            {meta?.payments.length === 0 && (
+              <span className="text-xs text-gray-500">No payment options</span>
+            )}
           </div>
         </fieldset>
 
