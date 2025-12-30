@@ -1,4 +1,4 @@
-import { Pool, type PoolClient } from "pg";
+import { Pool, type PoolClient, type QueryResultRow } from "pg";
 
 const MAX_ATTEMPTS = 3;
 const RETRY_BACKOFF_MS = [200, 400];
@@ -21,8 +21,7 @@ export class DbUnavailableError extends Error {
     this.name = "DbUnavailableError";
     this.code = "DB_UNAVAILABLE";
     if (options?.cause) {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-      (this as { cause?: unknown }).cause = options.cause;
+      (this as Error & { cause?: unknown }).cause = options.cause;
     }
   }
 }
@@ -154,7 +153,7 @@ export const getDbClient = async (route: string) => {
   throw new DbUnavailableError("DB_UNAVAILABLE");
 };
 
-export const dbQuery = async <T>(
+export const dbQuery = async <T extends QueryResultRow = QueryResultRow>(
   text: string,
   params: unknown[] = [],
   options?: DbQueryOptions,

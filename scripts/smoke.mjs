@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 import process from "node:process";
-import { normalizeAccepted } from "../lib/accepted.ts";
+import acceptedModule from "../lib/accepted.ts";
+
+const { normalizeAccepted } = acceptedModule;
 
 const PORT = Number(process.env.PORT ?? 3100);
 const BASE_URL = process.env.SMOKE_BASE_URL ?? `http://localhost:${PORT}`;
