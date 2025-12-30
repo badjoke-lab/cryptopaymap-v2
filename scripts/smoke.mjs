@@ -126,19 +126,43 @@ const checkDetail = async (id, { verification, accepted }) => {
 };
 
 const checkList = async () => {
-  const response = await fetchWithRetry(`${BASE_URL}/api/places?country=AQ`, {}, { label: "list country=AQ" });
-  if (!response.ok) throw new Error(`list country=AQ returned ${response.status}`);
+  const limit = 2;
+  let offset = 0;
+  let record = null;
+  let pageCount = 0;
 
-  let body;
-  try {
-    body = await response.json();
-  } catch {
-    throw new Error("list country=AQ returned invalid JSON");
+  while (pageCount < 10) {
+    const response = await fetchWithRetry(
+      `${BASE_URL}/api/places?country=AQ&limit=${limit}&offset=${offset}`,
+      {},
+      { label: `list country=AQ offset=${offset}` },
+    );
+    if (!response.ok) {
+      throw new Error(`list country=AQ returned ${response.status}`);
+    }
+
+    let body;
+    try {
+      body = await response.json();
+    } catch {
+      throw new Error("list country=AQ returned invalid JSON");
+    }
+
+    if (!Array.isArray(body)) throw new Error("list country=AQ returned non-array JSON");
+
+    record = body.find((place) => place?.id === "antarctica-owner-1") ?? record;
+    if (record) {
+      break;
+    }
+
+    if (body.length < limit) {
+      break;
+    }
+
+    offset += body.length;
+    pageCount += 1;
   }
 
-  if (!Array.isArray(body)) throw new Error("list country=AQ returned non-array JSON");
-
-  const record = body.find((place) => place?.id === "antarctica-owner-1");
   if (!record) throw new Error("list country=AQ missing antarctica-owner-1");
 
   assertArrayEqual(record.accepted, ["BTC", "Lightning", "ETH", "USDT"], "list country=AQ");
