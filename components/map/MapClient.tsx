@@ -32,6 +32,7 @@ const HEADER_HEIGHT = 0;
 
 const DEFAULT_COORDINATES: [number, number] = [20, 0];
 const DEFAULT_ZOOM = 2;
+const PAGE_LIMIT = 500;
 
 const PIN_SVGS: Record<PinType, string> = {
   owner: `<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><g><path d="M16 2 C10 2,6 6.5,6 12 C6 20,16 30,16 30 C16 30,26 20,26 12 C26 6.5,22 2,16 2Z" fill="#F59E0B" stroke="white" stroke-width="2"/><circle cx="16" cy="12" r="4" fill="white"/></g></svg>`,
@@ -60,10 +61,18 @@ export default function MapClient() {
   const leafletRef = useRef<typeof import("leaflet") | null>(null);
   const markersRef = useRef<Map<string, import("leaflet").Marker>>(new Map());
   const filtersRef = useRef<FilterState>(defaultFilterState);
+  const placesRef = useRef<Place[]>([]);
+  const nextOffsetRef = useRef(0);
+  const hasMoreRef = useRef(true);
+  const loadingMoreRef = useRef(false);
+  const requestIdRef = useRef(0);
+  const idleLoadHandleRef = useRef<number | null>(null);
   const [places, setPlaces] = useState<Place[]>([]);
   const [placesStatus, setPlacesStatus] = useState<
     "idle" | "loading" | "success" | "error"
   >("loading");
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMorePlaces, setHasMorePlaces] = useState(false);
   const [placesError, setPlacesError] = useState<string | null>(null);
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -132,6 +141,10 @@ export default function MapClient() {
   useEffect(() => {
     filtersRef.current = filters;
   }, [filters]);
+
+  useEffect(() => {
+    placesRef.current = places;
+  }, [places]);
 
   useEffect(() => {
     if (!hasHydratedFiltersRef.current) return;
@@ -238,6 +251,19 @@ export default function MapClient() {
       renderClusters(clusters);
     };
 
+    const clearIdleLoad = () => {
+      if (idleLoadHandleRef.current === null) return;
+      const idleWindow = window as Window & {
+        cancelIdleCallback?: (handle: number) => void;
+      };
+      if (idleWindow.cancelIdleCallback) {
+        idleWindow.cancelIdleCallback(idleLoadHandleRef.current);
+      } else {
+        window.clearTimeout(idleLoadHandleRef.current);
+      }
+      idleLoadHandleRef.current = null;
+    };
+
     const initializeMap = async () => {
       const L = await import("leaflet");
       leafletRef.current = L;
@@ -258,51 +284,103 @@ export default function MapClient() {
       markerLayer.addTo(map);
       markerLayerRef.current = markerLayer;
 
-      const fetchPlacesAndBuildIndex = async () => {
-        if (!isMounted) return;
+      const scheduleIdleLoad = (requestId: number) => {
+        if (!hasMoreRef.current || loadingMoreRef.current) return;
+        clearIdleLoad();
 
-        setPlacesStatus("loading");
-        setPlacesError(null);
+        const run = () => {
+          idleLoadHandleRef.current = null;
+          void fetchNextPage(requestId);
+        };
+        const idleWindow = window as Window & {
+          requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
+        };
+        if (idleWindow.requestIdleCallback) {
+          idleLoadHandleRef.current = idleWindow.requestIdleCallback(run, { timeout: 2000 });
+        } else {
+          idleLoadHandleRef.current = window.setTimeout(run, 250);
+        }
+      };
+
+      const buildIndexAndRender = (nextPlaces: Place[]) => {
+        const pins = nextPlaces.map(placeToPin);
+        clusterIndexRef.current = createSuperclusterIndex(pins);
+        updateVisibleMarkers();
+      };
+
+      const fetchNextPage = async (requestId: number, { replace = false } = {}) => {
+        if (!isMounted || loadingMoreRef.current) return;
+        loadingMoreRef.current = true;
+        if (replace) {
+          setPlacesStatus("loading");
+          setPlacesError(null);
+        } else {
+          setIsLoadingMore(true);
+        }
+
         try {
           const filters = filtersRef.current;
           const query = buildQueryFromFilters(filters);
           const params = new URLSearchParams(query.replace("?", ""));
-          const useAllMode = Boolean(filters.country || filters.city);
+          const offset = replace ? 0 : nextOffsetRef.current;
+          params.set("limit", String(PAGE_LIMIT));
+          params.set("offset", String(offset));
 
-          let fetchedPlaces: Place[] = [];
-          if (useAllMode) {
-            params.set("mode", "all");
-            const modeQuery = params.toString();
-            fetchedPlaces = await safeFetch<Place[]>(`/api/places${modeQuery ? `?${modeQuery}` : ""}`);
-          } else {
-            const limit = 500;
-            let offset = 0;
-            params.set("limit", String(limit));
-            while (true) {
-              params.set("offset", String(offset));
-              const pageQuery = params.toString();
-              const page = await safeFetch<Place[]>(`/api/places${pageQuery ? `?${pageQuery}` : ""}`);
-              fetchedPlaces = fetchedPlaces.concat(page);
-              if (page.length < limit) {
-                break;
-              }
-              offset += limit;
-            }
+          // Paging-first: load the first page for UI, then idle-load more pages without a separate fetch-all loop.
+          const pageQuery = params.toString();
+          const page = await safeFetch<Place[]>(`/api/places${pageQuery ? `?${pageQuery}` : ""}`);
+          if (!isMounted || requestIdRef.current !== requestId) return;
+
+          const nextPlaces = replace ? page : [...placesRef.current, ...page];
+          placesRef.current = nextPlaces;
+          setPlaces(nextPlaces);
+
+          const hasMore = page.length === PAGE_LIMIT;
+          hasMoreRef.current = hasMore;
+          setHasMorePlaces(hasMore);
+          nextOffsetRef.current = offset + page.length;
+
+          buildIndexAndRender(nextPlaces);
+
+          if (replace) {
+            setPlacesStatus("success");
           }
-          if (!isMounted) return;
-          setPlaces(fetchedPlaces);
-          const pins = fetchedPlaces.map(placeToPin);
-          clusterIndexRef.current = createSuperclusterIndex(pins);
-          updateVisibleMarkers();
-          setPlacesStatus("success");
+
+          if (hasMore) {
+            scheduleIdleLoad(requestId);
+          }
         } catch (error) {
           console.error(error);
-          if (!isMounted) return;
-          setPlacesError(
-            "Failed to load places. Please try again.\nスポット情報の取得に失敗しました。再読み込みしてください。",
-          );
-          setPlacesStatus("error");
+          if (!isMounted || requestIdRef.current !== requestId) return;
+          hasMoreRef.current = false;
+          setHasMorePlaces(false);
+
+          if (replace) {
+            setPlacesError(
+              "Failed to load places. Please try again.\nスポット情報の取得に失敗しました。再読み込みしてください。",
+            );
+            setPlacesStatus("error");
+          }
+        } finally {
+          loadingMoreRef.current = false;
+          setIsLoadingMore(false);
         }
+      };
+
+      const fetchPlacesAndBuildIndex = async () => {
+        if (!isMounted) return;
+        requestIdRef.current += 1;
+        const requestId = requestIdRef.current;
+        clearIdleLoad();
+        nextOffsetRef.current = 0;
+        hasMoreRef.current = true;
+        setHasMorePlaces(false);
+        setIsLoadingMore(false);
+        loadingMoreRef.current = false;
+        placesRef.current = [];
+        setPlaces([]);
+
+        await fetchNextPage(requestId, { replace: true });
       };
 
       map.on("moveend zoomend", updateVisibleMarkers);
@@ -317,6 +395,7 @@ export default function MapClient() {
     return () => {
       isMounted = false;
       stopRenderFrame();
+      clearIdleLoad();
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
@@ -383,6 +462,11 @@ export default function MapClient() {
             {places.length} place{places.length === 1 ? "" : "s"}
           </div>
         </div>
+        {(isLoadingMore || (!hasMorePlaces && placesStatus === "success" && places.length > 0)) && (
+          <div className="mt-2 text-center text-xs text-gray-600">
+            {isLoadingMore ? "Loading more…" : "All places loaded."}
+          </div>
+        )}
 
         {/* 下から出るフィルタシート */}
         {filtersOpen && (
@@ -552,6 +636,11 @@ export default function MapClient() {
           <div className="mt-4 rounded-md bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-700">
             Showing {places.length} place{places.length === 1 ? "" : "s"}
           </div>
+          {(isLoadingMore || (!hasMorePlaces && placesStatus === "success" && places.length > 0)) && (
+            <div className="mt-2 text-xs text-gray-500">
+              {isLoadingMore ? "Loading more…" : "All places loaded."}
+            </div>
+          )}
           <div className="mt-4 h-px bg-gray-100" />
           <div className="mt-4 flex flex-col gap-2">{renderPlaceList()}</div>
         </div>
