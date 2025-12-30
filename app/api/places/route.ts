@@ -6,10 +6,45 @@ import { normalizeCommaParams } from "@/lib/filters";
 import { normalizeAccepted, type PaymentAccept } from "@/lib/accepted";
 import type { Place } from "@/types/places";
 
+const DEFAULT_LIMIT = 200;
+const MAX_LIMIT = 1000;
+const ALL_MODE_LIMIT = 1000;
+const CACHE_TTL_MS = 20_000;
+
+type CacheEntry = {
+  expiresAt: number;
+  data: Place[];
+};
+
+const placesCache = new Map<string, CacheEntry>();
+
 const getPlaceChains = (place: Place) =>
   place.supported_crypto?.length ? place.supported_crypto : place.accepted ?? [];
 
 const u = (v: string | null | undefined): string | undefined => v ?? undefined;
+
+const parsePositiveInt = (value: string | null): number | null => {
+  if (!value) return null;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
+};
+
+const parseOffset = (value: string | null): number => {
+  if (!value) return 0;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) return 0;
+  return parsed;
+};
+
+const buildCacheKey = (params: URLSearchParams): string => {
+  const entries = Array.from(params.entries()).sort(([aKey, aValue], [bKey, bValue]) => {
+    const keyCompare = aKey.localeCompare(bKey);
+    if (keyCompare !== 0) return keyCompare;
+    return aValue.localeCompare(bValue);
+  });
+  return entries.map(([key, value]) => `${key}=${value}`).join("&");
+};
 
 const sanitizeOptionalStrings = (place: Place): Place => ({
   ...place,
@@ -256,6 +291,41 @@ export async function GET(request: NextRequest) {
   const city = searchParams.get("city");
   const chainFilters = normalizeCommaParams(searchParams.getAll("chain")).map((chain) => chain.toLowerCase());
   const verificationFilters = normalizeCommaParams(searchParams.getAll("verification")) as Place["verification"][];
+  const mode = searchParams.get("mode");
+
+  const hasFilters =
+    Boolean(category || country || city) || chainFilters.length > 0 || verificationFilters.length > 0;
+
+  const requestedLimit = parsePositiveInt(searchParams.get("limit"));
+  let limit = requestedLimit ?? DEFAULT_LIMIT;
+  limit = Math.min(limit, MAX_LIMIT);
+
+  let offset = parseOffset(searchParams.get("offset"));
+
+  if (!hasFilters && requestedLimit && requestedLimit > DEFAULT_LIMIT) {
+    limit = DEFAULT_LIMIT;
+  }
+
+  if (mode === "all") {
+    if (!country && !city) {
+      return NextResponse.json({ ok: false, error: "MODE_ALL_REQUIRES_SCOPE" }, { status: 400 });
+    }
+    limit = Math.min(requestedLimit ?? ALL_MODE_LIMIT, ALL_MODE_LIMIT);
+    offset = 0;
+  }
+
+  const normalizedParams = new URLSearchParams(searchParams);
+  normalizedParams.set("limit", String(limit));
+  normalizedParams.set("offset", String(offset));
+  if (mode !== "all") {
+    normalizedParams.delete("mode");
+  }
+
+  const cacheKey = buildCacheKey(normalizedParams);
+  const cached = placesCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return NextResponse.json(cached.data);
+  }
 
   let dbPlaces: Place[] | null = null;
   try {
@@ -308,5 +378,8 @@ export async function GET(request: NextRequest) {
     return true;
   });
 
-  return NextResponse.json(filtered.map(sanitizeOptionalStrings));
+  const paged = filtered.slice(offset, offset + limit).map(sanitizeOptionalStrings);
+  placesCache.set(cacheKey, { data: paged, expiresAt: Date.now() + CACHE_TTL_MS });
+
+  return NextResponse.json(paged);
 }
