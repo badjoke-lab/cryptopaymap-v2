@@ -11,6 +11,34 @@ const log = (message) => {
 };
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const retryBackoffMs = [200, 400];
+
+const fetchWithRetry = async (url, options = {}, { label = url } = {}) => {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const response = await fetch(url, options);
+      if (response.status !== 503) {
+        return response;
+      }
+
+      if (attempt === 3) {
+        return response;
+      }
+
+      log(`${label} returned 503 (attempt ${attempt}), retrying...`);
+    } catch (error) {
+      if (attempt === 3) {
+        throw error;
+      }
+      log(`${label} failed (attempt ${attempt}), retrying...`);
+    }
+
+    const backoff = retryBackoffMs[attempt - 1] ?? retryBackoffMs.at(-1) ?? 0;
+    await sleep(backoff);
+  }
+
+  throw new Error(`failed to fetch ${label}`);
+};
 
 const waitForReady = async (url, { timeoutMs = 30000, intervalMs = 500 } = {}) => {
   const deadline = Date.now() + timeoutMs;
@@ -74,7 +102,7 @@ const runUnitChecks = () => {
 };
 
 const checkDetail = async (id, { verification, accepted }) => {
-  const response = await fetch(`${BASE_URL}/api/places/${id}`);
+  const response = await fetchWithRetry(`${BASE_URL}/api/places/${id}`, {}, { label: `detail ${id}` });
   if (!response.ok) throw new Error(`detail ${id} returned ${response.status}`);
 
   let body;
@@ -96,7 +124,7 @@ const checkDetail = async (id, { verification, accepted }) => {
 };
 
 const checkList = async () => {
-  const response = await fetch(`${BASE_URL}/api/places?country=AQ`);
+  const response = await fetchWithRetry(`${BASE_URL}/api/places?country=AQ`, {}, { label: "list country=AQ" });
   if (!response.ok) throw new Error(`list country=AQ returned ${response.status}`);
 
   let body;

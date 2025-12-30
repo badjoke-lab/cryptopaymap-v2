@@ -1,22 +1,24 @@
 import { NextResponse } from "next/server";
 
-import { getDbPool } from "@/lib/db";
+import { DbUnavailableError, dbQuery, getDbClient } from "@/lib/db";
 import { buildPlaceIdPrefix, submissionToPlace } from "@/lib/submission-to-place";
 import { loadSubmissionById, saveSubmission } from "@/lib/submissions";
 
-const tableExists = async (client: import("pg").PoolClient, table: string) => {
-  const { rows } = await client.query<{ present: string | null }>(
+const tableExists = async (route: string, table: string) => {
+  const { rows } = await dbQuery<{ present: string | null }>(
     `SELECT to_regclass($1) AS present`,
     [`public.${table}`],
+    { route },
   );
 
   return Boolean(rows[0]?.present);
 };
 
-const loadExistingIds = async (client: import("pg").PoolClient, prefix: string) => {
-  const { rows } = await client.query<{ id: string }>(
+const loadExistingIds = async (route: string, prefix: string) => {
+  const { rows } = await dbQuery<{ id: string }>(
     `SELECT id FROM places WHERE id LIKE $1`,
     [`${prefix}%`],
+    { route },
   );
 
   return rows.map((row) => row.id);
@@ -40,24 +42,19 @@ export async function POST(_request: Request, { params }: { params: { id: string
     return NextResponse.json({ error: "Submission already linked to a place" }, { status: 400 });
   }
 
-  let pool: ReturnType<typeof getDbPool>;
-  try {
-    pool = getDbPool();
-  } catch (error) {
-    console.error("[submissions] missing DATABASE_URL", error);
-    return NextResponse.json({ error: "Database is not configured" }, { status: 500 });
-  }
+  const route = "api_submissions_promote";
 
-  const client = await pool.connect();
+  let client: Awaited<ReturnType<typeof getDbClient>> | null = null;
 
   try {
-    const placesTableExists = await tableExists(client, "places");
+    client = await getDbClient(route);
+    const placesTableExists = await tableExists(route, "places");
     if (!placesTableExists) {
       return NextResponse.json({ error: "places table is missing" }, { status: 500 });
     }
 
     const idPrefix = buildPlaceIdPrefix(submission);
-    const existingIds = await loadExistingIds(client, idPrefix);
+    const existingIds = await loadExistingIds(route, idPrefix);
     let place: ReturnType<typeof submissionToPlace>;
 
     try {
@@ -73,9 +70,9 @@ export async function POST(_request: Request, { params }: { params: { id: string
       return NextResponse.json({ error: message }, { status: 400 });
     }
 
-    await client.query("BEGIN");
+    await dbQuery("BEGIN", [], { route, client, retry: false });
 
-    await client.query(
+    await dbQuery(
       `INSERT INTO places (id, name, country, city, category, lat, lng, address, about, amenities)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
       [
@@ -90,31 +87,34 @@ export async function POST(_request: Request, { params }: { params: { id: string
         place.about ?? null,
         place.amenities ? JSON.stringify(place.amenities) : null,
       ],
+      { route, client, retry: false },
     );
 
-    const verificationsTableExists = await tableExists(client, "verifications");
+    const verificationsTableExists = await tableExists(route, "verifications");
     if (verificationsTableExists) {
-      await client.query(
+      await dbQuery(
         `INSERT INTO verifications (place_id, status, last_checked, last_verified)
          VALUES ($1, $2, NOW(), NOW())
          ON CONFLICT (place_id) DO UPDATE SET status = EXCLUDED.status, last_checked = EXCLUDED.last_checked, last_verified = EXCLUDED.last_verified`,
         [place.id, place.verification],
+        { route, client, retry: false },
       );
     }
 
-    const paymentAcceptsExists = await tableExists(client, "payment_accepts");
+    const paymentAcceptsExists = await tableExists(route, "payment_accepts");
     if (paymentAcceptsExists && place.accepted?.length) {
       for (const asset of place.accepted) {
-        await client.query(
+        await dbQuery(
           `INSERT INTO payment_accepts (place_id, asset, chain)
            VALUES ($1, $2, $3)
            ON CONFLICT (place_id, asset, chain, method) DO NOTHING`,
           [place.id, asset, asset],
+          { route, client, retry: false },
         );
       }
     }
 
-    await client.query("COMMIT");
+    await dbQuery("COMMIT", [], { route, client, retry: false });
 
     const updatedSubmission = await saveSubmission({
       ...submission,
@@ -124,11 +124,18 @@ export async function POST(_request: Request, { params }: { params: { id: string
 
     return NextResponse.json({ place, submission: updatedSubmission });
   } catch (error) {
-    await client.query("ROLLBACK");
+    if (client) {
+      await dbQuery("ROLLBACK", [], { route, client, retry: false }).catch(() => undefined);
+    }
+    if (
+      error instanceof DbUnavailableError ||
+      (error instanceof Error && error.message.includes("DATABASE_URL"))
+    ) {
+      return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, { status: 503 });
+    }
     console.error("[submissions] failed to promote", error);
     return NextResponse.json({ error: "Failed to promote submission" }, { status: 500 });
   } finally {
-    client.release();
+    client?.release();
   }
 }
-

@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { PoolClient } from "pg";
-
-import { getDbPool, hasDatabaseUrl } from "@/lib/db";
+import { DbUnavailableError, dbQuery, hasDatabaseUrl } from "@/lib/db";
 import { places as fallbackPlaces } from "@/lib/data/places";
 import { normalizeAccepted, type PaymentAccept } from "@/lib/accepted";
 
@@ -147,8 +145,8 @@ const pickContactFromSocials = (socials: Social[]) => {
   return contact;
 };
 
-const hasColumn = (client: PoolClient, table: string, column: string) =>
-  client.query<{ exists: boolean }>(
+const hasColumn = (route: string, table: string, column: string) =>
+  dbQuery<{ exists: boolean }>(
     `SELECT EXISTS(
        SELECT 1
        FROM information_schema.columns
@@ -157,22 +155,23 @@ const hasColumn = (client: PoolClient, table: string, column: string) =>
          AND column_name = $2
      ) AS exists`,
     [table, column],
+    { route },
   );
 
 const loadPlaceDetailFromDb = async (id: string, fallbackPlace?: FallbackPlace) => {
   if (!hasDatabaseUrl()) return null;
-
-  const pool = getDbPool();
-  const client = await pool.connect();
+  const route = "api_places_id";
 
   try {
-    const { rows: tableChecks } = await client.query<{ [key: string]: string | null }>(
+    const { rows: tableChecks } = await dbQuery<{ [key: string]: string | null }>(
       `SELECT
         to_regclass('public.places') AS places,
         to_regclass('public.verifications') AS verifications,
         to_regclass('public.payment_accepts') AS payment_accepts,
         to_regclass('public.socials') AS socials,
         to_regclass('public.media') AS media`,
+      [],
+      { route },
     );
 
     if (!tableChecks[0]?.places) {
@@ -180,10 +179,10 @@ const loadPlaceDetailFromDb = async (id: string, fallbackPlace?: FallbackPlace) 
     }
 
     const hasVerificationLevel = tableChecks[0]?.verifications
-      ? (await hasColumn(client, "verifications", "level")).rows[0]?.exists
+      ? (await hasColumn(route, "verifications", "level")).rows[0]?.exists
       : false;
 
-    const hasHours = (await hasColumn(client, "places", "hours")).rows[0]?.exists;
+    const hasHours = (await hasColumn(route, "places", "hours")).rows[0]?.exists;
 
     const joinVerification = hasVerificationLevel ? "LEFT JOIN verifications v ON v.place_id = p.id" : "";
 
@@ -193,7 +192,7 @@ const loadPlaceDetailFromDb = async (id: string, fallbackPlace?: FallbackPlace) 
 
     const hoursSelect = hasHours ? "p.hours" : "NULL::text AS hours";
 
-    const { rows: placeRows } = await client.query<DbPlace>(
+    const { rows: placeRows } = await dbQuery<DbPlace>(
       `SELECT p.id, p.name, p.category, p.country, p.city, p.lat, p.lng, p.address, p.about, p.amenities, ${hoursSelect},
         ${verificationSelect}
        FROM places p
@@ -201,6 +200,7 @@ const loadPlaceDetailFromDb = async (id: string, fallbackPlace?: FallbackPlace) 
        WHERE p.id = $1
        LIMIT 1`,
       [id],
+      { route },
     );
 
     if (!placeRows.length) {
@@ -212,39 +212,42 @@ const loadPlaceDetailFromDb = async (id: string, fallbackPlace?: FallbackPlace) 
 
     const hasPreferredFlag =
       tableChecks[0]?.payment_accepts
-        ? (await hasColumn(client, "payment_accepts", "is_preferred")).rows[0]?.exists
+        ? (await hasColumn(route, "payment_accepts", "is_preferred")).rows[0]?.exists
         : false;
 
     const payments: PaymentAccept[] = tableChecks[0]?.payment_accepts
       ? (
-          await client.query<PaymentAccept>(
+          await dbQuery<PaymentAccept>(
             `SELECT asset, chain, ${hasPreferredFlag ? "is_preferred" : "NULL::boolean AS is_preferred"}
              FROM payment_accepts
              WHERE place_id = $1
              ORDER BY ${hasPreferredFlag ? "is_preferred DESC NULLS LAST," : ""} id ASC`,
             [id],
+            { route },
           )
         ).rows
       : [];
 
     const socials: Social[] = tableChecks[0]?.socials
       ? (
-          await client.query<Social>(
+          await dbQuery<Social>(
             `SELECT platform, url, handle
              FROM socials
              WHERE place_id = $1`,
             [id],
+            { route },
           )
         ).rows
       : [];
 
     const media: Media[] = tableChecks[0]?.media
       ? (
-          await client.query<Media>(
+          await dbQuery<Media>(
             `SELECT url
              FROM media
              WHERE place_id = $1`,
             [id],
+            { route },
           )
         ).rows
       : [];
@@ -287,11 +290,12 @@ const loadPlaceDetailFromDb = async (id: string, fallbackPlace?: FallbackPlace) 
       socials,
     };
   } catch (error) {
+    if (error instanceof DbUnavailableError) {
+      throw error;
+    }
     const message = error instanceof Error ? error.message : String(error);
     console.error("[places-detail] failed to load from database", message);
     return null;
-  } finally {
-    client.release();
   }
 };
 
@@ -332,7 +336,15 @@ export async function GET(_request: NextRequest, { params }: { params: { id: str
   const { id } = params;
 
   const fallbackPlace = loadFallbackPlace(id);
-  const dbPlace = await loadPlaceDetailFromDb(id, fallbackPlace);
+  let dbPlace: Awaited<ReturnType<typeof loadPlaceDetailFromDb>> = null;
+  try {
+    dbPlace = await loadPlaceDetailFromDb(id, fallbackPlace);
+  } catch (error) {
+    if (error instanceof DbUnavailableError) {
+      return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, { status: 503 });
+    }
+    throw error;
+  }
 
   if (dbPlace) {
     return NextResponse.json(dbPlace);
