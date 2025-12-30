@@ -367,7 +367,7 @@ export default function MapClient() {
       map.on("moveend zoomend", handleMapViewChange);
       mapInstanceRef.current = map;
 
-      fetchPlacesRef.current = () => {
+      fetchPlacesRef.current = async () => {
         if (!mapInstanceRef.current) return;
         scheduleFetchForBounds(mapInstanceRef.current.getBounds(), { force: true });
       };
