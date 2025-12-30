@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { getDbPool, hasDatabaseUrl } from "@/lib/db";
+import { DbUnavailableError, dbQuery, hasDatabaseUrl } from "@/lib/db";
 import { places } from "@/lib/data/places";
 import { normalizeCommaParams } from "@/lib/filters";
 import { normalizeAccepted, type PaymentAccept } from "@/lib/accepted";
@@ -54,14 +54,12 @@ const loadPlacesFromDb = async (
   chainFilters: string[],
 ): Promise<Place[] | null> => {
   if (!hasDatabaseUrl()) return null;
-
-  const pool = getDbPool();
-  const client = await pool.connect();
+  const route = "api_places";
 
   const fallbackPlacesById = new Map(places.map((place) => [place.id, place]));
 
   try {
-    const { rows: tableChecks } = await client.query<{
+    const { rows: tableChecks } = await dbQuery<{
       present: string | null;
       verifications: string | null;
       payments: string | null;
@@ -70,6 +68,8 @@ const loadPlacesFromDb = async (
         to_regclass('public.places') AS present,
         to_regclass('public.verifications') AS verifications,
         to_regclass('public.payment_accepts') AS payments`,
+      [],
+      { route },
     );
 
     if (!tableChecks[0]?.present) {
@@ -99,12 +99,14 @@ const loadPlacesFromDb = async (
     const hasPayments = Boolean(tableChecks[0]?.payments);
 
     const verificationColumns = hasVerifications
-      ? await client.query<{ column_name: string }>(
+      ? await dbQuery<{ column_name: string }>(
           `SELECT column_name
            FROM information_schema.columns
            WHERE table_schema = 'public'
              AND table_name = 'verifications'
              AND column_name IN ('level', 'status')`,
+          [],
+          { route },
         )
       : null;
 
@@ -129,7 +131,7 @@ const loadPlacesFromDb = async (
       FROM places p${joinVerification}
       ${where.length ? `WHERE ${where.join(" AND ")}` : ""}`;
 
-    const { rows } = await client.query<{
+    const { rows } = await dbQuery<{
       id: string;
       name: string;
       category: string | null;
@@ -141,19 +143,21 @@ const loadPlacesFromDb = async (
       about: string | null;
       verification: string | null;
       review_status: string | null;
-    }>(query, params);
+    }>(query, params, { route });
 
     const placeIds = rows.map((row) => row.id);
     const paymentsByPlace = new Map<string, PaymentAccept[]>();
 
     let hasPreferredFlag = false;
     if (hasPayments) {
-      const { rows: paymentCols } = await client.query<{ column_name: string }>(
+      const { rows: paymentCols } = await dbQuery<{ column_name: string }>(
         `SELECT column_name
          FROM information_schema.columns
          WHERE table_schema = 'public'
            AND table_name = 'payment_accepts'
            AND column_name IN ('is_preferred')`,
+        [],
+        { route },
       );
       hasPreferredFlag = paymentCols.some((r) => r.column_name === "is_preferred");
     }
@@ -162,7 +166,7 @@ const loadPlacesFromDb = async (
       const preferredSelect = hasPreferredFlag ? "is_preferred" : "NULL::boolean AS is_preferred";
       const preferredOrder = hasPreferredFlag ? "is_preferred DESC NULLS LAST," : "";
 
-      const { rows: paymentRows } = await client.query<{
+      const { rows: paymentRows } = await dbQuery<{
         place_id: string;
         asset: string | null;
         chain: string | null;
@@ -173,6 +177,7 @@ const loadPlacesFromDb = async (
          WHERE place_id = ANY($1::text[])
          ORDER BY place_id ASC, ${preferredOrder} id ASC`,
         [placeIds],
+        { route },
       );
 
       for (const payment of paymentRows) {
@@ -234,10 +239,12 @@ const loadPlacesFromDb = async (
       return normalizedChains.some((chain) => normalized.includes(chain));
     });
   } catch (error) {
-    console.error("[places] failed to load from database", error);
+    if (error instanceof DbUnavailableError) {
+      throw error;
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("[places] failed to load from database", message);
     return null;
-  } finally {
-    client.release();
   }
 };
 
@@ -250,7 +257,16 @@ export async function GET(request: NextRequest) {
   const chainFilters = normalizeCommaParams(searchParams.getAll("chain")).map((chain) => chain.toLowerCase());
   const verificationFilters = normalizeCommaParams(searchParams.getAll("verification")) as Place["verification"][];
 
-  const dbPlaces = await loadPlacesFromDb({ category, country, city }, chainFilters);
+  let dbPlaces: Place[] | null = null;
+  try {
+    dbPlaces = await loadPlacesFromDb({ category, country, city }, chainFilters);
+  } catch (error) {
+    if (error instanceof DbUnavailableError) {
+      return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, { status: 503 });
+    }
+    throw error;
+  }
+
   const sourcePlaces = dbPlaces ?? places;
 
   const hasChainFilters = chainFilters.length > 0;
