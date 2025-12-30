@@ -264,8 +264,31 @@ export default function MapClient() {
         setPlacesStatus("loading");
         setPlacesError(null);
         try {
-          const query = buildQueryFromFilters(filtersRef.current);
-          const fetchedPlaces = await safeFetch<Place[]>(`/api/places${query}`);
+          const filters = filtersRef.current;
+          const query = buildQueryFromFilters(filters);
+          const params = new URLSearchParams(query.replace("?", ""));
+          const useAllMode = Boolean(filters.country || filters.city);
+
+          let fetchedPlaces: Place[] = [];
+          if (useAllMode) {
+            params.set("mode", "all");
+            const modeQuery = params.toString();
+            fetchedPlaces = await safeFetch<Place[]>(`/api/places${modeQuery ? `?${modeQuery}` : ""}`);
+          } else {
+            const limit = 500;
+            let offset = 0;
+            params.set("limit", String(limit));
+            while (true) {
+              params.set("offset", String(offset));
+              const pageQuery = params.toString();
+              const page = await safeFetch<Place[]>(`/api/places${pageQuery ? `?${pageQuery}` : ""}`);
+              fetchedPlaces = fetchedPlaces.concat(page);
+              if (page.length < limit) {
+                break;
+              }
+              offset += limit;
+            }
+          }
           if (!isMounted) return;
           setPlaces(fetchedPlaces);
           const pins = fetchedPlaces.map(placeToPin);
