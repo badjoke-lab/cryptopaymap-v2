@@ -7,7 +7,7 @@ import { normalizeAccepted, type PaymentAccept } from "@/lib/accepted";
 import type { Place } from "@/types/places";
 
 const DEFAULT_LIMIT = 200;
-const MAX_LIMIT = 1000;
+const MAX_LIMIT = 12000;
 const ALL_MODE_LIMIT = 1000;
 const CACHE_TTL_MS = 20_000;
 
