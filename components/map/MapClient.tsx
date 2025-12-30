@@ -26,6 +26,7 @@ import {
   FilterState,
   parseFiltersFromSearchParams,
 } from "@/lib/filters";
+import DbStatusIndicator from "@/components/status/DbStatusIndicator";
 
 const HEADER_HEIGHT = 0;
 
@@ -533,6 +534,10 @@ export default function MapClient() {
         </div>
       </aside>
       <div className="relative flex-1 bg-gray-50">
+        <DbStatusIndicator
+          className="pointer-events-none absolute right-4 top-4 z-50 flex flex-col items-end gap-2 text-right"
+          showBanner
+        />
         {placesStatus === "loading" && (
           <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-gray-100/90 text-gray-700">
             <div className="h-10 w-10 animate-spin rounded-full border-4 border-blue-200 border-t-blue-500" />
