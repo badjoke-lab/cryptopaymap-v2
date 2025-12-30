@@ -30,6 +30,42 @@ const parsePositiveInt = (value: string | null): number | null => {
   return parsed;
 };
 
+type ParsedBbox = {
+  minLng: number;
+  minLat: number;
+  maxLng: number;
+  maxLat: number;
+};
+
+const parseBbox = (value: string | null): { bbox: ParsedBbox | null; error?: string } => {
+  if (!value) return { bbox: null };
+  const parts = value.split(",").map((part) => part.trim());
+  if (parts.length !== 4) {
+    return { bbox: null, error: "bbox must be four comma-separated numbers" };
+  }
+  const [minLng, minLat, maxLng, maxLat] = parts.map((part) => Number.parseFloat(part));
+  if (![minLng, minLat, maxLng, maxLat].every((num) => Number.isFinite(num))) {
+    return { bbox: null, error: "bbox must contain valid numbers" };
+  }
+  if (minLng < -180 || minLng > 180 || maxLng < -180 || maxLng > 180) {
+    return { bbox: null, error: "bbox longitude out of range" };
+  }
+  if (minLat < -90 || minLat > 90 || maxLat < -90 || maxLat > 90) {
+    return { bbox: null, error: "bbox latitude out of range" };
+  }
+  if (minLng >= maxLng || minLat >= maxLat) {
+    return { bbox: null, error: "bbox min values must be less than max values" };
+  }
+  return { bbox: { minLng, minLat, maxLng, maxLat } };
+};
+
+const parseSearchTerm = (value: string | null): string | null => {
+  if (!value) return null;
+  const trimmed = value.trim().replace(/\s+/g, " ");
+  if (!trimmed) return null;
+  return trimmed.slice(0, 120);
+};
+
 const parseOffset = (value: string | null): number => {
   if (!value) return 0;
   const parsed = Number.parseInt(value, 10);
@@ -85,8 +121,13 @@ const loadPlacesFromDb = async (
     category: string | null;
     country: string | null;
     city: string | null;
+    bbox: ParsedBbox | null;
+    verification: Place["verification"][];
+    payment: string[];
+    search: string | null;
+    limit: number;
+    offset: number;
   },
-  chainFilters: string[],
 ): Promise<Place[] | null> => {
   if (!hasDatabaseUrl()) return null;
   const route = "api_places";
@@ -162,9 +203,78 @@ const loadPlacesFromDb = async (
     const reviewSelect = reviewField ? `, ${reviewField} AS review_status` : ", NULL::text AS review_status";
     const joinVerification = hasVerifications ? " LEFT JOIN verifications v ON v.place_id = p.id" : "";
 
+    const placeColumns = await dbQuery<{ column_name: string }>(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'places'
+         AND column_name IN ('geom', 'updated_at')`,
+      [],
+      { route },
+    );
+    const hasGeom = placeColumns.rows.some((row) => row.column_name === "geom");
+    const hasUpdatedAt = placeColumns.rows.some((row) => row.column_name === "updated_at");
+
+    if (filters.bbox) {
+      if (hasGeom) {
+        params.push(filters.bbox.minLng, filters.bbox.minLat, filters.bbox.maxLng, filters.bbox.maxLat);
+        where.push(
+          `ST_Intersects(p.geom::geometry, ST_MakeEnvelope($${params.length - 3}, $${params.length - 2}, $${params.length - 1}, $${params.length}, 4326))`,
+        );
+      } else {
+        params.push(filters.bbox.minLng, filters.bbox.maxLng);
+        where.push(`p.lng BETWEEN $${params.length - 1} AND $${params.length}`);
+        params.push(filters.bbox.minLat, filters.bbox.maxLat);
+        where.push(`p.lat BETWEEN $${params.length - 1} AND $${params.length}`);
+      }
+    }
+
+    if (filters.search) {
+      params.push(`%${filters.search}%`);
+      where.push(`(p.name ILIKE $${params.length} OR COALESCE(p.address, '') ILIKE $${params.length})`);
+    }
+
+    if (filters.verification.length) {
+      if (!verificationField) {
+        if (!filters.verification.every((level) => level === "unverified")) {
+          return [];
+        }
+      } else {
+        params.push(filters.verification);
+        where.push(`COALESCE(${verificationField}, 'unverified') = ANY($${params.length}::text[])`);
+      }
+    }
+
+    if (filters.payment.length) {
+      if (!hasPayments) {
+        return [];
+      }
+      params.push(filters.payment);
+      where.push(
+        `EXISTS (
+          SELECT 1
+          FROM payment_accepts pa
+          WHERE pa.place_id = p.id
+            AND (
+              LOWER(pa.asset) = ANY($${params.length}::text[])
+              OR LOWER(pa.chain) = ANY($${params.length}::text[])
+            )
+        )`,
+      );
+    }
+
+    const orderBy = hasUpdatedAt
+      ? "ORDER BY p.updated_at DESC NULLS LAST, p.id ASC"
+      : "ORDER BY p.id ASC";
+
     const query = `SELECT p.id, p.name, p.category, p.city, p.country, p.lat, p.lng, p.address, p.about${verificationSelect}${reviewSelect}
       FROM places p${joinVerification}
-      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}`;
+      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+      ${orderBy}
+      LIMIT $${params.length + 1}
+      OFFSET $${params.length + 2}`;
+
+    params.push(filters.limit, filters.offset);
 
     const { rows } = await dbQuery<{
       id: string;
@@ -263,16 +373,7 @@ const loadPlacesFromDb = async (
       return base;
     });
 
-    if (chainFilters.length === 0 || !hasPayments) {
-      return mapped;
-    }
-
-    const normalizedChains = chainFilters.map((chain) => chain.toLowerCase());
-    return mapped.filter((place) => {
-      const accepted = place.accepted ?? [];
-      const normalized = accepted.map((value) => value.toLowerCase());
-      return normalizedChains.some((chain) => normalized.includes(chain));
-    });
+    return mapped;
   } catch (error) {
     if (error instanceof DbUnavailableError) {
       throw error;
@@ -289,14 +390,29 @@ export async function GET(request: NextRequest) {
   const category = searchParams.get("category");
   const country = searchParams.get("country");
   const city = searchParams.get("city");
-  const chainFilters = normalizeCommaParams(searchParams.getAll("chain")).map((chain) => chain.toLowerCase());
+  const chainFilters = normalizeCommaParams(searchParams.getAll("chain"));
+  const paymentFilters = normalizeCommaParams(searchParams.getAll("payment"));
+  const combinedPaymentFilters = Array.from(new Set([...chainFilters, ...paymentFilters])).map((chain) =>
+    chain.toLowerCase(),
+  );
   const verificationFilters = normalizeCommaParams(searchParams.getAll("verification")) as Place["verification"][];
   const mode = searchParams.get("mode");
+  const searchTerm = parseSearchTerm(searchParams.get("q"));
+  const bboxResult = parseBbox(searchParams.get("bbox"));
+
+  if (bboxResult.error) {
+    return NextResponse.json({ ok: false, error: "INVALID_BBOX", message: bboxResult.error }, { status: 400 });
+  }
 
   const hasFilters =
-    Boolean(category || country || city) || chainFilters.length > 0 || verificationFilters.length > 0;
+    Boolean(category || country || city || searchTerm || bboxResult.bbox) ||
+    combinedPaymentFilters.length > 0 ||
+    verificationFilters.length > 0;
 
   const requestedLimit = parsePositiveInt(searchParams.get("limit"));
+  if (searchParams.has("limit") && !requestedLimit) {
+    return NextResponse.json({ ok: false, error: "INVALID_LIMIT" }, { status: 400 });
+  }
   let limit = requestedLimit ?? DEFAULT_LIMIT;
   limit = Math.min(limit, MAX_LIMIT);
 
@@ -317,6 +433,9 @@ export async function GET(request: NextRequest) {
   const normalizedParams = new URLSearchParams(searchParams);
   normalizedParams.set("limit", String(limit));
   normalizedParams.set("offset", String(offset));
+  if (searchTerm) {
+    normalizedParams.set("q", searchTerm);
+  }
   if (mode !== "all") {
     normalizedParams.delete("mode");
   }
@@ -329,7 +448,17 @@ export async function GET(request: NextRequest) {
 
   let dbPlaces: Place[] | null = null;
   try {
-    dbPlaces = await loadPlacesFromDb({ category, country, city }, chainFilters);
+    dbPlaces = await loadPlacesFromDb({
+      category,
+      country,
+      city,
+      bbox: bboxResult.bbox,
+      verification: verificationFilters,
+      payment: combinedPaymentFilters,
+      search: searchTerm,
+      limit,
+      offset,
+    });
   } catch (error) {
     if (error instanceof DbUnavailableError) {
       return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, { status: 503 });
@@ -337,9 +466,15 @@ export async function GET(request: NextRequest) {
     throw error;
   }
 
-  const sourcePlaces = dbPlaces ?? places;
+  if (dbPlaces) {
+    const sanitized = dbPlaces.map(sanitizeOptionalStrings);
+    placesCache.set(cacheKey, { data: sanitized, expiresAt: Date.now() + CACHE_TTL_MS });
+    return NextResponse.json(sanitized);
+  }
 
-  const hasChainFilters = chainFilters.length > 0;
+  const sourcePlaces = places;
+
+  const hasChainFilters = combinedPaymentFilters.length > 0;
   const hasVerificationFilters = verificationFilters.length > 0;
 
   const filtered = sourcePlaces.filter((place) => {
@@ -366,7 +501,7 @@ export async function GET(request: NextRequest) {
 
     if (hasChainFilters) {
       const placeChains = getPlaceChains(place).map((chain) => chain.toLowerCase());
-      if (!chainFilters.some((chain) => placeChains.includes(chain))) {
+      if (!combinedPaymentFilters.some((chain) => placeChains.includes(chain))) {
         return false;
       }
     }
@@ -375,10 +510,25 @@ export async function GET(request: NextRequest) {
       return false;
     }
 
+    if (bboxResult.bbox) {
+      const { minLng, minLat, maxLng, maxLat } = bboxResult.bbox;
+      if (place.lng < minLng || place.lng > maxLng || place.lat < minLat || place.lat > maxLat) {
+        return false;
+      }
+    }
+
+    if (searchTerm) {
+      const target = `${place.name ?? ""} ${place.address ?? ""}`.toLowerCase();
+      if (!target.includes(searchTerm.toLowerCase())) {
+        return false;
+      }
+    }
+
     return true;
   });
 
-  const paged = filtered.slice(offset, offset + limit).map(sanitizeOptionalStrings);
+  const ordered = [...filtered].sort((a, b) => a.id.localeCompare(b.id));
+  const paged = ordered.slice(offset, offset + limit).map(sanitizeOptionalStrings);
   placesCache.set(cacheKey, { data: paged, expiresAt: Date.now() + CACHE_TTL_MS });
 
   return NextResponse.json(paged);

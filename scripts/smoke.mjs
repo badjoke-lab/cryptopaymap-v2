@@ -168,6 +168,33 @@ const checkList = async () => {
   log("ok list country=AQ");
 };
 
+const checkBboxList = async () => {
+  const bbox = "160,-80,170,-70";
+  const response = await fetchWithRetry(
+    `${BASE_URL}/api/places?bbox=${bbox}&limit=10`,
+    {},
+    { label: "list bbox" },
+  );
+  if (!response.ok) {
+    const snippet = await readBodySnippet(response);
+    throw new Error(`list bbox returned ${response.status}: ${snippet}`);
+  }
+
+  let body;
+  try {
+    body = await response.json();
+  } catch {
+    throw new Error("list bbox returned invalid JSON");
+  }
+
+  if (!Array.isArray(body)) throw new Error("list bbox returned non-array JSON");
+  if (body.length === 0) throw new Error("list bbox returned empty array");
+
+  const record = body.find((place) => place?.id === "antarctica-owner-1");
+  if (!record) throw new Error("list bbox missing antarctica-owner-1");
+  log("ok list bbox");
+};
+
 const checkHealth = async () => {
   const response = await fetchWithRetry(`${BASE_URL}/api/health`, {}, { label: "health" });
   if (!response.ok) {
@@ -234,6 +261,7 @@ const runApiChecks = async () => {
     }
 
     await checkList();
+    await checkBboxList();
     await checkHealth();
     log("ok api");
   } finally {

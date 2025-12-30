@@ -30,6 +30,29 @@ BEGIN
   END IF;
 END$$;
 
+-- Indexes for bbox queries
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'places'
+  ) THEN
+    EXECUTE 'CREATE INDEX IF NOT EXISTS places_lat_lng_idx ON public.places (lat, lng)';
+  END IF;
+END$$;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'places'
+      AND column_name = 'geom'
+  ) THEN
+    EXECUTE 'CREATE INDEX IF NOT EXISTS places_geom_gix ON public.places USING GIST (geom)';
+  END IF;
+END$$;
+
 -- Ensure verification timestamps exist
 ALTER TABLE IF EXISTS public.verifications
   ADD COLUMN IF NOT EXISTS last_checked TIMESTAMPTZ;
