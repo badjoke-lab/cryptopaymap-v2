@@ -37,13 +37,6 @@ const loadEnv = () => {
   }
 };
 
-const placeId = process.argv[2];
-if (!placeId) {
-  console.error("Usage: npm run db:check -- <place-id>");
-  process.exitCode = 1;
-  process.exit();
-}
-
 loadEnv();
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -52,6 +45,17 @@ if (!databaseUrl) {
   process.exitCode = 1;
   process.exit();
 }
+
+const requiredTables = [
+  "places",
+  "verifications",
+  "payments",
+  "payment_accepts",
+  "socials",
+  "media",
+  "categories",
+  "history",
+];
 
 const pool = new Pool({ connectionString: databaseUrl });
 
@@ -64,47 +68,33 @@ const tableExists = async (client, table) => {
   const client = await pool.connect();
 
   try {
-    const hasPlaces = await tableExists(client, "places");
-    const hasPayments = await tableExists(client, "payment_accepts");
-    const hasVerifications = await tableExists(client, "verifications");
+    const { rowCount: postgisCount } = await client.query(
+      "SELECT 1 FROM pg_extension WHERE extname = 'postgis'",
+    );
 
-    if (!hasPlaces) {
-      console.error("places table is missing; cannot run DB smoke check.");
+    if (!postgisCount) {
+      console.error("PostGIS extension is missing. Run: CREATE EXTENSION postgis;");
+      process.exitCode = 1;
       return;
     }
 
-    const { rows: placeRows } = await client.query(
-      `SELECT * FROM places WHERE id = $1 LIMIT 1`,
-      [placeId],
-    );
-
-    const place = placeRows[0] ?? null;
-    console.log("Place:");
-    console.log(place ? JSON.stringify(place, null, 2) : "(not found)");
-
-    if (hasPayments) {
-      const { rows: paymentRows } = await client.query(
-        `SELECT * FROM payment_accepts WHERE place_id = $1 ORDER BY id ASC`,
-        [placeId],
-      );
-      console.log("\nPayment accepts:");
-      console.log(paymentRows.length ? JSON.stringify(paymentRows, null, 2) : "(none)");
-    } else {
-      console.log("\nPayment accepts: table missing");
+    const missingTables = [];
+    for (const table of requiredTables) {
+      const present = await tableExists(client, table);
+      if (!present) missingTables.push(table);
     }
 
-    if (hasVerifications) {
-      const { rows: verificationRows } = await client.query(
-        `SELECT * FROM verifications WHERE place_id = $1 LIMIT 1`,
-        [placeId],
-      );
-      console.log("\nVerification:");
-      console.log(
-        verificationRows[0] ? JSON.stringify(verificationRows[0], null, 2) : "(none)",
-      );
-    } else {
-      console.log("\nVerification: table missing");
+    if (missingTables.length) {
+      console.error(`Missing required tables: ${missingTables.join(", ")}`);
+      process.exitCode = 1;
+      return;
     }
+
+    const { rows } = await client.query("SELECT COUNT(*)::int AS count FROM places");
+    const count = rows[0]?.count ?? 0;
+
+    console.log("[db-check] Database OK");
+    console.log(`[db-check] places count: ${count}`);
   } catch (error) {
     console.error("[db-check] Failed to query database", error);
     process.exitCode = 1;
