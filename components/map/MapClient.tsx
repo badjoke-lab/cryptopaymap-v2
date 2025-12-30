@@ -32,7 +32,7 @@ const HEADER_HEIGHT = 0;
 
 const DEFAULT_COORDINATES: [number, number] = [20, 0];
 const DEFAULT_ZOOM = 2;
-const PAGE_LIMIT = 500;
+const MAX_CLIENT_LIMIT = 1000;
 const BBOX_PRECISION = 5;
 
 const PIN_SVGS: Record<PinType, string> = {
@@ -58,7 +58,7 @@ export default function MapClient() {
   const markerLayerRef = useRef<import("leaflet").LayerGroup | null>(null);
   const renderFrameRef = useRef<number | null>(null);
   const clusterIndexRef = useRef<SuperclusterIndex | null>(null);
-  const fetchPlacesRef = useRef<() => Promise<void>>();
+  const fetchPlacesRef = useRef<() => void>();
   const leafletRef = useRef<typeof import("leaflet") | null>(null);
   const markersRef = useRef<Map<string, import("leaflet").Marker>>(new Map());
   const filtersRef = useRef<FilterState>(defaultFilterState);
@@ -66,7 +66,12 @@ export default function MapClient() {
   const requestIdRef = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
   const fetchTimeoutRef = useRef<number | null>(null);
-  const pendingFetchRef = useRef<{ bboxKey: string; force: boolean } | null>(null);
+  const pendingFetchRef = useRef<{
+    bboxKey: string;
+    requestKey: string;
+    force: boolean;
+    zoom: number;
+  } | null>(null);
   const lastBboxKeyRef = useRef<string | null>(null);
   const [places, setPlaces] = useState<Place[]>([]);
   const [placesStatus, setPlacesStatus] = useState<
@@ -272,6 +277,12 @@ export default function MapClient() {
       ].join(",");
     };
 
+    const getLimitForZoom = (zoom: number) => {
+      const rawLimit =
+        zoom <= 2 ? 600 : zoom <= 4 ? 800 : zoom <= 6 ? 1000 : 1000;
+      return Math.min(rawLimit, MAX_CLIENT_LIMIT);
+    };
+
     const initializeMap = async () => {
       const L = await import("leaflet");
       leafletRef.current = L;
@@ -298,7 +309,7 @@ export default function MapClient() {
         updateVisibleMarkers();
       };
 
-      const fetchPlacesForBbox = async (bboxKey: string) => {
+      const fetchPlacesForBbox = async (bboxKey: string, zoom: number) => {
         if (!isMounted) return;
         requestIdRef.current += 1;
         const requestId = requestIdRef.current;
@@ -316,7 +327,8 @@ export default function MapClient() {
           const filters = filtersRef.current;
           const query = buildQueryFromFilters(filters);
           const params = new URLSearchParams(query.replace("?", ""));
-          params.set("limit", String(PAGE_LIMIT));
+          const limit = getLimitForZoom(zoom);
+          params.set("limit", String(limit));
           params.set("bbox", bboxKey);
           const pageQuery = params.toString();
           const nextPlaces = await safeFetch<Place[]>(
@@ -324,6 +336,15 @@ export default function MapClient() {
             { signal: controller.signal, retries: 0 },
           );
           if (!isMounted || requestIdRef.current !== requestId) return;
+
+          if (process.env.NODE_ENV !== "production") {
+            console.info("[map] places fetch", {
+              zoom,
+              bbox: bboxKey,
+              limit,
+              count: nextPlaces.length,
+            });
+          }
 
           placesRef.current = nextPlaces;
           setPlaces(nextPlaces);
@@ -347,15 +368,17 @@ export default function MapClient() {
         { force = false }: { force?: boolean } = {},
       ) => {
         const bboxKey = formatBbox(bounds);
-        if (!force && bboxKey === lastBboxKeyRef.current) return;
-        pendingFetchRef.current = { bboxKey, force };
+        const zoom = map.getZoom();
+        const requestKey = `${bboxKey}@${zoom}`;
+        if (!force && requestKey === lastBboxKeyRef.current) return;
+        pendingFetchRef.current = { bboxKey, requestKey, force, zoom };
         clearFetchTimeout();
         fetchTimeoutRef.current = window.setTimeout(() => {
           const pending = pendingFetchRef.current;
           if (!pending) return;
-          if (!pending.force && pending.bboxKey === lastBboxKeyRef.current) return;
-          lastBboxKeyRef.current = pending.bboxKey;
-          void fetchPlacesForBbox(pending.bboxKey);
+          if (!pending.force && pending.requestKey === lastBboxKeyRef.current) return;
+          lastBboxKeyRef.current = pending.requestKey;
+          void fetchPlacesForBbox(pending.bboxKey, pending.zoom);
         }, 250);
       };
 
@@ -367,7 +390,7 @@ export default function MapClient() {
       map.on("moveend zoomend", handleMapViewChange);
       mapInstanceRef.current = map;
 
-      fetchPlacesRef.current = async () => {
+      fetchPlacesRef.current = () => {
         if (!mapInstanceRef.current) return;
         scheduleFetchForBounds(mapInstanceRef.current.getBounds(), { force: true });
       };
