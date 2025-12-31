@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 
 import { DbUnavailableError, dbQuery, getDbClient, hasDatabaseUrl } from "@/lib/db";
+import { recordHistoryEntry, resolveActorFromRequest } from "@/lib/history";
 import { ensureSubmissionColumns, hasColumn, tableExists } from "@/lib/internal-submissions";
 import type { SubmissionPayload } from "@/lib/submissions";
 
@@ -103,13 +104,14 @@ const buildVerificationInsert = async (
   );
 };
 
-export async function POST(_request: Request, { params }: { params: { id: string } }) {
+export async function POST(request: Request, { params }: { params: { id: string } }) {
   if (!hasDatabaseUrl()) {
     return NextResponse.json({ error: "DB_UNAVAILABLE" }, { status: 503 });
   }
 
   const { id } = params;
   const route = "api_internal_submissions_approve";
+  const actor = resolveActorFromRequest(request, "internal");
   let client: Awaited<ReturnType<typeof getDbClient>> | null = null;
 
   try {
@@ -209,6 +211,23 @@ export async function POST(_request: Request, { params }: { params: { id: string
       [id, placeId],
       { route, client, retry: false },
     );
+
+    await recordHistoryEntry({
+      route,
+      client,
+      actor,
+      action: "approve",
+      submissionId: id,
+      placeId,
+      meta: {
+        statusBefore: submission.status,
+        statusAfter: "approved",
+        country: submission.country,
+        city: submission.city,
+        kind: submission.kind,
+        category: submission.category,
+      },
+    });
 
     await dbQuery("COMMIT", [], { route, client, retry: false });
 

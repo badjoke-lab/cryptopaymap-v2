@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { DbUnavailableError, dbQuery, getDbClient } from "@/lib/db";
+import { recordHistoryEntry, resolveActorFromRequest } from "@/lib/history";
 import { buildPlaceIdPrefix, submissionToPlace } from "@/lib/submission-to-place";
 import { loadSubmissionById, saveSubmission } from "@/lib/submissions";
 
@@ -24,8 +25,9 @@ const loadExistingIds = async (route: string, prefix: string) => {
   return rows.map((row) => row.id);
 };
 
-export async function POST(_request: Request, { params }: { params: { id: string } }) {
+export async function POST(request: Request, { params }: { params: { id: string } }) {
   const { id } = params;
+  const actor = resolveActorFromRequest(request, "system");
 
   let submission;
   try {
@@ -113,6 +115,23 @@ export async function POST(_request: Request, { params }: { params: { id: string
         );
       }
     }
+
+    await recordHistoryEntry({
+      route,
+      client,
+      actor,
+      action: "promote",
+      submissionId: submission.submissionId,
+      placeId: place.id,
+      meta: {
+        statusBefore: submission.status,
+        statusAfter: "promoted",
+        country: submission.payload.country,
+        city: submission.payload.city,
+        category: submission.payload.category,
+        verificationRequest: submission.payload.verificationRequest,
+      },
+    });
 
     await dbQuery("COMMIT", [], { route, client, retry: false });
 
