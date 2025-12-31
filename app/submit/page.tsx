@@ -27,9 +27,10 @@ type FormState = {
 };
 
 type SubmissionResponse = {
-  ok: boolean;
-  submissionId?: string;
+  id?: string;
+  status?: string;
   suggestedPlaceId?: string;
+  errors?: Record<string, string>;
   error?: string;
 };
 
