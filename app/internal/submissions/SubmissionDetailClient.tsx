@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import type { HistoryEntry } from "@/lib/history";
 import type { InternalSubmission } from "@/lib/internal-submissions";
@@ -69,7 +69,7 @@ export default function SubmissionDetailClient({ submissionId }: { submissionId:
     void load();
   }, [submissionId]);
 
-  const loadHistory = async () => {
+  const loadHistory = useCallback(async () => {
     try {
       setHistoryStatus("loading");
       const response = await fetch(`/api/internal/submissions/${submissionId}/history`);
@@ -84,11 +84,11 @@ export default function SubmissionDetailClient({ submissionId }: { submissionId:
       console.error("Failed to load history", err);
       setHistoryStatus("error");
     }
-  };
+  }, [submissionId]);
 
   useEffect(() => {
     void loadHistory();
-  }, [submissionId]);
+  }, [loadHistory]);
 
   const handleApprove = async () => {
     setMessage(null);

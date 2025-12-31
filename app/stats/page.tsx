@@ -162,6 +162,20 @@ function SectionCard({
 
 export default function StatsPage() {
   const [state, setState] = useState<StatsState>({ status: 'loading' });
+  const stats = state.stats;
+  const trends = state.trends;
+  const trendPoints = useMemo(() => trends?.points ?? [], [trends?.points]);
+  const trendLabels = useMemo(() => trendPoints.map((point) => point.date), [trendPoints]);
+  const trendSeries = useMemo<ChartSeries[]>(
+    () => [
+      {
+        label: 'Total published places',
+        color: '#2563EB',
+        values: trendPoints.map((point) => point.total),
+      },
+    ],
+    [trendPoints],
+  );
 
   const fetchStats = useCallback(async () => {
     setState({ status: 'loading' });
@@ -210,7 +224,7 @@ export default function StatsPage() {
     );
   }
 
-  if (state.status === 'error' || !state.stats || !state.trends) {
+  if (state.status === 'error' || !stats || !trends) {
     return (
       <main className="flex min-h-screen flex-col gap-6 bg-gray-50 px-4 py-8 text-gray-900 sm:px-6 lg:px-10">
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-4">
@@ -236,19 +250,6 @@ export default function StatsPage() {
       </main>
     );
   }
-
-  const { stats, trends } = state;
-  const trendLabels = trends.points.map((point) => point.date);
-  const trendSeries = useMemo<ChartSeries[]>(
-    () => [
-      {
-        label: 'Total published places',
-        color: '#2563EB',
-        values: trends.points.map((point) => point.total),
-      },
-    ],
-    [trends.points],
-  );
 
   return (
     <main className="flex min-h-screen flex-col bg-gray-50 px-4 py-8 text-gray-900 sm:px-6 lg:px-10">
