@@ -3,10 +3,15 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import type { HistoryEntry } from "@/lib/history";
 import type { InternalSubmission } from "@/lib/internal-submissions";
 
 type SubmissionDetailResponse = {
   submission: InternalSubmission;
+};
+
+type SubmissionHistoryResponse = {
+  entries: HistoryEntry[];
 };
 
 const formatDate = (value: string | null | undefined) => {
@@ -39,6 +44,8 @@ export default function SubmissionDetailClient({ submissionId }: { submissionId:
   const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
+  const [historyStatus, setHistoryStatus] = useState<"loading" | "loaded" | "error">("loading");
 
   useEffect(() => {
     const load = async () => {
@@ -62,6 +69,27 @@ export default function SubmissionDetailClient({ submissionId }: { submissionId:
     void load();
   }, [submissionId]);
 
+  const loadHistory = async () => {
+    try {
+      setHistoryStatus("loading");
+      const response = await fetch(`/api/internal/submissions/${submissionId}/history`);
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(payload.error ?? "Failed to load history");
+      }
+      const payload = (await response.json()) as SubmissionHistoryResponse;
+      setHistoryEntries(payload.entries);
+      setHistoryStatus("loaded");
+    } catch (err) {
+      console.error("Failed to load history", err);
+      setHistoryStatus("error");
+    }
+  };
+
+  useEffect(() => {
+    void loadHistory();
+  }, [submissionId]);
+
   const handleApprove = async () => {
     setMessage(null);
     try {
@@ -81,6 +109,7 @@ export default function SubmissionDetailClient({ submissionId }: { submissionId:
             }
           : prev,
       );
+      await loadHistory();
     } catch (err) {
       setMessage({ type: "error", text: err instanceof Error ? err.message : "Failed to approve submission" });
     }
@@ -115,6 +144,7 @@ export default function SubmissionDetailClient({ submissionId }: { submissionId:
             }
           : prev,
       );
+      await loadHistory();
     } catch (err) {
       setMessage({ type: "error", text: err instanceof Error ? err.message : "Failed to reject submission" });
     }
@@ -264,6 +294,41 @@ export default function SubmissionDetailClient({ submissionId }: { submissionId:
             </dl>
           </div>
         </div>
+      </div>
+
+      <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+        <h2 className="text-sm font-semibold text-gray-800">Audit history</h2>
+        {historyStatus === "loading" && (
+          <p className="mt-3 text-sm text-gray-500">Loading audit history…</p>
+        )}
+        {historyStatus === "error" && (
+          <p className="mt-3 text-sm text-rose-700">Failed to load audit history.</p>
+        )}
+        {historyStatus === "loaded" && historyEntries.length === 0 && (
+          <p className="mt-3 text-sm text-gray-500">No audit entries yet.</p>
+        )}
+        {historyStatus === "loaded" && historyEntries.length > 0 && (
+          <div className="mt-4 space-y-3 text-sm text-gray-700">
+            {historyEntries.map((entry) => (
+              <div key={entry.id} className="rounded-md border border-gray-100 bg-gray-50 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-semibold text-gray-800">{entry.action}</span>
+                  <span className="text-xs text-gray-500">{formatDate(entry.createdAt)}</span>
+                </div>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  <div>
+                    <p className="text-xs uppercase text-gray-400">Actor</p>
+                    <p>{entry.actor}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase text-gray-400">Place</p>
+                    <p>{entry.placeId ?? "—"}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { DbUnavailableError, dbQuery, getDbClient, hasDatabaseUrl } from "@/lib/db";
+import { recordHistoryEntry, resolveActorFromRequest } from "@/lib/history";
 import { ensureSubmissionColumns, tableExists } from "@/lib/internal-submissions";
 
 export const runtime = "nodejs";
@@ -12,6 +13,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
   const { id } = params;
   const route = "api_internal_submissions_reject";
+  const actor = resolveActorFromRequest(request, "internal");
   let body: unknown;
 
   try {
@@ -41,8 +43,14 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
     await dbQuery("BEGIN", [], { route, client, retry: false });
 
-    const { rows } = await dbQuery<{ status: string }>(
-      `SELECT status
+    const { rows } = await dbQuery<{
+      status: string;
+      country: string;
+      city: string;
+      kind: string;
+      category: string;
+    }>(
+      `SELECT status, country, city, kind, category
        FROM submissions
        WHERE id = $1
        FOR UPDATE`,
@@ -73,6 +81,23 @@ export async function POST(request: Request, { params }: { params: { id: string 
       [id, trimmedReason],
       { route, client, retry: false },
     );
+
+    await recordHistoryEntry({
+      route,
+      client,
+      actor,
+      action: "reject",
+      submissionId: id,
+      meta: {
+        statusBefore: submission.status,
+        statusAfter: "rejected",
+        rejectReason: trimmedReason,
+        country: submission.country,
+        city: submission.city,
+        kind: submission.kind,
+        category: submission.category,
+      },
+    });
 
     await dbQuery("COMMIT", [], { route, client, retry: false });
 
