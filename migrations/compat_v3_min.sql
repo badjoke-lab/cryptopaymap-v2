@@ -81,3 +81,33 @@ BEGIN
     WHERE last_verified IS NULL;
   END IF;
 END$$;
+
+-- Submissions table for owner/community intake
+CREATE TABLE IF NOT EXISTS public.submissions (
+  id TEXT PRIMARY KEY,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  status TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  suggested_place_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  country TEXT NOT NULL,
+  city TEXT NOT NULL,
+  address TEXT NOT NULL,
+  category TEXT NOT NULL,
+  accepted_chains TEXT[] NOT NULL,
+  contact_email TEXT NOT NULL,
+  contact_name TEXT,
+  role TEXT,
+  about TEXT,
+  payment_note TEXT,
+  website TEXT,
+  twitter TEXT,
+  instagram TEXT,
+  facebook TEXT,
+  lat DOUBLE PRECISION,
+  lng DOUBLE PRECISION,
+  amenities TEXT[],
+  notes_for_admin TEXT,
+  terms_accepted BOOLEAN,
+  payload JSONB NOT NULL
+);
