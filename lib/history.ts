@@ -68,6 +68,20 @@ export const ensureHistoryTable = async (route: string, client?: PoolClient) => 
     [],
     { route, client },
   );
+
+  await dbQuery(
+    `CREATE INDEX IF NOT EXISTS history_created_at_idx
+     ON public.history (created_at DESC)`,
+    [],
+    { route, client },
+  );
+
+  await dbQuery(
+    `CREATE INDEX IF NOT EXISTS history_action_idx
+     ON public.history (action)`,
+    [],
+    { route, client },
+  );
 };
 
 export const recordHistoryEntry = async (options: {
