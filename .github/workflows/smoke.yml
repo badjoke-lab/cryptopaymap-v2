@@ -23,5 +23,9 @@ jobs:
         run: npm ci
       - name: Build app
         run: npm run build
+      - name: Run DB sanity checks
+        run: node scripts/db_sanity.mjs
       - name: Run smoke
         run: npm run smoke
+      - name: Run regression verification
+        run: node scripts/verify_regression.mjs
