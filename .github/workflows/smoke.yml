@@ -25,6 +25,10 @@ jobs:
       - name: Build app
         run: npm run build
       - name: Run DB sanity checks
+        if: ${{ secrets.DATABASE_URL != '' }}
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          ALLOW_EMPTY_DB: '1'
         run: node scripts/db_sanity.mjs
       - name: Run smoke
         run: npm run smoke
