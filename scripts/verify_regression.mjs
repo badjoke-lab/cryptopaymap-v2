@@ -282,7 +282,7 @@ const runChecks = async () => {
 };
 
 const main = async () => {
-  const shouldSpawn = !process.env.REGRESSION_BASE_URL;
+  const shouldSpawn = process.env.REGRESSION_SPAWN_SERVER !== "false";
   let serverProcess;
   const cleanup = () => {
     if (!serverProcess?.pid) return;
@@ -294,6 +294,10 @@ const main = async () => {
   };
 
   try {
+    if (!process.env.DATABASE_URL) {
+      log("DATABASE_URL missing; running against fallback data.");
+    }
+
     if (shouldSpawn) {
       log(`starting dev server on :${PORT}`);
       serverProcess = spawn(npmCmd, ["run", "dev", "--", "-p", String(PORT)], {

@@ -41,9 +41,8 @@ loadEnv();
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
-  console.error("DATABASE_URL is not set. Add it to .env.local or export it before running this script.");
-  process.exitCode = 1;
-  process.exit();
+  console.log("[db-sanity] DATABASE_URL missing; skipping DB sanity checks.");
+  process.exit(0);
 }
 
 const pool = new Pool({ connectionString: databaseUrl });

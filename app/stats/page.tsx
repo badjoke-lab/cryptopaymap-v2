@@ -1,6 +1,6 @@
 'use client';
 
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useState } from 'react';
 
 import { safeFetch } from '@/lib/safeFetch';
 
@@ -164,18 +164,15 @@ export default function StatsPage() {
   const [state, setState] = useState<StatsState>({ status: 'loading' });
   const stats = state.stats;
   const trends = state.trends;
-  const trendPoints = useMemo(() => trends?.points ?? [], [trends?.points]);
-  const trendLabels = useMemo(() => trendPoints.map((point) => point.date), [trendPoints]);
-  const trendSeries = useMemo<ChartSeries[]>(
-    () => [
-      {
-        label: 'Total published places',
-        color: '#2563EB',
-        values: trendPoints.map((point) => point.total),
-      },
-    ],
-    [trendPoints],
-  );
+  const trendPoints = trends?.points ?? [];
+  const trendLabels = trendPoints.map((point) => point.date);
+  const trendSeries: ChartSeries[] = [
+    {
+      label: 'Total published places',
+      color: '#2563EB',
+      values: trendPoints.map((point) => point.total),
+    },
+  ];
 
   const fetchStats = useCallback(async () => {
     setState({ status: 'loading' });
