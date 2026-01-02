@@ -49,7 +49,10 @@ export const ensureHistoryTable = async (route: string, client?: PoolClient) => 
 
   await dbQuery(
     `ALTER TABLE public.history
+      ADD COLUMN IF NOT EXISTS actor TEXT,
       ADD COLUMN IF NOT EXISTS action TEXT,
+      ADD COLUMN IF NOT EXISTS submission_id TEXT,
+      ADD COLUMN IF NOT EXISTS place_id TEXT,
       ADD COLUMN IF NOT EXISTS meta JSONB`,
     [],
     { route, client },
