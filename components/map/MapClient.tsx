@@ -78,6 +78,7 @@ export default function MapClient() {
     "idle" | "loading" | "success" | "error"
   >("loading");
   const [placesError, setPlacesError] = useState<string | null>(null);
+  const [limitNotice, setLimitNotice] = useState<{ count: number; limit: number } | null>(null);
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<"full" | null>(null);
@@ -319,6 +320,7 @@ export default function MapClient() {
 
         setPlacesStatus("loading");
         setPlacesError(null);
+        setLimitNotice(null);
         placesRef.current = [];
         setPlaces([]);
         clearMarkers();
@@ -331,6 +333,14 @@ export default function MapClient() {
           params.set("limit", String(limit));
           params.set("bbox", bboxKey);
           const pageQuery = params.toString();
+          if (process.env.NEXT_PUBLIC_ENV !== "production") {
+            const center = map.getCenter();
+            console.debug("[map] fetch params", {
+              center: [Number(center.lat.toFixed(4)), Number(center.lng.toFixed(4))],
+              zoom,
+              query: pageQuery,
+            });
+          }
           const nextPlaces = await safeFetch<Place[]>(
             `/api/places${pageQuery ? `?${pageQuery}` : ""}`,
             { signal: controller.signal, retries: 0 },
@@ -348,6 +358,7 @@ export default function MapClient() {
 
           placesRef.current = nextPlaces;
           setPlaces(nextPlaces);
+          setLimitNotice(nextPlaces.length >= limit ? { count: nextPlaces.length, limit } : null);
           buildIndexAndRender(nextPlaces);
           setPlacesStatus("success");
         } catch (error) {
@@ -383,7 +394,7 @@ export default function MapClient() {
       };
 
       const handleMapViewChange = () => {
-        scheduleFetchForBounds(map.getBounds());
+        scheduleFetchForBounds(map.getBounds(), { force: true });
         updateVisibleMarkers();
       };
 
@@ -651,6 +662,11 @@ export default function MapClient() {
           className="pointer-events-none absolute right-4 top-4 z-50 flex flex-col items-end gap-2 text-right"
           showBanner
         />
+        {limitNotice && placesStatus !== "loading" && (
+          <div className="pointer-events-none absolute inset-x-0 top-4 z-40 mx-auto w-[min(90%,520px)] rounded-md border border-amber-200 bg-amber-50/95 px-4 py-2 text-sm font-medium text-amber-900 shadow-sm backdrop-blur">
+            Too many results ({limitNotice.count} of {limitNotice.limit}). Zoom in to narrow down.
+          </div>
+        )}
         {placesStatus === "loading" && (
           <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-gray-100/90 text-gray-700">
             <div className="h-10 w-10 animate-spin rounded-full border-4 border-blue-200 border-t-blue-500" />
