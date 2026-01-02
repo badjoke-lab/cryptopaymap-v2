@@ -104,9 +104,22 @@ const ensurePlacesSanity = async (client) => {
     ["lng out of range", row?.lng_out_of_range],
   ].filter(([, value]) => Number(value ?? 0) > 0);
 
-  if (issues.length) {
-    const summary = issues.map(([label, value]) => `${label}=${value}`).join(", ");
-    throw new Error(`places sanity check failed: ${summary}`);
+  const hard = new Set(["id missing", "name missing", "country missing", "city missing", "lat out of range", "lng out of range"]);
+  const hardIssues = issues.filter(([label]) => hard.has(label));
+  const softIssues = issues.filter(([label]) => !hard.has(label));
+
+  if (hardIssues.length) {
+    const summary = hardIssues.map(([label, value]) => `${label}=${value}`).join(", ");
+    throw new Error(`places sanity check failed (hard): ${summary}`);
+  }
+
+  if (softIssues.length) {
+    const summary = softIssues.map(([label, value]) => `${label}=${value}`).join(", ");
+    if (process.env.ALLOW_PARTIAL_PLACES) {
+      console.warn(`[db-sanity] WARN: places partial data: ${summary}`);
+      return;
+    }
+    throw new Error(`places sanity check failed (soft): ${summary} (set ALLOW_PARTIAL_PLACES=1 to allow)`);
   }
 };
 
