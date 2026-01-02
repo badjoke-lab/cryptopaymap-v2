@@ -16,6 +16,7 @@ const skip = String(process.env.SKIP_VERIFY_REGRESSION || "") === "1";
 
 const rawBase =
   process.env.BASE_URL ||
+  process.env.REGRESSION_BASE_URL ||
   (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "") ||
   "";
 
