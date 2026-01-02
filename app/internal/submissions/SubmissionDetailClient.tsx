@@ -47,27 +47,27 @@ export default function SubmissionDetailClient({ submissionId }: { submissionId:
   const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
   const [historyStatus, setHistoryStatus] = useState<"loading" | "loaded" | "error">("loading");
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        setStatus("loading");
-        const response = await fetch(`/api/internal/submissions/${submissionId}`);
-        if (!response.ok) {
-          const payload = (await response.json().catch(() => ({}))) as { error?: string };
-          throw new Error(payload.error ?? "Failed to load submission");
-        }
-        const payload = (await response.json()) as SubmissionDetailResponse;
-        setSubmission(payload.submission);
-        setStatus("loaded");
-      } catch (err) {
-        console.error("Failed to load submission", err);
-        setStatus("error");
-        setMessage({ type: "error", text: err instanceof Error ? err.message : "Failed to load submission" });
+  const loadSubmission = useCallback(async () => {
+    try {
+      setStatus("loading");
+      const response = await fetch(`/api/internal/submissions/${submissionId}`);
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(payload.error ?? "Failed to load submission");
       }
-    };
-
-    void load();
+      const payload = (await response.json()) as SubmissionDetailResponse;
+      setSubmission(payload.submission);
+      setStatus("loaded");
+    } catch (err) {
+      console.error("Failed to load submission", err);
+      setStatus("error");
+      setMessage({ type: "error", text: err instanceof Error ? err.message : "Failed to load submission" });
+    }
   }, [submissionId]);
+
+  useEffect(() => {
+    void loadSubmission();
+  }, [loadSubmission]);
 
   const loadHistory = useCallback(async () => {
     try {

@@ -11,6 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      ALLOW_PARTIAL_PLACES: "1"
+      REGRESSION_BASE_URL: http://localhost:3201
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -23,5 +25,14 @@ jobs:
         run: npm ci
       - name: Build app
         run: npm run build
+      - name: Run DB sanity checks
+        if: ${{ env.DATABASE_URL != '' }}
+        env:
+          ALLOW_EMPTY_DB: "1"
+        run: node scripts/db_sanity.mjs
       - name: Run smoke
         run: npm run smoke
+      - name: Run regression verification
+        env:
+          REGRESSION_SPAWN_SERVER: "true"
+        run: node scripts/verify_regression.mjs
