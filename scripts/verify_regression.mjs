@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import path from "node:path";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -47,17 +48,50 @@ async function waitHealth(baseUrl, { tries = 60, intervalMs = 500 } = {}) {
 }
 
 function spawnDevServer({ port }) {
-  // Next dev を npm 経由で起動（package.json の dev を利用）
-  const cmd = process.platform === "win32" ? "npm.cmd" : "npm";
-  const child = spawn(cmd, ["run", "dev", "--", "-p", String(port)], {
+  // ✅ npm/npxを噛まない。Nextのbinを node で直起動する（孤児化しにくい）
+  const nextBin = path.join(process.cwd(), "node_modules", "next", "dist", "bin", "next");
+  const child = spawn(process.execPath, [nextBin, "dev", "-p", String(port)], {
     stdio: "inherit",
     env: {
       ...process.env,
       NEXT_TELEMETRY_DISABLED: "1",
       PORT: String(port),
     },
+    // ✅ 子プロセス群まとめてkillできるようにする
+    detached: process.platform !== "win32",
   });
   return child;
+}
+
+async function stopChild(child) {
+  if (!child) return;
+
+  // すでに死んでるなら何もしない
+  if (child.exitCode != null) return;
+
+  // Windowsはプロセスグループkillが素直じゃないので taskkill
+  if (process.platform === "win32") {
+    await new Promise((resolve) => {
+      const killer = spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+      killer.on("exit", resolve);
+      killer.on("error", resolve);
+    });
+    return;
+  }
+
+  const pgid = -child.pid; // ✅ プロセスグループごと kill
+  const waitExit = new Promise((resolve) => child.once("exit", resolve));
+
+  try { process.kill(pgid, "SIGINT"); } catch {}
+  await Promise.race([waitExit, sleep(1500)]);
+  if (child.exitCode != null) return;
+
+  try { process.kill(pgid, "SIGTERM"); } catch {}
+  await Promise.race([waitExit, sleep(1500)]);
+  if (child.exitCode != null) return;
+
+  try { process.kill(pgid, "SIGKILL"); } catch {}
+  await Promise.race([waitExit, sleep(1500)]);
 }
 
 const baseUrl = process.env.REGRESSION_BASE_URL || "http://localhost:3201";
@@ -65,42 +99,39 @@ const ci = Boolean(process.env.CI || process.env.GITHUB_ACTIONS);
 const wantSpawn = String(process.env.REGRESSION_SPAWN_SERVER || "").toLowerCase() === "true";
 
 console.log(`[verify] baseUrl=${baseUrl}`);
+
 let child = null;
 
 try {
   // 1) 既に生きてるならそのまま使う
   let ok = await waitHealth(baseUrl, { tries: 6, intervalMs: 300 });
+
+  // 2) 死んでたら spawn + 起動待ち
   if (!ok && wantSpawn) {
-    // 2) 死んでたら spawn + 起動待ち
     const port = parsePort(baseUrl);
     console.log(`[verify] health not ready -> spawning dev server on port ${port} ...`);
     child = spawnDevServer({ port });
 
     ok = await waitHealth(baseUrl, { tries: 80, intervalMs: 500 });
-    if (!ok) {
-      throw new Error(`[verify] dev server did not become healthy at ${baseUrl}/api/health`);
-    }
+    if (!ok) throw new Error(`[verify] dev server did not become healthy at ${baseUrl}/api/health`);
     console.log("[verify] dev server is healthy");
   } else if (!ok) {
     throw new Error(`[verify] server not reachable at ${baseUrl} (set REGRESSION_SPAWN_SERVER=true to spawn)`);
   }
 
-  // 3) bbox 候補（minLng,minLat,maxLng,maxLat）
   const cities = [
-    { name: "Tokyo",      bbox: [139.55, 35.53, 139.91, 35.82] },
-    { name: "NewYork",    bbox: [-74.26, 40.49, -73.70, 40.92] },
-    { name: "London",     bbox: [-0.51, 51.28, 0.33, 51.70] },
-    { name: "Singapore",  bbox: [103.60, 1.16, 104.10, 1.48] },
-    { name: "Bangkok",    bbox: [100.35, 13.50, 100.93, 13.91] },
+    { name: "Tokyo",     bbox: [139.55, 35.53, 139.91, 35.82] },
+    { name: "NewYork",   bbox: [-74.26, 40.49, -73.70, 40.92] },
+    { name: "London",    bbox: [-0.51, 51.28, 0.33, 51.70] },
+    { name: "Singapore", bbox: [103.60, 1.16, 104.10, 1.48] },
+    { name: "Bangkok",   bbox: [100.35, 13.50, 100.93, 13.91] },
   ];
 
   console.log("[verify] fetching candidates...");
   const results = [];
+
   for (const c of cities) {
-    const qs = new URLSearchParams({
-      bbox: c.bbox.join(","),
-      limit: "50",
-    });
+    const qs = new URLSearchParams({ bbox: c.bbox.join(","), limit: "50" });
     const url = `${baseUrl.replace(/\/$/, "")}/api/places?${qs.toString()}`;
     try {
       const json = await fetchJson(url, { timeoutMs: 12000 });
@@ -116,29 +147,26 @@ try {
   const okOnes = results.filter((r) => r.ok);
   const nonEmpty = okOnes.filter((r) => r.count > 0);
 
-  // 4) 判断（今の挙動を踏襲：CIなら「比較できない」はスキップ）
-  if (okOnes.length === 0) {
-    throw new Error("[verify] all candidate fetches failed (server/API issue)");
-  }
+  if (okOnes.length === 0) throw new Error("[verify] all candidate fetches failed (server/API issue)");
 
   if (nonEmpty.length < 2) {
     const msg = "[verify] Not enough non-empty bbox results to compare.";
     if (ci) {
       console.log(msg + " CI mode => skipping.");
-      process.exit(0);
+      process.exitCode = 0;
     } else {
       throw new Error(msg + " (local) fix data or bbox, or check DB/API)");
     }
+  } else {
+    console.log(`[verify] PASS (non-empty cities=${nonEmpty.length})`);
+    process.exitCode = 0;
   }
-
-  console.log(`[verify] PASS (non-empty cities=${nonEmpty.length})`);
-  process.exit(0);
 } catch (e) {
   console.error(String(e?.stack || e));
   process.exitCode = 1;
 } finally {
   if (child) {
     console.log("[verify] stopping spawned dev server...");
-    child.kill("SIGTERM");
+    await stopChild(child);
   }
 }
