@@ -218,7 +218,7 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
                       className="cpm-drawer__link"
                       href={social.href}
                       target="_blank"
-                      rel="noreferrer"
+                      rel="noopener noreferrer"
                     >
                       {social.label}
                     </a>
@@ -237,7 +237,7 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
                       className="cpm-drawer__nav-link"
                       href={link.href}
                       target="_blank"
-                      rel="noreferrer"
+                      rel="noopener noreferrer"
                     >
                       {link.label}
                     </a>

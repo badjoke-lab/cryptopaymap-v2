@@ -83,6 +83,7 @@ export default function MapClient() {
   const [placesError, setPlacesError] = useState<string | null>(null);
   const [limitNotice, setLimitNotice] = useState<{ count: number; limit: number } | null>(null);
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
+  const selectedPlaceIdRef = useRef<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<"full" | null>(null);
   const drawerRef = useRef<HTMLDivElement | null>(null);
@@ -158,6 +159,10 @@ export default function MapClient() {
   }, [places]);
 
   useEffect(() => {
+    selectedPlaceIdRef.current = selectedPlaceId;
+  }, [selectedPlaceId]);
+
+  useEffect(() => {
     if (!hasHydratedFiltersRef.current) return;
     const nextQuery = buildQueryFromFilters(filters);
     const currentQuery = searchParams.toString() ? `?${searchParams.toString()}` : "";
@@ -183,12 +188,11 @@ export default function MapClient() {
       if (!markerLayerRef.current || !L || !map) return;
 
       stopRenderFrame();
-      markerLayerRef.current.clearLayers();
-
-      markersRef.current.clear();
+      const nextLayer = L.layerGroup();
+      const nextMarkers = new Map<string, import("leaflet").Marker>();
 
       const tasks = clusters.map((clusterItem) => () => {
-        if (!markerLayerRef.current || !map) return;
+        if (!mapInstanceRef.current) return;
 
         if (clusterItem.type === "cluster") {
           const [lng, lat] = clusterItem.coordinates;
@@ -209,13 +213,14 @@ export default function MapClient() {
             }
           });
 
-          markerLayerRef.current?.addLayer(marker);
+          nextLayer.addLayer(marker);
           return;
         }
 
         const [lng, lat] = clusterItem.coordinates;
+        const isSelected = selectedPlaceIdRef.current === clusterItem.id;
         const icon = L.divIcon({
-          html: `<div class="cpm-pin cpm-pin-${clusterItem.verification}">${PIN_SVGS[clusterItem.verification]}</div>`,
+          html: `<div class="cpm-pin cpm-pin-${clusterItem.verification}${isSelected ? " active" : ""}">${PIN_SVGS[clusterItem.verification]}</div>`,
           className: "",
           iconSize: [32, 32],
           iconAnchor: [16, 32],
@@ -225,8 +230,9 @@ export default function MapClient() {
           event.originalEvent.stopPropagation();
           openDrawerForPlace(clusterItem.id);
         });
-        markerLayerRef.current.addLayer(marker);
-        markersRef.current.set(clusterItem.id, marker);
+        marker.setZIndexOffset(isSelected ? 1000 : 0);
+        nextLayer.addLayer(marker);
+        nextMarkers.set(clusterItem.id, marker);
       });
 
       const processChunk = () => {
@@ -240,6 +246,13 @@ export default function MapClient() {
           renderFrameRef.current = requestAnimationFrame(processChunk);
         } else {
           renderFrameRef.current = null;
+          if (!mapInstanceRef.current) return;
+          if (markerLayerRef.current) {
+            map.removeLayer(markerLayerRef.current);
+          }
+          nextLayer.addTo(map);
+          markerLayerRef.current = nextLayer;
+          markersRef.current = nextMarkers;
         }
       };
 
@@ -326,12 +339,9 @@ export default function MapClient() {
         const controller = new AbortController();
         abortControllerRef.current = controller;
 
-        setPlacesStatus("loading");
-        setPlacesError(null);
-        setLimitNotice(null);
-
         const cached = placesCacheRef.current.get(requestKey);
         if (cached) {
+          setPlacesError(null);
           placesRef.current = cached.places;
           setPlaces(cached.places);
           setLimitNotice(cached.places.length >= cached.limit ? { count: cached.places.length, limit: cached.limit } : null);
@@ -339,6 +349,10 @@ export default function MapClient() {
           setPlacesStatus("success");
           return;
         }
+
+        setPlacesStatus("loading");
+        setPlacesError(null);
+        setLimitNotice(null);
 
         try {
           const filters = filtersRef.current;
