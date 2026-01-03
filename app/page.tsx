@@ -1,3 +1,5 @@
+import MapClient from '../components/map/MapClient';
+
 export default function HomePage() {
-  return <div>CryptoPayMap v2 scaffold</div>;
+  return <MapClient />;
 }
