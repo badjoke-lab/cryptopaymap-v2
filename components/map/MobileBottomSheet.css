@@ -233,6 +233,33 @@
   text-decoration: underline;
 }
 
+.cpm-bottom-sheet__nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.cpm-bottom-sheet__nav-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #0f172a;
+  font-size: 0.875rem;
+  font-weight: 700;
+  text-decoration: none;
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+
+.cpm-bottom-sheet__nav-link:hover {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .cpm-bottom-sheet__panel {
     transition: none;

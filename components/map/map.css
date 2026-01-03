@@ -41,3 +41,128 @@
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
   border: 3px solid rgba(255, 255, 255, 0.9);
 }
+
+.cpm-map-controls {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.cpm-map-button {
+  appearance: none;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  padding: 8px 14px;
+  background: #ffffff;
+  color: #111827;
+  font-size: 0.875rem;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.cpm-map-button:disabled {
+  cursor: progress;
+  color: #6b7280;
+  border-color: #e5e7eb;
+  background: #f9fafb;
+}
+
+.cpm-map-button:not(:disabled):hover {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+
+.cpm-map-toast {
+  max-width: 220px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.9);
+  color: #f8fafc;
+  padding: 8px 10px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
+}
+
+.cpm-map-loading {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #e5e7eb;
+  color: #475569;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+  pointer-events: none;
+}
+
+.cpm-map-loading__spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid #c7d2fe;
+  border-top-color: #6366f1;
+  animation: cpm-spin 0.9s linear infinite;
+}
+
+.cpm-user-marker-icon {
+  background: transparent;
+  border: none;
+}
+
+.cpm-user-marker {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+}
+
+.cpm-user-marker__pulse {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.3);
+  animation: cpm-pulse 1.8s ease-out infinite;
+}
+
+.cpm-user-marker__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #2563eb;
+  border: 2px solid #ffffff;
+  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.4);
+  position: relative;
+}
+
+@keyframes cpm-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes cpm-pulse {
+  0% {
+    transform: scale(0.4);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}

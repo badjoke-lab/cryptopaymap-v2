@@ -61,6 +61,7 @@ export default function MapClient() {
   const fetchPlacesRef = useRef<() => void>();
   const leafletRef = useRef<typeof import("leaflet") | null>(null);
   const markersRef = useRef<Map<string, import("leaflet").Marker>>(new Map());
+  const userMarkerRef = useRef<import("leaflet").Marker | null>(null);
   const filtersRef = useRef<FilterState>(defaultFilterState);
   const placesRef = useRef<Place[]>([]);
   const requestIdRef = useRef(0);
@@ -69,10 +70,12 @@ export default function MapClient() {
   const pendingFetchRef = useRef<{
     bboxKey: string;
     requestKey: string;
+    filterQuery: string;
     force: boolean;
     zoom: number;
   } | null>(null);
-  const lastBboxKeyRef = useRef<string | null>(null);
+  const lastRequestKeyRef = useRef<string | null>(null);
+  const placesCacheRef = useRef<Map<string, { places: Place[]; limit: number }>>(new Map());
   const [places, setPlaces] = useState<Place[]>([]);
   const [placesStatus, setPlacesStatus] = useState<
     "idle" | "loading" | "success" | "error"
@@ -88,6 +91,9 @@ export default function MapClient() {
   const [filters, setFilters] = useState<FilterState>(defaultFilterState);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const hasHydratedFiltersRef = useRef(false);
+  const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
+  const [geolocationError, setGeolocationError] = useState<string | null>(null);
+  const [isLocating, setIsLocating] = useState(false);
 
   const toggleFilters = useCallback(
     () => setFiltersOpen((previous) => !previous),
@@ -262,12 +268,6 @@ export default function MapClient() {
       fetchTimeoutRef.current = null;
     };
 
-    const clearMarkers = () => {
-      markerLayerRef.current?.clearLayers();
-      markersRef.current.clear();
-      clusterIndexRef.current = createSuperclusterIndex([]);
-    };
-
     const formatBbox = (bounds: import("leaflet").LatLngBounds) => {
       const round = (value: number) => Number(value.toFixed(BBOX_PRECISION));
       return [
@@ -310,7 +310,15 @@ export default function MapClient() {
         updateVisibleMarkers();
       };
 
-      const fetchPlacesForBbox = async (bboxKey: string, zoom: number) => {
+      const buildRequestKey = (bboxKey: string, zoom: number, filterQuery: string) =>
+        `${bboxKey}@${zoom}|${filterQuery}`;
+
+      const fetchPlacesForBbox = async (
+        bboxKey: string,
+        zoom: number,
+        filterQuery: string,
+        requestKey: string,
+      ) => {
         if (!isMounted) return;
         requestIdRef.current += 1;
         const requestId = requestIdRef.current;
@@ -321,14 +329,20 @@ export default function MapClient() {
         setPlacesStatus("loading");
         setPlacesError(null);
         setLimitNotice(null);
-        placesRef.current = [];
-        setPlaces([]);
-        clearMarkers();
+
+        const cached = placesCacheRef.current.get(requestKey);
+        if (cached) {
+          placesRef.current = cached.places;
+          setPlaces(cached.places);
+          setLimitNotice(cached.places.length >= cached.limit ? { count: cached.places.length, limit: cached.limit } : null);
+          buildIndexAndRender(cached.places);
+          setPlacesStatus("success");
+          return;
+        }
 
         try {
           const filters = filtersRef.current;
-          const query = buildQueryFromFilters(filters);
-          const params = new URLSearchParams(query.replace("?", ""));
+          const params = new URLSearchParams(filterQuery.replace("?", ""));
           const limit = getLimitForZoom(zoom);
           params.set("limit", String(limit));
           params.set("bbox", bboxKey);
@@ -360,6 +374,13 @@ export default function MapClient() {
           setPlaces(nextPlaces);
           setLimitNotice(nextPlaces.length >= limit ? { count: nextPlaces.length, limit } : null);
           buildIndexAndRender(nextPlaces);
+          placesCacheRef.current.set(requestKey, { places: nextPlaces, limit });
+          if (placesCacheRef.current.size > 30) {
+            const [firstKey] = placesCacheRef.current.keys();
+            if (firstKey) {
+              placesCacheRef.current.delete(firstKey);
+            }
+          }
           setPlacesStatus("success");
         } catch (error) {
           if (error instanceof DOMException && error.name === "AbortError") {
@@ -380,16 +401,22 @@ export default function MapClient() {
       ) => {
         const bboxKey = formatBbox(bounds);
         const zoom = map.getZoom();
-        const requestKey = `${bboxKey}@${zoom}`;
-        if (!force && requestKey === lastBboxKeyRef.current) return;
-        pendingFetchRef.current = { bboxKey, requestKey, force, zoom };
+        const filterQuery = buildQueryFromFilters(filtersRef.current);
+        const requestKey = buildRequestKey(bboxKey, zoom, filterQuery);
+        if (!force && requestKey === lastRequestKeyRef.current) return;
+        pendingFetchRef.current = { bboxKey, requestKey, filterQuery, force, zoom };
         clearFetchTimeout();
         fetchTimeoutRef.current = window.setTimeout(() => {
           const pending = pendingFetchRef.current;
           if (!pending) return;
-          if (!pending.force && pending.requestKey === lastBboxKeyRef.current) return;
-          lastBboxKeyRef.current = pending.requestKey;
-          void fetchPlacesForBbox(pending.bboxKey, pending.zoom);
+          if (!pending.force && pending.requestKey === lastRequestKeyRef.current) return;
+          lastRequestKeyRef.current = pending.requestKey;
+          void fetchPlacesForBbox(
+            pending.bboxKey,
+            pending.zoom,
+            pending.filterQuery,
+            pending.requestKey,
+          );
         }, 250);
       };
 
@@ -598,6 +625,74 @@ export default function MapClient() {
   }, [selectedPlaceId]);
 
   useEffect(() => {
+    const map = mapInstanceRef.current;
+    const L = leafletRef.current;
+    if (!map || !L) return;
+
+    if (!userLocation) {
+      if (userMarkerRef.current) {
+        map.removeLayer(userMarkerRef.current);
+        userMarkerRef.current = null;
+      }
+      return;
+    }
+
+    if (!userMarkerRef.current) {
+      const icon = L.divIcon({
+        html: `<div class="cpm-user-marker"><span class="cpm-user-marker__pulse"></span><span class="cpm-user-marker__dot"></span></div>`,
+        className: "cpm-user-marker-icon",
+        iconSize: [24, 24],
+        iconAnchor: [12, 12],
+      });
+      userMarkerRef.current = L.marker(userLocation, { icon, interactive: false }).addTo(map);
+    } else {
+      userMarkerRef.current.setLatLng(userLocation);
+    }
+  }, [userLocation]);
+
+  const handleLocateMe = useCallback(() => {
+    if (!navigator.geolocation) {
+      setGeolocationError("Geolocation is not supported in this browser.");
+      return;
+    }
+
+    setIsLocating(true);
+    setGeolocationError(null);
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const nextLocation: [number, number] = [
+          position.coords.latitude,
+          position.coords.longitude,
+        ];
+        setUserLocation(nextLocation);
+        setIsLocating(false);
+        const map = mapInstanceRef.current;
+        if (map) {
+          map.flyTo(nextLocation, Math.max(map.getZoom(), 13), { animate: true });
+        }
+      },
+      (error) => {
+        setIsLocating(false);
+        switch (error.code) {
+          case error.PERMISSION_DENIED:
+            setGeolocationError("Location permission denied.");
+            break;
+          case error.POSITION_UNAVAILABLE:
+            setGeolocationError("Location unavailable.");
+            break;
+          case error.TIMEOUT:
+            setGeolocationError("Location request timed out.");
+            break;
+          default:
+            setGeolocationError("Unable to get your location.");
+        }
+      },
+      { enableHighAccuracy: true, timeout: 10000 },
+    );
+  }, []);
+
+  useEffect(() => {
     if (!selectedPlaceId && !drawerOpen) return;
 
     const handlePointerDown = (event: PointerEvent) => {
@@ -662,15 +757,26 @@ export default function MapClient() {
           className="pointer-events-none absolute right-4 top-4 z-50 flex flex-col items-end gap-2 text-right"
           showBanner
         />
+        <div className="cpm-map-controls">
+          <button
+            type="button"
+            onClick={handleLocateMe}
+            className="cpm-map-button"
+            disabled={isLocating}
+          >
+            {isLocating ? "Locating…" : "Locate me"}
+          </button>
+          {geolocationError && <div className="cpm-map-toast">{geolocationError}</div>}
+        </div>
+        {placesStatus === "loading" && (
+          <div className="cpm-map-loading">
+            <span className="cpm-map-loading__spinner" aria-hidden />
+            <span>Updating places…</span>
+          </div>
+        )}
         {limitNotice && placesStatus !== "loading" && (
           <div className="pointer-events-none absolute inset-x-0 top-4 z-40 mx-auto w-[min(90%,520px)] rounded-md border border-amber-200 bg-amber-50/95 px-4 py-2 text-sm font-medium text-amber-900 shadow-sm backdrop-blur">
             Too many results ({limitNotice.count} of {limitNotice.limit}). Zoom in to narrow down.
-          </div>
-        )}
-        {placesStatus === "loading" && (
-          <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-gray-100/90 text-gray-700">
-            <div className="h-10 w-10 animate-spin rounded-full border-4 border-blue-200 border-t-blue-500" />
-            <p className="mt-3 text-sm font-medium">Loading places…</p>
           </div>
         )}
         {placesError && (
