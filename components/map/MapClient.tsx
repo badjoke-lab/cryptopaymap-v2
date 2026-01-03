@@ -28,7 +28,7 @@ import {
 } from "@/lib/filters";
 import DbStatusIndicator from "@/components/status/DbStatusIndicator";
 
-const HEADER_HEIGHT = 0;
+const HEADER_HEIGHT = 64;
 
 const DEFAULT_COORDINATES: [number, number] = [20, 0];
 const DEFAULT_ZOOM = 2;

@@ -1,0 +1,10 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="630" rx="48" fill="#0F172A" />
+  <rect x="80" y="80" width="470" height="470" rx="64" fill="#111827" stroke="#F97316" stroke-width="16" />
+  <path d="M240 315C240 250.964 291.964 199 356 199H452" stroke="#F97316" stroke-width="36" stroke-linecap="round" />
+  <path d="M452 315C452 379.036 400.036 431 336 431H240" stroke="#F97316" stroke-width="36" stroke-linecap="round" />
+  <circle cx="240" cy="315" r="18" fill="#F97316" />
+  <circle cx="452" cy="315" r="18" fill="#F97316" />
+  <text x="600" y="320" fill="#F8FAFC" font-family="'Inter', 'Segoe UI', sans-serif" font-size="72" font-weight="700">CryptoPayMap</text>
+  <text x="600" y="395" fill="#CBD5F5" font-family="'Inter', 'Segoe UI', sans-serif" font-size="32">Find places that accept crypto worldwide</text>
+</svg>
