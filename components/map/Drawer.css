@@ -244,6 +244,33 @@
   font-weight: 500;
 }
 
+.cpm-drawer__nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.cpm-drawer__nav-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  color: #111827;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+
+.cpm-drawer__nav-link:hover {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
 @media (max-width: 1023px) {
   .cpm-drawer {
     width: 380px;

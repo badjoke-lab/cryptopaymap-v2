@@ -76,6 +76,23 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
       return entries;
     }, [place]);
 
+    const navigationLinks = useMemo(() => {
+      if (!place) return [] as { label: string; href: string; key: string }[];
+      const destination = `${place.lat},${place.lng}`;
+      return [
+        {
+          key: "google-maps",
+          label: "Google Maps",
+          href: `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}`,
+        },
+        {
+          key: "apple-maps",
+          label: "Apple Maps",
+          href: `https://maps.apple.com/?daddr=${encodeURIComponent(destination)}`,
+        },
+      ];
+    }, [place]);
+
     const supportedCrypto = useMemo(() => {
       if (!place) return [] as string[];
       const preferredOrder = ["BTC", "BTC@Lightning", "Lightning", "ETH", "USDT"];
@@ -204,6 +221,25 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
                       rel="noreferrer"
                     >
                       {social.label}
+                    </a>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {navigationLinks.length > 0 && (
+              <section className="cpm-drawer__section">
+                <h3 className="cpm-drawer__section-title">Navigate</h3>
+                <div className="cpm-drawer__nav">
+                  {navigationLinks.map((link) => (
+                    <a
+                      key={link.key}
+                      className="cpm-drawer__nav-link"
+                      href={link.href}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {link.label}
                     </a>
                   ))}
                 </div>
