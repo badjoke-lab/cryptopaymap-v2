@@ -37,6 +37,57 @@ type ParsedBbox = {
   maxLat: number;
 };
 
+const WORLD_BBOX: ParsedBbox = {
+  minLng: -180,
+  minLat: -90,
+  maxLng: 180,
+  maxLat: 90,
+};
+
+const clampLat = (value: number) => Math.min(90, Math.max(-90, value));
+
+const wrapLng = (value: number) => {
+  const wrapped = ((value + 180) % 360 + 360) % 360 - 180;
+  return wrapped;
+};
+
+const normalizeBbox = (
+  minLng: number,
+  minLat: number,
+  maxLng: number,
+  maxLat: number,
+): ParsedBbox => {
+  const clampedMinLat = clampLat(minLat);
+  const clampedMaxLat = clampLat(maxLat);
+  const normalizedMinLat = Math.min(clampedMinLat, clampedMaxLat);
+  const normalizedMaxLat = Math.max(clampedMinLat, clampedMaxLat);
+  const width = maxLng - minLng;
+
+  if (!Number.isFinite(width) || width <= 0 || width >= 360) {
+    return WORLD_BBOX;
+  }
+
+  if (normalizedMinLat >= normalizedMaxLat) {
+    return WORLD_BBOX;
+  }
+
+  const center = (minLng + maxLng) / 2;
+  const normalizedCenter = wrapLng(center);
+  const normalizedMinLng = normalizedCenter - width / 2;
+  const normalizedMaxLng = normalizedCenter + width / 2;
+
+  if (normalizedMinLng < -180 || normalizedMaxLng > 180) {
+    return WORLD_BBOX;
+  }
+
+  return {
+    minLng: normalizedMinLng,
+    minLat: normalizedMinLat,
+    maxLng: normalizedMaxLng,
+    maxLat: normalizedMaxLat,
+  };
+};
+
 const parseBbox = (value: string | null): { bbox: ParsedBbox | null; error?: string } => {
   if (!value) return { bbox: null };
   const parts = value.split(",").map((part) => part.trim());
@@ -47,16 +98,8 @@ const parseBbox = (value: string | null): { bbox: ParsedBbox | null; error?: str
   if (![minLng, minLat, maxLng, maxLat].every((num) => Number.isFinite(num))) {
     return { bbox: null, error: "bbox must contain valid numbers" };
   }
-  if (minLng < -180 || minLng > 180 || maxLng < -180 || maxLng > 180) {
-    return { bbox: null, error: "bbox longitude out of range" };
-  }
-  if (minLat < -90 || minLat > 90 || maxLat < -90 || maxLat > 90) {
-    return { bbox: null, error: "bbox latitude out of range" };
-  }
-  if (minLng >= maxLng || minLat >= maxLat) {
-    return { bbox: null, error: "bbox min values must be less than max values" };
-  }
-  return { bbox: { minLng, minLat, maxLng, maxLat } };
+  const normalized = normalizeBbox(minLng, minLat, maxLng, maxLat);
+  return { bbox: normalized };
 };
 
 const parseSearchTerm = (value: string | null): string | null => {

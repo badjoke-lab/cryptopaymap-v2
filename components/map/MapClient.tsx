@@ -263,11 +263,12 @@ export default function MapClient() {
       const map = mapInstanceRef.current;
       if (!markerLayerRef.current || !clusterIndexRef.current || !map) return;
       const bounds = map.getBounds();
+      const normalized = normalizeBounds(bounds);
       const bbox: [number, number, number, number] = [
-        bounds.getWest(),
-        bounds.getSouth(),
-        bounds.getEast(),
-        bounds.getNorth(),
+        normalized.minLng,
+        normalized.minLat,
+        normalized.maxLng,
+        normalized.maxLat,
       ];
 
       const zoom = map.getZoom();
@@ -281,13 +282,61 @@ export default function MapClient() {
       fetchTimeoutRef.current = null;
     };
 
+    const WORLD_BBOX = {
+      minLng: -180,
+      minLat: -90,
+      maxLng: 180,
+      maxLat: 90,
+    };
+
+    const clampLat = (value: number) => Math.min(90, Math.max(-90, value));
+
+    const wrapLng = (value: number) => ((value + 180) % 360 + 360) % 360 - 180;
+
+    const normalizeBounds = (bounds: import("leaflet").LatLngBounds) => {
+      const rawMinLng = bounds.getWest();
+      const rawMaxLng = bounds.getEast();
+      const rawMinLat = bounds.getSouth();
+      const rawMaxLat = bounds.getNorth();
+      const clampedMinLat = clampLat(rawMinLat);
+      const clampedMaxLat = clampLat(rawMaxLat);
+      const minLat = Math.min(clampedMinLat, clampedMaxLat);
+      const maxLat = Math.max(clampedMinLat, clampedMaxLat);
+      const width = rawMaxLng - rawMinLng;
+
+      if (!Number.isFinite(width) || width <= 0 || width >= 360) {
+        return WORLD_BBOX;
+      }
+
+      if (minLat >= maxLat) {
+        return WORLD_BBOX;
+      }
+
+      const center = (rawMinLng + rawMaxLng) / 2;
+      const normalizedCenter = wrapLng(center);
+      const minLng = normalizedCenter - width / 2;
+      const maxLng = normalizedCenter + width / 2;
+
+      if (minLng < -180 || maxLng > 180) {
+        return WORLD_BBOX;
+      }
+
+      return {
+        minLng,
+        minLat,
+        maxLng,
+        maxLat,
+      };
+    };
+
     const formatBbox = (bounds: import("leaflet").LatLngBounds) => {
       const round = (value: number) => Number(value.toFixed(BBOX_PRECISION));
+      const normalized = normalizeBounds(bounds);
       return [
-        round(bounds.getWest()),
-        round(bounds.getSouth()),
-        round(bounds.getEast()),
-        round(bounds.getNorth()),
+        round(normalized.minLng),
+        round(normalized.minLat),
+        round(normalized.maxLng),
+        round(normalized.maxLat),
       ].join(",");
     };
 
