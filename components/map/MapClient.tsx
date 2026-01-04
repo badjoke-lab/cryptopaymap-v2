@@ -771,8 +771,8 @@ export default function MapClient() {
     <div
       className="relative flex w-full"
       style={{
-        height: `calc(100vh - ${HEADER_HEIGHT}px)`,
-        ["--header-height" as string]: `${HEADER_HEIGHT}px`,
+        height: `calc(100vh - var(--cpm-header-h, ${HEADER_HEIGHT}px))`,
+        ["--header-height" as string]: `var(--cpm-header-h, ${HEADER_HEIGHT}px)`,
       }}
     >
       <aside className="hidden h-full w-80 flex-col border-r border-gray-200 bg-white lg:flex">
