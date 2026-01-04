@@ -1,11 +1,58 @@
 import { NextRequest, NextResponse } from "next/server";
 
+type Verification = "owner" | "community" | "directory" | "unverified";
+
+import { parseBbox, type ParsedBbox } from "@/lib/geo/bbox";
 import { DbUnavailableError, dbQuery, hasDatabaseUrl } from "@/lib/db";
 import { places } from "@/lib/data/places";
 import { normalizeCommaParams } from "@/lib/filters";
-import { parseBbox, type ParsedBbox } from "@/lib/geo/bbox";
 import { normalizeAccepted, type PaymentAccept } from "@/lib/accepted";
 import type { Place } from "@/types/places";
+
+
+/**
+ * Hotfix: prevent /api/places 500 due to missing sanitizers.
+ * These are intentionally small + defensive.
+ */
+const _VERIFICATION_LEVELS = new Set(["owner","community","directory","unverified","report","verified","pending"]);
+
+function sanitizeVerification(v: unknown): Verification {
+  if (typeof v !== "string") return "unverified";
+  const x = v.trim().toLowerCase();
+  return _VERIFICATION_LEVELS.has(x as Verification) ? (x as Verification) : "unverified";
+}
+
+function sanitizeOptionalStrings<T>(input: T): T {
+  // Recursively sanitize objects/arrays:
+  // - undefined -> null
+  // - "" -> null
+  // - trim strings
+  if (Array.isArray(input)) {
+    return input.map((x) => sanitizeOptionalStrings(x)) as unknown as T;
+  }
+  if (input && typeof input === "object") {
+    const out: any = { ...(input as any) };
+    for (const k of Object.keys(out)) {
+      const v = out[k];
+      if (v === undefined) {
+        out[k] = null;
+        continue;
+      }
+      if (typeof v === "string") {
+        const t = v.trim();
+        out[k] = t === "" ? null : t;
+        continue;
+      }
+      if (Array.isArray(v) || (v && typeof v === "object")) {
+        out[k] = sanitizeOptionalStrings(v);
+        continue;
+      }
+      out[k] = v;
+    }
+    return out as T;
+  }
+  return input;
+}
 
 const DEFAULT_LIMIT = 200;
 const MAX_LIMIT = 12000;
@@ -55,39 +102,6 @@ const buildCacheKey = (params: URLSearchParams): string => {
   return entries.map(([key, value]) => `${key}=${value}`).join("&");
 };
 
-const sanitizeOptionalStrings = (place: Place): Place => ({
-  ...place,
-  address: u(place.address),
-  address_full: u(place.address_full),
-  about: u(place.about),
-  paymentNote: u(place.paymentNote),
-  website: u(place.website),
-  phone: u(place.phone),
-  twitter: u(place.twitter),
-  instagram: u(place.instagram),
-  facebook: u(place.facebook),
-  submitterName: u(place.submitterName),
-  updatedAt: u(place.updatedAt),
-  coverImage: u(place.coverImage),
-  description: u(place.description),
-  social_twitter: u(place.social_twitter),
-  social_instagram: u(place.social_instagram),
-  social_website: u(place.social_website),
-});
-
-const allowedVerificationLevels: Place["verification"][] = [
-  "unverified",
-  "owner",
-  "directory",
-  "community",
-];
-
-const sanitizeVerification = (value: string | null): Place["verification"] => {
-  if (value && allowedVerificationLevels.includes(value as Place["verification"])) {
-    return value as Place["verification"];
-  }
-  return "unverified";
-};
 
 const loadPlacesFromDb = async (
   filters: {
@@ -330,7 +344,7 @@ const loadPlacesFromDb = async (
         id: row.id,
         name: row.name,
         category: row.category ?? "unknown",
-        verification: sanitizeVerification(row.verification),
+        verification: sanitizeVerification(row.verification) as Verification,
         lat: Number(row.lat),
         lng: Number(row.lng),
         country: row.country ?? "",

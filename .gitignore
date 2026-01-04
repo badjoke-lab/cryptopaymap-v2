@@ -134,3 +134,9 @@ pnpm-lock.yaml
 .next/
 next
 cryptopaymap-v2@0.1.0
+
+# Playwright outputs (DO NOT COMMIT)
+test-results/
+playwright-report/
+blob-report/
+artifacts/
