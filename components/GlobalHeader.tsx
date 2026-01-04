@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useEffect, useRef } from 'react';
 
 const NAV_LINKS = [
   { label: 'Map', href: '/' },
@@ -21,9 +22,33 @@ const isActivePath = (pathname: string, href: string) => {
 
 export default function GlobalHeader() {
   const pathname = usePathname();
+  const headerRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const header = headerRef.current;
+    if (!header) return;
+
+    const setHeaderHeight = () => {
+      const height = header.getBoundingClientRect().height;
+      document.documentElement.style.setProperty('--cpm-header-h', `${height}px`);
+    };
+
+    setHeaderHeight();
+
+    if (typeof ResizeObserver === 'undefined') {
+      return undefined;
+    }
+
+    const observer = new ResizeObserver(() => setHeaderHeight());
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, []);
 
   return (
-    <header className="sticky top-0 z-50 border-b border-gray-200 bg-white/95 backdrop-blur">
+    <header
+      ref={headerRef}
+      className="sticky top-0 z-50 border-b border-gray-200 bg-white/95 backdrop-blur"
+    >
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
         <Link href="/" className="flex items-center gap-3 font-semibold text-gray-900">
           <img

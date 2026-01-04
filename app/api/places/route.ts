@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { DbUnavailableError, dbQuery, hasDatabaseUrl } from "@/lib/db";
 import { places } from "@/lib/data/places";
 import { normalizeCommaParams } from "@/lib/filters";
+import { parseBbox, type ParsedBbox } from "@/lib/geo/bbox";
 import { normalizeAccepted, type PaymentAccept } from "@/lib/accepted";
 import type { Place } from "@/types/places";
 
@@ -30,37 +31,6 @@ const parsePositiveInt = (value: string | null): number | null => {
   return parsed;
 };
 
-type ParsedBbox = {
-  minLng: number;
-  minLat: number;
-  maxLng: number;
-  maxLat: number;
-};
-
-const parseBbox = (value: string | null): { bbox: ParsedBbox | null; error?: string } => {
-  if (!value) return { bbox: null };
-  const parts = value.split(",").map((part) => part.trim());
-  if (parts.length !== 4) {
-    return { bbox: null, error: "bbox must be four comma-separated numbers" };
-  }
-  const [rawMinLng, rawMinLat, rawMaxLng, rawMaxLat] = parts.map((part) => Number.parseFloat(part));
-  if (![rawMinLng, rawMinLat, rawMaxLng, rawMaxLat].every((num) => Number.isFinite(num))) {
-    return { bbox: null, error: "bbox must contain valid numbers" };
-  }
-
-  const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
-  const spansWorld = rawMaxLng - rawMinLng >= 360 || rawMinLng < -180 || rawMaxLng > 180;
-  const minLng = spansWorld ? -180 : clamp(rawMinLng, -180, 180);
-  const maxLng = spansWorld ? 180 : clamp(rawMaxLng, -180, 180);
-  const minLat = clamp(rawMinLat, -85, 85);
-  const maxLat = clamp(rawMaxLat, -85, 85);
-
-  if (minLng >= maxLng || minLat >= maxLat) {
-    return { bbox: { minLng: -180, minLat: -85, maxLng: 180, maxLat: 85 } };
-  }
-
-  return { bbox: { minLng, minLat, maxLng, maxLat } };
-};
 
 const parseSearchTerm = (value: string | null): string | null => {
   if (!value) return null;
@@ -124,7 +94,7 @@ const loadPlacesFromDb = async (
     category: string | null;
     country: string | null;
     city: string | null;
-    bbox: ParsedBbox | null;
+    bbox: ParsedBbox[] | null;
     verification: Place["verification"][];
     payment: string[];
     search: string | null;
@@ -218,18 +188,26 @@ const loadPlacesFromDb = async (
     const hasGeom = placeColumns.rows.some((row) => row.column_name === "geom");
     const hasUpdatedAt = placeColumns.rows.some((row) => row.column_name === "updated_at");
 
-    if (filters.bbox) {
-      if (hasGeom) {
-        params.push(filters.bbox.minLng, filters.bbox.minLat, filters.bbox.maxLng, filters.bbox.maxLat);
-        where.push(
-          `ST_Intersects(p.geom::geometry, ST_MakeEnvelope($${params.length - 3}, $${params.length - 2}, $${params.length - 1}, $${params.length}, 4326))`,
-        );
-      } else {
-        params.push(filters.bbox.minLng, filters.bbox.maxLng);
-        where.push(`p.lng BETWEEN $${params.length - 1} AND $${params.length}`);
-        params.push(filters.bbox.minLat, filters.bbox.maxLat);
-        where.push(`p.lat BETWEEN $${params.length - 1} AND $${params.length}`);
+    if (filters.bbox?.length) {
+      const bboxClauses: string[] = [];
+
+      for (const bbox of filters.bbox) {
+        if (hasGeom) {
+          const startIndex = params.length + 1;
+          params.push(bbox.minLng, bbox.minLat, bbox.maxLng, bbox.maxLat);
+          bboxClauses.push(
+            `ST_Intersects(p.geom::geometry, ST_MakeEnvelope($${startIndex}, $${startIndex + 1}, $${startIndex + 2}, $${startIndex + 3}, 4326))`,
+          );
+        } else {
+          const startIndex = params.length + 1;
+          params.push(bbox.minLng, bbox.maxLng, bbox.minLat, bbox.maxLat);
+          bboxClauses.push(
+            `(p.lng BETWEEN $${startIndex} AND $${startIndex + 1} AND p.lat BETWEEN $${startIndex + 2} AND $${startIndex + 3})`,
+          );
+        }
       }
+
+      where.push(bboxClauses.length > 1 ? `(${bboxClauses.join(" OR ")})` : bboxClauses[0]);
     }
 
     if (filters.search) {
@@ -514,8 +492,10 @@ export async function GET(request: NextRequest) {
     }
 
     if (bboxResult.bbox) {
-      const { minLng, minLat, maxLng, maxLat } = bboxResult.bbox;
-      if (place.lng < minLng || place.lng > maxLng || place.lat < minLat || place.lat > maxLat) {
+      const matches = bboxResult.bbox.some(({ minLng, minLat, maxLng, maxLat }) => {
+        return place.lng >= minLng && place.lng <= maxLng && place.lat >= minLat && place.lat <= maxLat;
+      });
+      if (!matches) {
         return false;
       }
     }
