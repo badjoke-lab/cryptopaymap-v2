@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+
+type Verification = "owner" | "community" | "directory" | "unverified";
+
 import { parseBbox, type ParsedBbox } from "@/lib/geo/bbox";
 import { DbUnavailableError, dbQuery, hasDatabaseUrl } from "@/lib/db";
 import { places } from "@/lib/data/places";
@@ -13,10 +16,10 @@ import type { Place } from "@/types/places";
  */
 const _VERIFICATION_LEVELS = new Set(["owner","community","directory","unverified","report","verified","pending"]);
 
-function sanitizeVerification(v: unknown): string {
+function sanitizeVerification(v: unknown): Verification {
   if (typeof v !== "string") return "unverified";
   const x = v.trim().toLowerCase();
-  return _VERIFICATION_LEVELS.has(x) ? x : "unverified";
+  return _VERIFICATION_LEVELS.has(x as Verification) ? (x as Verification) : "unverified";
 }
 
 function sanitizeOptionalStrings<T>(input: T): T {
@@ -341,7 +344,7 @@ const loadPlacesFromDb = async (
         id: row.id,
         name: row.name,
         category: row.category ?? "unknown",
-        verification: sanitizeVerification(row.verification),
+        verification: sanitizeVerification(row.verification) as Verification,
         lat: Number(row.lat),
         lng: Number(row.lng),
         country: row.country ?? "",
