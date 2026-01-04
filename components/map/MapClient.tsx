@@ -368,9 +368,12 @@ export default function MapClient() {
           return;
         }
 
-        setPlacesStatus("loading");
+        const hadPlaces = placesRef.current.length > 0;
+        setPlacesStatus(hadPlaces ? "success" : "loading");
         setPlacesError(null);
-        setLimitNotice(null);
+        if (!hadPlaces) {
+          setLimitNotice(null);
+        }
 
         try {
           const filters = filtersRef.current;
@@ -420,6 +423,10 @@ export default function MapClient() {
           }
           console.error(error);
           if (!isMounted || requestIdRef.current !== requestId) return;
+          if (placesRef.current.length > 0) {
+            setPlacesStatus("success");
+            return;
+          }
           setPlacesError(
             "Failed to load places. Please try again.\nスポット情報の取得に失敗しました。再読み込みしてください。",
           );
