@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { DbUnavailableError, dbQuery, hasDatabaseUrl } from "@/lib/db";
 import { places } from "@/lib/data/places";
 import { normalizeCommaParams } from "@/lib/filters";
-import { parseBbox, type ParsedBbox } from "@/lib/geo/bbox";
+import { parseBbox, type BboxMeta, type ParsedBbox } from "@/lib/geo/bbox";
 import { normalizeAccepted, type PaymentAccept } from "@/lib/accepted";
 import type { Place } from "@/types/places";
 
@@ -54,6 +54,9 @@ const buildCacheKey = (params: URLSearchParams): string => {
   });
   return entries.map(([key, value]) => `${key}=${value}`).join("&");
 };
+
+const respondWithPlaces = (places: Place[], bboxMeta?: BboxMeta) =>
+  NextResponse.json(bboxMeta ? { data: places, meta: bboxMeta } : places);
 
 const sanitizeOptionalStrings = (place: Place): Place => ({
   ...place,
@@ -424,7 +427,7 @@ export async function GET(request: NextRequest) {
   const cacheKey = buildCacheKey(normalizedParams);
   const cached = placesCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
-    return NextResponse.json(cached.data);
+    return respondWithPlaces(cached.data, bboxResult.meta);
   }
 
   let dbPlaces: Place[] | null = null;
@@ -450,7 +453,7 @@ export async function GET(request: NextRequest) {
   if (dbPlaces) {
     const sanitized = dbPlaces.map(sanitizeOptionalStrings);
     placesCache.set(cacheKey, { data: sanitized, expiresAt: Date.now() + CACHE_TTL_MS });
-    return NextResponse.json(sanitized);
+    return respondWithPlaces(sanitized, bboxResult.meta);
   }
 
   const sourcePlaces = places;
@@ -514,5 +517,5 @@ export async function GET(request: NextRequest) {
   const paged = ordered.slice(offset, offset + limit).map(sanitizeOptionalStrings);
   placesCache.set(cacheKey, { data: paged, expiresAt: Date.now() + CACHE_TTL_MS });
 
-  return NextResponse.json(paged);
+  return respondWithPlaces(paged, bboxResult.meta);
 }

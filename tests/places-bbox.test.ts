@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 import { parseBbox } from "../lib/geo/bbox";
 
 describe("parseBbox", () => {
-  it("clamps latitude and wraps longitude without error", () => {
+  it("clamps latitude without error", () => {
     const result = parseBbox("0,-100,10,120");
 
     assert.equal(result.error, undefined);
@@ -15,24 +15,24 @@ describe("parseBbox", () => {
       maxLng: 10,
       maxLat: 90,
     });
+    assert.equal(result.meta, undefined);
   });
 
-  it("splits bboxes that cross the antimeridian", () => {
+  it("clamps longitude that exceeds world bounds", () => {
     const result = parseBbox("-196.875,-77.466028,196.875,83.829945");
 
     assert.equal(result.error, undefined);
-    assert.equal(result.bbox?.length, 2);
+    assert.equal(result.bbox?.length, 1);
     assert.deepEqual(result.bbox?.[0], {
-      minLng: 163.125,
+      minLng: -180,
       minLat: -77.466028,
       maxLng: 180,
       maxLat: 83.829945,
     });
-    assert.deepEqual(result.bbox?.[1], {
-      minLng: -180,
-      minLat: -77.466028,
-      maxLng: -163.125,
-      maxLat: 83.829945,
+    assert.deepEqual(result.meta, {
+      bboxClamped: true,
+      original: "-196.875,-77.466028,196.875,83.829945",
+      normalized: "-180,-77.466028,180,83.829945",
     });
   });
 
