@@ -85,7 +85,7 @@ const buildNavigationLinks = (place: Place | null) => {
     {
       key: "apple-maps",
       label: "Apple Maps",
-      href: `https://maps.apple.com/?daddr=${encodeURIComponent(destination)}`,
+      href: `http://maps.apple.com/?daddr=${encodeURIComponent(destination)}`,
     },
   ];
 };
