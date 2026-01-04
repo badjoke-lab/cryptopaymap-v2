@@ -1,0 +1,16 @@
+{
+  "map_selector": "#map",
+  "pins_selector": ".leaflet-marker-pane .leaflet-marker-icon",
+  "locateBox": {
+    "x": 336,
+    "y": 146,
+    "width": 99.734375,
+    "height": 39
+  },
+  "dbOkBox": {
+    "x": 1340.09375,
+    "y": 146,
+    "width": 83.90625,
+    "height": 26
+  }
+}

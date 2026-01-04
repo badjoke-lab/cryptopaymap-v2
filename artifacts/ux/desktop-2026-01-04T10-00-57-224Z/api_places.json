@@ -1,0 +1,50 @@
+[
+  {
+    "url": "http://127.0.0.1:3201/api/places?limit=2000&bbox=-180%2C-85%2C180%2C85",
+    "status": 200,
+    "ok": true,
+    "timing": {
+      "startTime": 1767520863223.3901,
+      "domainLookupStart": -1,
+      "domainLookupEnd": -1,
+      "connectStart": -1,
+      "secureConnectionStart": -1,
+      "connectEnd": -1,
+      "requestStart": 0.472,
+      "responseStart": 1651.742,
+      "responseEnd": 1811.76
+    }
+  },
+  {
+    "url": "http://127.0.0.1:3201/api/places?limit=2000&bbox=-180%2C-85%2C180%2C85",
+    "status": 200,
+    "ok": true,
+    "timing": {
+      "startTime": 1767520868417.461,
+      "domainLookupStart": -1,
+      "domainLookupEnd": -1,
+      "connectStart": -1,
+      "secureConnectionStart": -1,
+      "connectEnd": -1,
+      "requestStart": 0.222,
+      "responseStart": 15.607,
+      "responseEnd": 17.702
+    }
+  },
+  {
+    "url": "http://127.0.0.1:3201/api/places?limit=2000&bbox=-180%2C-85%2C180%2C85",
+    "status": 200,
+    "ok": true,
+    "timing": {
+      "startTime": 1767520868879.346,
+      "domainLookupStart": -1,
+      "domainLookupEnd": -1,
+      "connectStart": -1,
+      "secureConnectionStart": -1,
+      "connectEnd": -1,
+      "requestStart": 1.307,
+      "responseStart": 63.742,
+      "responseEnd": 73.911
+    }
+  }
+]

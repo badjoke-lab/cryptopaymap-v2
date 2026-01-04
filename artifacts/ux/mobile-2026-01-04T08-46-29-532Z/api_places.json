@@ -1,0 +1,18 @@
+[
+  {
+    "url": "http://127.0.0.1:3201/api/places?limit=2000&bbox=-68.554688%2C-75.140778%2C68.554688%2C82.676285",
+    "status": 200,
+    "ok": true,
+    "timing": {
+      "startTime": 1767516391336.441,
+      "domainLookupStart": -1,
+      "domainLookupEnd": -1,
+      "connectStart": -1,
+      "secureConnectionStart": -1,
+      "connectEnd": -1,
+      "requestStart": 0.3,
+      "responseStart": 1676.994,
+      "responseEnd": 1678.996
+    }
+  }
+]

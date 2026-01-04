@@ -1,11 +1,55 @@
 import { NextRequest, NextResponse } from "next/server";
-
+import { parseBbox, type ParsedBbox } from "@/lib/geo/bbox";
 import { DbUnavailableError, dbQuery, hasDatabaseUrl } from "@/lib/db";
 import { places } from "@/lib/data/places";
 import { normalizeCommaParams } from "@/lib/filters";
-import { parseBbox, type BboxMeta, type ParsedBbox } from "@/lib/geo/bbox";
 import { normalizeAccepted, type PaymentAccept } from "@/lib/accepted";
 import type { Place } from "@/types/places";
+
+
+/**
+ * Hotfix: prevent /api/places 500 due to missing sanitizers.
+ * These are intentionally small + defensive.
+ */
+const _VERIFICATION_LEVELS = new Set(["owner","community","directory","unverified","report","verified","pending"]);
+
+function sanitizeVerification(v: unknown): string {
+  if (typeof v !== "string") return "unverified";
+  const x = v.trim().toLowerCase();
+  return _VERIFICATION_LEVELS.has(x) ? x : "unverified";
+}
+
+function sanitizeOptionalStrings<T>(input: T): T {
+  // Recursively sanitize objects/arrays:
+  // - undefined -> null
+  // - "" -> null
+  // - trim strings
+  if (Array.isArray(input)) {
+    return input.map((x) => sanitizeOptionalStrings(x)) as unknown as T;
+  }
+  if (input && typeof input === "object") {
+    const out: any = { ...(input as any) };
+    for (const k of Object.keys(out)) {
+      const v = out[k];
+      if (v === undefined) {
+        out[k] = null;
+        continue;
+      }
+      if (typeof v === "string") {
+        const t = v.trim();
+        out[k] = t === "" ? null : t;
+        continue;
+      }
+      if (Array.isArray(v) || (v && typeof v === "object")) {
+        out[k] = sanitizeOptionalStrings(v);
+        continue;
+      }
+      out[k] = v;
+    }
+    return out as T;
+  }
+  return input;
+}
 
 const DEFAULT_LIMIT = 200;
 const MAX_LIMIT = 12000;
@@ -55,42 +99,6 @@ const buildCacheKey = (params: URLSearchParams): string => {
   return entries.map(([key, value]) => `${key}=${value}`).join("&");
 };
 
-const respondWithPlaces = (places: Place[], bboxMeta?: BboxMeta) =>
-  NextResponse.json(bboxMeta ? { data: places, meta: bboxMeta } : places);
-
-const sanitizeOptionalStrings = (place: Place): Place => ({
-  ...place,
-  address: u(place.address),
-  address_full: u(place.address_full),
-  about: u(place.about),
-  paymentNote: u(place.paymentNote),
-  website: u(place.website),
-  phone: u(place.phone),
-  twitter: u(place.twitter),
-  instagram: u(place.instagram),
-  facebook: u(place.facebook),
-  submitterName: u(place.submitterName),
-  updatedAt: u(place.updatedAt),
-  coverImage: u(place.coverImage),
-  description: u(place.description),
-  social_twitter: u(place.social_twitter),
-  social_instagram: u(place.social_instagram),
-  social_website: u(place.social_website),
-});
-
-const allowedVerificationLevels: Place["verification"][] = [
-  "unverified",
-  "owner",
-  "directory",
-  "community",
-];
-
-const sanitizeVerification = (value: string | null): Place["verification"] => {
-  if (value && allowedVerificationLevels.includes(value as Place["verification"])) {
-    return value as Place["verification"];
-  }
-  return "unverified";
-};
 
 const loadPlacesFromDb = async (
   filters: {
@@ -427,7 +435,7 @@ export async function GET(request: NextRequest) {
   const cacheKey = buildCacheKey(normalizedParams);
   const cached = placesCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
-    return respondWithPlaces(cached.data, bboxResult.meta);
+    return NextResponse.json(cached.data);
   }
 
   let dbPlaces: Place[] | null = null;
@@ -453,7 +461,7 @@ export async function GET(request: NextRequest) {
   if (dbPlaces) {
     const sanitized = dbPlaces.map(sanitizeOptionalStrings);
     placesCache.set(cacheKey, { data: sanitized, expiresAt: Date.now() + CACHE_TTL_MS });
-    return respondWithPlaces(sanitized, bboxResult.meta);
+    return NextResponse.json(sanitized);
   }
 
   const sourcePlaces = places;
@@ -517,5 +525,5 @@ export async function GET(request: NextRequest) {
   const paged = ordered.slice(offset, offset + limit).map(sanitizeOptionalStrings);
   placesCache.set(cacheKey, { data: paged, expiresAt: Date.now() + CACHE_TTL_MS });
 
-  return respondWithPlaces(paged, bboxResult.meta);
+  return NextResponse.json(paged);
 }

@@ -5,46 +5,62 @@ export type ParsedBbox = {
   maxLat: number;
 };
 
-export type BboxMeta = {
-  bboxClamped: true;
-  original: string;
-  normalized: string;
-};
+const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
 export const parseBbox = (
   value: string | null,
-): { bbox: ParsedBbox[] | null; error?: string; meta?: BboxMeta } => {
+): { bbox: ParsedBbox[] | null; error?: string } => {
   if (!value) return { bbox: null };
-  const parts = value.split(",").map((part) => part.trim());
-  if (parts.length !== 4) {
-    return { bbox: null, error: "bbox must be four comma-separated numbers" };
-  }
-  const [rawMinLng, rawMinLat, rawMaxLng, rawMaxLat] = parts.map((part) => Number.parseFloat(part));
-  if (![rawMinLng, rawMinLat, rawMaxLng, rawMaxLat].every((num) => Number.isFinite(num))) {
-    return { bbox: null, error: "bbox must contain valid numbers" };
-  }
 
-  const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+  const parts = value.split(",").map((part) => part.trim());
+  if (parts.length !== 4) return { bbox: null, error: "INVALID_BBOX" };
+
+  const nums = parts.map((p) => Number(p));
+  if (nums.some((n) => !Number.isFinite(n))) return { bbox: null, error: "INVALID_BBOX" };
+
+  const [rawMinLng, rawMinLat, rawMaxLng, rawMaxLat] = nums;
+
+  // latitude: clamp then order
   const minLatCandidate = clamp(rawMinLat, -90, 90);
   const maxLatCandidate = clamp(rawMaxLat, -90, 90);
   const minLat = Math.min(minLatCandidate, maxLatCandidate);
   const maxLat = Math.max(minLatCandidate, maxLatCandidate);
 
-  const minLngCandidate = clamp(rawMinLng, -180, 180);
-  const maxLngCandidate = clamp(rawMaxLng, -180, 180);
-  let minLng = minLngCandidate;
-  let maxLng = maxLngCandidate;
-  let clamped = minLngCandidate !== rawMinLng || maxLngCandidate !== rawMaxLng;
+  // longitude: if outside world bounds, clamp to [-180,180] and continue (do NOT error)
+  const outOfRangeLng =
+    rawMinLng < -180 || rawMinLng > 180 || rawMaxLng < -180 || rawMaxLng > 180;
 
-  if (minLng >= maxLng) {
-    minLng = -180;
-    maxLng = 180;
-    clamped = true;
+  if (outOfRangeLng) {
+    let minLng = clamp(rawMinLng, -180, 180);
+    let maxLng = clamp(rawMaxLng, -180, 180);
+
+    // if clamping produces invalid or degenerate range, treat as full world
+    if (minLng >= maxLng) {
+      minLng = -180;
+      maxLng = 180;
+    } else {
+      const a = minLng, b = maxLng;
+      minLng = Math.min(a, b);
+      maxLng = Math.max(a, b);
+    }
+
+    return { bbox: [{ minLng, minLat, maxLng, maxLat }] };
   }
 
-  const meta = clamped
-    ? { bboxClamped: true, original: value, normalized: `${minLng},${minLat},${maxLng},${maxLat}` }
-    : undefined;
+  // normal in-range case: support antimeridian split
+  const minLng = rawMinLng;
+  const maxLng = rawMaxLng;
 
-  return { bbox: [{ minLng, minLat, maxLng, maxLat }], meta };
+  if (minLng > maxLng) {
+    return {
+      bbox: [
+        { minLng, minLat, maxLng: 180, maxLat },
+        { minLng: -180, minLat, maxLng, maxLat },
+      ],
+    };
+  }
+
+  if (minLng === maxLng) return { bbox: null, error: "INVALID_BBOX" };
+
+  return { bbox: [{ minLng, minLat, maxLng, maxLat }] };
 };

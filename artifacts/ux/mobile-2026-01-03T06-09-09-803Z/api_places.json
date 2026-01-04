@@ -1,0 +1,18 @@
+[
+  {
+    "url": "http://localhost:3201/api/places?limit=2000&bbox=-68.554688%2C-75.140778%2C68.554688%2C82.676285",
+    "status": 200,
+    "ok": true,
+    "timing": {
+      "startTime": 1767420551249.05,
+      "domainLookupStart": -1,
+      "domainLookupEnd": -1,
+      "connectStart": -1,
+      "secureConnectionStart": -1,
+      "connectEnd": -1,
+      "requestStart": 0.329,
+      "responseStart": 1727.011,
+      "responseEnd": 1728.606
+    }
+  }
+]

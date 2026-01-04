@@ -1,0 +1,34 @@
+[
+  {
+    "url": "http://127.0.0.1:3201/api/places?limit=2000&bbox=-196.875%2C-77.466028%2C196.875%2C83.829945",
+    "status": 400,
+    "ok": false,
+    "timing": {
+      "startTime": 1767452094619.91,
+      "domainLookupStart": -1,
+      "domainLookupEnd": -1,
+      "connectStart": -1,
+      "secureConnectionStart": -1,
+      "connectEnd": -1,
+      "requestStart": 2.187,
+      "responseStart": 385.05,
+      "responseEnd": 387.553
+    }
+  },
+  {
+    "url": "http://127.0.0.1:3201/api/places?limit=2000&bbox=-196.875%2C-77.466028%2C196.875%2C83.829945",
+    "status": 400,
+    "ok": false,
+    "timing": {
+      "startTime": 1767452095457.479,
+      "domainLookupStart": -1,
+      "domainLookupEnd": -1,
+      "connectStart": -1,
+      "secureConnectionStart": -1,
+      "connectEnd": -1,
+      "requestStart": 0.484,
+      "responseStart": 17.683,
+      "responseEnd": 18.622
+    }
+  }
+]
