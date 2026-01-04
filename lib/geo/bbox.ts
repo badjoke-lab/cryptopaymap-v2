@@ -5,11 +5,15 @@ export type ParsedBbox = {
   maxLat: number;
 };
 
-const wrapLng = (value: number) => ((((value + 180) % 360) + 360) % 360) - 180;
+export type BboxMeta = {
+  bboxClamped: true;
+  original: string;
+  normalized: string;
+};
 
 export const parseBbox = (
   value: string | null,
-): { bbox: ParsedBbox[] | null; error?: string } => {
+): { bbox: ParsedBbox[] | null; error?: string; meta?: BboxMeta } => {
   if (!value) return { bbox: null };
   const parts = value.split(",").map((part) => part.trim());
   if (parts.length !== 4) {
@@ -26,17 +30,21 @@ export const parseBbox = (
   const minLat = Math.min(minLatCandidate, maxLatCandidate);
   const maxLat = Math.max(minLatCandidate, maxLatCandidate);
 
-  const minLng = wrapLng(rawMinLng);
-  const maxLng = wrapLng(rawMaxLng);
+  const minLngCandidate = clamp(rawMinLng, -180, 180);
+  const maxLngCandidate = clamp(rawMaxLng, -180, 180);
+  let minLng = minLngCandidate;
+  let maxLng = maxLngCandidate;
+  let clamped = minLngCandidate !== rawMinLng || maxLngCandidate !== rawMaxLng;
 
-  if (minLng > maxLng) {
-    return {
-      bbox: [
-        { minLng, minLat, maxLng: 180, maxLat },
-        { minLng: -180, minLat, maxLng, maxLat },
-      ],
-    };
+  if (minLng >= maxLng) {
+    minLng = -180;
+    maxLng = 180;
+    clamped = true;
   }
 
-  return { bbox: [{ minLng, minLat, maxLng, maxLat }] };
+  const meta = clamped
+    ? { bboxClamped: true, original: value, normalized: `${minLng},${minLat},${maxLng},${maxLat}` }
+    : undefined;
+
+  return { bbox: [{ minLng, minLat, maxLng, maxLat }], meta };
 };
