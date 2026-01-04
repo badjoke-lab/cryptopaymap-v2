@@ -520,12 +520,12 @@ export default function MapClient() {
     [filters],
   );
 
-  // ▼ モバイル用フィルタ UI（z-index を Leaflet より上にして fixed 配置）
+  // ▼ モバイル用フィルタ UI（z-index を Leaflet より上にして overlay 配置）
   const renderMobileFilters = () => {
     return (
-      <div className="pointer-events-none fixed inset-x-0 top-0 z-[1000] lg:hidden">
+      <div className="cpm-map-mobile-filters lg:hidden">
         {/* 上部の「Filters」ボタン + 件数 */}
-        <div className="pointer-events-auto mt-3 flex items-center justify-center gap-2">
+        <div className="flex items-center justify-center gap-2">
           <button
             type="button"
             onClick={toggleFilters}
@@ -547,7 +547,7 @@ export default function MapClient() {
         {/* 下から出るフィルタシート */}
         {filtersOpen && (
           <div
-            className="pointer-events-auto fixed inset-x-0 bottom-0 z-[1010] mx-auto max-h-[70vh] w-full rounded-t-2xl bg-white shadow-lg lg:hidden"
+            className="cpm-map-mobile-filters__sheet"
             data-testid="mobile-filters-sheet"
           >
             <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
@@ -785,20 +785,27 @@ export default function MapClient() {
         </div>
       </aside>
       <div className="relative flex-1 bg-gray-50">
-        <DbStatusIndicator
-          className="pointer-events-none absolute right-4 top-4 z-50 flex flex-col items-end gap-2 text-right"
-          showBanner
-        />
-        <div className="cpm-map-controls">
-          <button
-            type="button"
-            onClick={handleLocateMe}
-            className="cpm-map-button"
-            disabled={isLocating}
-          >
-            {isLocating ? "Locating…" : "Locate me"}
-          </button>
-          {geolocationError && <div className="cpm-map-toast">{geolocationError}</div>}
+        <div className="cpm-map-overlay">
+          <div className="cpm-map-overlay__top">
+            <div className="cpm-map-controls">
+              <button
+                type="button"
+                onClick={handleLocateMe}
+                className="cpm-map-button"
+                disabled={isLocating}
+              >
+                {isLocating ? "Locating…" : "Locate me"}
+              </button>
+              {geolocationError && (
+                <div className="cpm-map-toast">{geolocationError}</div>
+              )}
+            </div>
+            <DbStatusIndicator
+              className="cpm-map-db-status"
+              showBanner
+            />
+          </div>
+          {renderMobileFilters()}
         </div>
         {placesStatus === "loading" && (
           <div className="cpm-map-loading">
@@ -834,8 +841,6 @@ export default function MapClient() {
             </button>
           </div>
         )}
-        {/* モバイル用フィルタは画面全体に fixed で被せる */}
-        {renderMobileFilters()}
         <div
           id="map"
           ref={mapContainerRef}

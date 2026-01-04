@@ -43,10 +43,6 @@
 }
 
 .cpm-map-controls {
-  position: absolute;
-  top: 16px;
-  left: 16px;
-  z-index: 60;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -148,6 +144,60 @@
   border: 2px solid #ffffff;
   box-shadow: 0 4px 10px rgba(37, 99, 235, 0.4);
   position: relative;
+}
+
+.cpm-map-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: calc(env(safe-area-inset-top) + 16px) 16px calc(env(safe-area-inset-bottom) + 16px);
+  pointer-events: none;
+}
+
+.cpm-map-overlay__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  pointer-events: none;
+}
+
+.cpm-map-overlay__top > * {
+  pointer-events: auto;
+}
+
+.cpm-map-db-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  text-align: right;
+  pointer-events: auto;
+}
+
+.cpm-map-mobile-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  pointer-events: auto;
+}
+
+.cpm-map-mobile-filters__sheet {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 80;
+  margin-inline: auto;
+  max-height: 70vh;
+  width: 100%;
+  border-top-left-radius: 1rem;
+  border-top-right-radius: 1rem;
+  background: #ffffff;
+  box-shadow: 0 -16px 32px rgba(15, 23, 42, 0.2);
+  pointer-events: auto;
 }
 
 @keyframes cpm-spin {
