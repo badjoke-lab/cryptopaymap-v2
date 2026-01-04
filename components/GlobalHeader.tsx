@@ -27,7 +27,7 @@ export default function GlobalHeader() {
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
         <Link href="/" className="flex items-center gap-3 font-semibold text-gray-900">
           <img
-            src="/brand/logo.svg"
+            src="/logo.svg"
             alt="CryptoPayMap logo"
             className="h-9 w-9"
           />
