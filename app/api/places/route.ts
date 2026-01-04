@@ -43,19 +43,22 @@ const parseBbox = (value: string | null): { bbox: ParsedBbox | null; error?: str
   if (parts.length !== 4) {
     return { bbox: null, error: "bbox must be four comma-separated numbers" };
   }
-  const [minLng, minLat, maxLng, maxLat] = parts.map((part) => Number.parseFloat(part));
-  if (![minLng, minLat, maxLng, maxLat].every((num) => Number.isFinite(num))) {
+  const [rawMinLng, rawMinLat, rawMaxLng, rawMaxLat] = parts.map((part) => Number.parseFloat(part));
+  if (![rawMinLng, rawMinLat, rawMaxLng, rawMaxLat].every((num) => Number.isFinite(num))) {
     return { bbox: null, error: "bbox must contain valid numbers" };
   }
-  if (minLng < -180 || minLng > 180 || maxLng < -180 || maxLng > 180) {
-    return { bbox: null, error: "bbox longitude out of range" };
-  }
-  if (minLat < -90 || minLat > 90 || maxLat < -90 || maxLat > 90) {
-    return { bbox: null, error: "bbox latitude out of range" };
-  }
+
+  const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+  const spansWorld = rawMaxLng - rawMinLng >= 360 || rawMinLng < -180 || rawMaxLng > 180;
+  const minLng = spansWorld ? -180 : clamp(rawMinLng, -180, 180);
+  const maxLng = spansWorld ? 180 : clamp(rawMaxLng, -180, 180);
+  const minLat = clamp(rawMinLat, -85, 85);
+  const maxLat = clamp(rawMaxLat, -85, 85);
+
   if (minLng >= maxLng || minLat >= maxLat) {
-    return { bbox: null, error: "bbox min values must be less than max values" };
+    return { bbox: { minLng: -180, minLat: -85, maxLng: 180, maxLat: 85 } };
   }
+
   return { bbox: { minLng, minLat, maxLng, maxLat } };
 };
 

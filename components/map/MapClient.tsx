@@ -283,12 +283,30 @@ export default function MapClient() {
 
     const formatBbox = (bounds: import("leaflet").LatLngBounds) => {
       const round = (value: number) => Number(value.toFixed(BBOX_PRECISION));
-      return [
-        round(bounds.getWest()),
-        round(bounds.getSouth()),
-        round(bounds.getEast()),
-        round(bounds.getNorth()),
-      ].join(",");
+      const clamp = (value: number, min: number, max: number) =>
+        Math.min(Math.max(value, min), max);
+      const toWorldBbox = () => [-180, -85, 180, 85];
+
+      const rawWest = bounds.getWest();
+      const rawSouth = bounds.getSouth();
+      const rawEast = bounds.getEast();
+      const rawNorth = bounds.getNorth();
+      const spansWorld = rawEast - rawWest >= 360 || rawWest < -180 || rawEast > 180;
+
+      const [minLng, minLat, maxLng, maxLat] = spansWorld
+        ? toWorldBbox()
+        : [
+            clamp(rawWest, -180, 180),
+            clamp(rawSouth, -85, 85),
+            clamp(rawEast, -180, 180),
+            clamp(rawNorth, -85, 85),
+          ];
+
+      if (minLng >= maxLng || minLat >= maxLat) {
+        return toWorldBbox().map((value) => round(value)).join(",");
+      }
+
+      return [minLng, minLat, maxLng, maxLat].map((value) => round(value)).join(",");
     };
 
     const getLimitForZoom = (zoom: number) => {
