@@ -258,3 +258,8 @@ button[data-testid="map-filters-toggle"]{ position:relative !important; z-index:
 
 /* CPM: bring locate button above Leaflet */
 .cpm-map-button{ position:relative !important; z-index:5000 !important; }
+
+
+/* CPM: prevent zero-height leaflet container (pins render) */
+.leaflet-container{ height:70vh !important; min-height:520px !important; }
+@media (max-width: 1024px){ .leaflet-container{ height:65vh !important; min-height:420px !important; } }
