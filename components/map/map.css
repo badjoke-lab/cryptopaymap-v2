@@ -217,3 +217,44 @@
     opacity: 0;
   }
 }
+
+
+/* CPM: UI overlay stacking fix */
+.leaflet-container{position:relative;z-index:0;}
+[data-cpm-ui="1"]{z-index:4000 !important;}
+#dbok,.dbok,.map-controls,.MapControls,.filters,.Filters,.filter,.Filter{z-index:4000 !important;}
+
+/* CPM: UI overlay stacking fix (position + z-index) */
+.cpm-ui-overlay {
+  position: relative !important;
+  z-index: 5000 !important;
+}
+
+/* Leaflet stays behind */
+.leaflet-container {
+  position: relative;
+  z-index: 0;
+}
+
+/* Mobile-only helper */
+.cpm-mobile-only { display: none; }
+@media (max-width: 1024px) {
+  .cpm-mobile-only { display: inline-flex; }
+}
+
+
+/* CPM: UI overlay stacking fix v2 */
+.cpm-ui-overlay{position:relative !important; z-index:5000 !important;}
+.cpm-mobile-only{display:none !important;}
+@media (max-width: 1024px){.cpm-mobile-only{display:inline-flex !important;}}
+.leaflet-container{position:relative; z-index:0;}
+
+
+/* CPM: map-filters-toggle desktop hide */
+button[data-testid="map-filters-toggle"]{ position:relative !important; z-index:5000 !important; }
+@media (min-width: 1025px){ button[data-testid="map-filters-toggle"]{ display:none !important; } }
+@media (max-width: 1024px){ button[data-testid="map-filters-toggle"]{ display:inline-flex !important; } }
+
+
+/* CPM: bring locate button above Leaflet */
+.cpm-map-button{ position:relative !important; z-index:5000 !important; }
