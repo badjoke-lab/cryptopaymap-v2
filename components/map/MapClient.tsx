@@ -573,8 +573,7 @@ export default function MapClient() {
                 meta={filterMeta}
                 onChange={setFilters}
                 onClear={() => setFilters(defaultFilterState)}
-                disabled={placesStatus === "loading"}
-                showHeading={false}
+showHeading={false}
               />
               <div className="mt-4 space-y-2">
                 <div className="text-sm font-semibold text-gray-800">
@@ -782,8 +781,7 @@ export default function MapClient() {
             meta={filterMeta}
             onChange={setFilters}
             onClear={() => setFilters(defaultFilterState)}
-            disabled={placesStatus === "loading"}
-          />
+/>
           <div className="mt-4 rounded-md bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-700">
             Showing {places.length} place{places.length === 1 ? "" : "s"}
           </div>
@@ -835,8 +833,7 @@ export default function MapClient() {
             <button
               type="button"
               onClick={() => fetchPlacesRef.current?.()}
-              disabled={placesStatus === "loading"}
-              className="mt-3 inline-flex items-center gap-2 rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-400"
+className="mt-3 inline-flex items-center gap-2 rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-400"
             >
               {placesStatus === "loading" && (
                 <span
