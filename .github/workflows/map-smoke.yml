@@ -39,7 +39,12 @@ jobs:
             sleep 0.5
           done
 
-          curl -fsS "${BASE}/api/health" >/dev/null 2>&1
+          if ! curl -fsS "${BASE}/api/health" >/dev/null 2>&1; then
+            echo "[ERROR] server not ready: ${BASE}/api/health"
+            echo "---- dev log ----"
+            tail -n 200 "${LOG}" || true
+            exit 1
+          fi
 
           PW_BASE_URL="${BASE}" npm run test:map-smoke
 
