@@ -118,3 +118,43 @@ test("map smoke: selecting a place from the mobile sheet opens the drawer", asyn
   await expect(drawer).toHaveClass(/\bopen\b/, { timeout: 20000 });
   await expect(drawer).toHaveAttribute("aria-hidden", "false");
 });
+
+
+test("map smoke: clicking a map marker opens the drawer (anti-overlay)", async ({ page }) => {
+  const health = await page.request.get(`${BASE_URL}/api/health`);
+  expect([200, 503]).toContain(health.status());
+
+  const placesResPromise = page.waitForResponse(
+    (r) => r.request().method() === "GET" && r.url().includes("/api/places") && r.status() === 200,
+    { timeout: 20000 }
+  );
+
+  await page.goto(`${BASE_URL}/map`, { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".leaflet-container")).toBeVisible({ timeout: 20000 });
+  await placesResPromise;
+
+  const cpmPins = page.locator(".cpm-pin");
+  const markerIcons = page.locator(".leaflet-marker-icon:not(.marker-cluster)");
+  const interactive = page.locator(".leaflet-interactive");
+
+  await expect
+    .poll(
+      async () =>
+        (await cpmPins.count()) + (await markerIcons.count()) + (await interactive.count()),
+      { timeout: 20000 }
+    )
+    .toBeGreaterThan(0);
+
+  const drawer = page.locator('[aria-label="Place details"]');
+
+  let target = markerIcons.first();
+  if ((await markerIcons.count()) === 0) {
+    target = (await cpmPins.count()) > 0 ? cpmPins.first() : interactive.first();
+  }
+
+  await target.scrollIntoViewIfNeeded();
+  await target.click({ force: true });
+
+  await expect(drawer).toHaveClass(/\bopen\b/, { timeout: 20000 });
+  await expect(drawer).toHaveAttribute("aria-hidden", "false");
+});
