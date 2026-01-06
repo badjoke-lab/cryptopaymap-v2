@@ -27,19 +27,20 @@ jobs:
         env:
           CI: "1"
           NEXT_TELEMETRY_DISABLED: "1"
-          # DB系に倒れないように明示（もし使ってるなら効く）
           NEXT_PUBLIC_DATA_SOURCE: "json"
         run: |
           set -eo pipefail
           PORT=3201
-          BASE="http://127.0.0.1:${PORT}"
+          HOST=127.0.0.1
+          BASE="http://${HOST}:${PORT}"
           LOG="/tmp/cpm-dev-${PORT}.log"
 
-          npm run dev -- -p "${PORT}" > "${LOG}" 2>&1 &
+          # HOST を明示して dev を IPv4 に bind させる
+          npm run dev -- -H "${HOST}" -p "${PORT}" > "${LOG}" 2>&1 &
           PID=$!
           trap 'kill -9 ${PID} >/dev/null 2>&1 || true' EXIT
 
-          # dev が即死してないか
+          # 即死チェック
           sleep 1
           if ! kill -0 "${PID}" >/dev/null 2>&1; then
             echo "[ERROR] dev server exited immediately"
@@ -50,12 +51,19 @@ jobs:
 
           # health 待ち（2分）
           for i in $(seq 1 240); do
-            if curl -4 -fsS "${BASE}/api/health" >/dev/null 2>&1; then break; fi
+            CODE=$(curl -4 -s -o /tmp/health.body -w "%{http_code}" "${BASE}/api/health" || true)
+            if [ "${CODE}" = "200" ]; then break; fi
             sleep 0.5
           done
 
-          if ! curl -4 -fsS "${BASE}/api/health" >/dev/null 2>&1; then
-            echo "[ERROR] server not ready: ${BASE}/api/health"
+          # health の最終状態をデバッグ出力
+          CODE=$(curl -4 -s -D /tmp/health.headers -o /tmp/health.body -w "%{http_code}" "${BASE}/api/health" || true)
+          if [ "${CODE}" != "200" ]; then
+            echo "[ERROR] server not ready: ${BASE}/api/health (http ${CODE})"
+            echo "---- health headers ----"
+            cat /tmp/health.headers || true
+            echo "---- health body ----"
+            head -n 80 /tmp/health.body || true
             echo "---- dev log ----"
             tail -n 200 "${LOG}" || true
             exit 1
