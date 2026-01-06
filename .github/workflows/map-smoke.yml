@@ -1,0 +1,53 @@
+name: map-smoke
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+jobs:
+  map-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
+
+      - name: Run dev server + smoke
+        shell: bash
+        run: |
+          set -eo pipefail
+          PORT=3201
+          BASE="http://127.0.0.1:${PORT}"
+          LOG="/tmp/cpm-dev-${PORT}.log"
+
+          npm run dev -- -p "${PORT}" > "${LOG}" 2>&1 &
+          PID=$!
+          trap 'kill -9 ${PID} >/dev/null 2>&1 || true' EXIT
+
+          for i in $(seq 1 120); do
+            if curl -fsS "${BASE}/api/health" >/dev/null 2>&1; then break; fi
+            sleep 0.5
+          done
+
+          curl -fsS "${BASE}/api/health" >/dev/null 2>&1
+
+          PW_BASE_URL="${BASE}" npm run test:map-smoke
+
+      - name: Upload artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: |
+            test-results
+            playwright-report
