@@ -95,6 +95,7 @@ export default function MapClient() {
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [geolocationError, setGeolocationError] = useState<string | null>(null);
   const [isLocating, setIsLocating] = useState(false);
+  const showEmptyState = placesStatus === "success" && places.length === 0 && !placesError;
 
   const toggleFilters = useCallback(
     () => setFiltersOpen((previous) => !previous),
@@ -823,6 +824,33 @@ export default function MapClient() {
         {limitNotice && placesStatus !== "loading" && (
           <div className="pointer-events-none absolute inset-x-0 top-4 z-40 mx-auto w-[min(90%,520px)] rounded-md border border-amber-200 bg-amber-50/95 px-4 py-2 text-sm font-medium text-amber-900 shadow-sm backdrop-blur">
             Too many results ({limitNotice.count} of {limitNotice.limit}). Zoom in to narrow down.
+          </div>
+        )}
+        {showEmptyState && (
+          <div className="cpm-map-empty" role="status" aria-live="polite">
+            <div className="cpm-map-empty__title">No places found yet.</div>
+            <p className="cpm-map-empty__body">
+              Filters might be too strict, the API may be temporarily unavailable, or the dataset could be empty.
+              <br />
+              フィルタが厳しすぎる / 一時的なAPI不調 / データが空の可能性があります。
+            </p>
+            <div className="cpm-map-empty__actions">
+              <button
+                type="button"
+                className="cpm-map-empty__button cpm-map-empty__button--secondary"
+                onClick={() => setFilters(defaultFilterState)}
+              >
+                Reset filters
+              </button>
+              <button
+                type="button"
+                className="cpm-map-empty__button"
+                onClick={() => fetchPlacesRef.current?.()}
+                disabled={placesStatus === "loading"}
+              >
+                Reload
+              </button>
+            </div>
           </div>
         )}
         {placesError && (
