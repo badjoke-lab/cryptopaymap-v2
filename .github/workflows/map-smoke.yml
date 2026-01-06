@@ -35,40 +35,39 @@ jobs:
           BASE="http://${HOST}:${PORT}"
           LOG="/tmp/cpm-dev-${PORT}.log"
 
-          # HOST を明示して dev を IPv4 に bind させる
           npm run dev -- -H "${HOST}" -p "${PORT}" > "${LOG}" 2>&1 &
           PID=$!
           trap 'kill -9 ${PID} >/dev/null 2>&1 || true' EXIT
 
-          # 即死チェック
+          # dev が即死してないか
           sleep 1
-          if ! kill -0 "${PID}" >/dev/null 2>&1; then
+          if ! ki   -0 "${PID}" >/dev/null 2>&1; then
             echo "[ERROR] dev server exited immediately"
             echo "---- dev log ----"
             tail -n 200 "${LOG}" || true
             exit 1
           fi
 
-          # health 待ち（2分）
+          # /api/health はDB未設定だと503になり得るので「応答が返る」ことだけ確認する
+          # （CIでの目的は map-smoke 実行）
           for i in $(seq 1 240); do
             CODE=$(curl -4 -s -o /tmp/health.body -w "%{http_code}" "${BASE}/api/health" || true)
-            if [ "${CODE}" = "200" ]; then break; fi
+            if [ "${CODE}" != "000" ]; then
+              echo "[INFO] health responded with http ${CODE}"
+              break
+            fi
             sleep 0.5
           done
 
-          # health の最終状態をデバッグ出力
           CODE=$(curl -4 -s -D /tmp/health.headers -o /tmp/health.body -w "%{http_code}" "${BASE}/api/health" || true)
-          if [ "${CODE}" != "200" ]; then
-            echo "[ERROR] server not ready: ${BASE}/api/health (http ${CODE})"
-            echo "---- health headers ----"
-            cat /tmp/health.headers || true
-            echo "---- health body ----"
-            head -n 80 /tmp/health.body || true
+          if [ "${CODE}" = "000" ]; then
+            echo "[ERROR] server not reachable: ${BASE}/api/health"
             echo "---- dev log ----"
             tail -n 200 "${LOG}" || true
             exit 1
           fi
 
+          # map-smoke 実行
           PW_BASE_URL="${BASE}" npm run test:map-smoke
 
       - name: Upload artifacts on failure
