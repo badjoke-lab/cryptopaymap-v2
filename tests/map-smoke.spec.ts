@@ -2,29 +2,49 @@ import { test, expect } from "@playwright/test";
 
 const BASE_URL = process.env.PW_BASE_URL || "http://127.0.0.1:3201";
 
-// /api/places の返却形式がどれでも数を拾えるようにする
+// CI/ローカルで同じ挙動に寄せる（モバイルUIを強制）
+test.use({ viewport: { width: 420, height: 820 } });
+
+// /api/places の返却形式がどれでも配列を取り出す
+function extractPlaces(json: any): any[] {
+  if (!json) return [];
+  if (Array.isArray(json)) return json;
+  if (Array.isArray(json.places)) return json.places;
+  if (Array.isArray(json.items)) return json.items;
+  if (Array.isArray(json.data)) return json.data;
+  if (Array.isArray(json.features)) {
+    // GeoJSON FeatureCollection
+    return json.features.map((f: any) => f?.properties ?? f);
+  }
+  return [];
+}
+
 function extractCount(json: any): number | null {
-  if (!json) return null;
-  if (Array.isArray(json)) return json.length; // [] 形式
-  if (Array.isArray(json.places)) return json.places.length; // { places: [] }
-  if (Array.isArray(json.items)) return json.items.length; // { items: [] }
-  if (Array.isArray(json.features)) return json.features.length; // GeoJSON
-  if (Array.isArray(json.data)) return json.data.length; // { data: [] }
-  return null;
+  const arr = extractPlaces(json);
+  return arr.length ? arr.length : null;
+}
+
+function pickLabel(place: any): string | null {
+  const cand =
+    place?.name ??
+    place?.business_name ??
+    place?.title ??
+    place?.display_name ??
+    place?.label ??
+    null;
+  if (!cand) return null;
+  const s = String(cand).trim();
+  return s.length ? s : null;
 }
 
 test("map smoke: map renders and pins appear when /api/places returns data", async ({ page }) => {
-  // health (CIではDBなしで503になり得るので 200/503 を許容)
+  // health（CIはDB無しで503があり得る）
   const health = await page.request.get(`${BASE_URL}/api/health`);
   expect([200, 503]).toContain(health.status());
 
   // /api/places（クエリ付きでも拾う）を待つ
   const placesResPromise = page.waitForResponse(
-    (r) => {
-      if (r.request().method() !== "GET") return false;
-      if (!r.url().includes("/api/places")) return false;
-      return r.status() === 200;
-    },
+    (r) => r.request().method() === "GET" && r.url().includes("/api/places") && r.status() === 200,
     { timeout: 20000 }
   );
 
@@ -41,6 +61,7 @@ test("map smoke: map renders and pins appear when /api/places returns data", asy
   expect(placesCount).not.toBeNull();
   expect(placesCount as number).toBeGreaterThan(0);
 
+  // ピン/マーカーが出る
   const cpmPins = page.locator(".cpm-pin");
   const leafletPins = page.locator(".leaflet-marker-icon");
 
@@ -49,11 +70,10 @@ test("map smoke: map renders and pins appear when /api/places returns data", asy
     .toBeGreaterThan(0);
 });
 
-test("map smoke: clicking a marker triggers place details (drawer or detail request)", async ({ page }) => {
+test("map smoke: selecting a place from the mobile sheet opens the drawer", async ({ page }) => {
   const health = await page.request.get(`${BASE_URL}/api/health`);
   expect([200, 503]).toContain(health.status());
 
-  // places list を待つ（クエリ付きでも拾う）
   const placesResPromise = page.waitForResponse(
     (r) => r.request().method() === "GET" && r.url().includes("/api/places") && r.status() === 200,
     { timeout: 20000 }
@@ -61,59 +81,40 @@ test("map smoke: clicking a marker triggers place details (drawer or detail requ
 
   await page.goto(`${BASE_URL}/map`, { waitUntil: "domcontentloaded" });
   await expect(page.locator(".leaflet-container")).toBeVisible({ timeout: 20000 });
-  await placesResPromise;
 
-  // ピンが出るまで待つ
-  const cpmPins = page.locator(".cpm-pin");
-  const leafletPins = page.locator(".leaflet-marker-icon");
+  const placesRes = await placesResPromise;
 
-  await expect
-    .poll(async () => (await cpmPins.count()) + (await leafletPins.count()), { timeout: 20000 })
-    .toBeGreaterThan(0);
-
-  // クラスタを避けたいので "marker-cluster 以外" の marker icon を優先
-  const nonClusterMarker = page.locator(".leaflet-marker-icon:not(.marker-cluster)").first();
-  const target =
-    (await nonClusterMarker.count()) > 0
-      ? nonClusterMarker
-      : (await cpmPins.count()) > 0
-        ? cpmPins.first()
-        : leafletPins.first();
-
-  // 「詳細APIのリクエストが飛ぶ」パターンも拾う（成功/失敗は問わない）
-  // /api/places?... は一覧なので除外して、/api/places/<id> のみを拾う
-  let detailRequested = false;
-  const detailReqPromise = page
-    .waitForRequest(
-      (req) => {
-        if (req.method() !== "GET") return false;
-        const u = new URL(req.url());
-        return /^\/api\/places\/[^/]+$/.test(u.pathname);
-      },
-      { timeout: 15000 }
-    )
-    .then(() => {
-      detailRequested = true;
-    })
-    .catch(() => {});
-
-  // Drawerが見えるパターンも拾う（aria-labelが変わっても耐えるように広め）
-  const drawer = page.locator(
-    '[aria-label="Place details"], [role="dialog"], [role="complementary"]'
-  );
-
-  await target.click({ force: true });
-
-  // どちらかが起きればOK（スモークとして「導線が生きてる」保証）
+  // places の中身から「画面に出そうな店名」を取る
+  let placesJson: any = null;
   try {
-    await Promise.race([
-      detailReqPromise,
-      drawer.first().waitFor({ state: "visible", timeout: 15000 }),
-    ]);
-  } catch {
-    // race両方落ちは後で判定
+    placesJson = await placesRes.json();
+  } catch {}
+  const places = extractPlaces(placesJson);
+  const firstWithLabel = places.map(pickLabel).find(Boolean) as string | undefined;
+
+  expect(firstWithLabel, "could not infer a place name from /api/places response").toBeTruthy();
+
+  // モバイルのフィルタ/リストUIを開く
+  const toggle = page.locator('[data-testid="map-filters-toggle"]');
+  await expect(toggle).toBeVisible({ timeout: 20000 });
+  await toggle.click({ force: true });
+
+  const sheet = page.locator('[data-testid="mobile-filters-sheet"]');
+  await expect(sheet).toBeVisible({ timeout: 20000 });
+
+  // sheet 内で店名をクリック（見つからない場合は「クリック可能要素の先頭」を押す）
+  const byName = sheet.getByText(firstWithLabel!, { exact: false }).first();
+  if ((await byName.count()) > 0) {
+    await byName.scrollIntoViewIfNeeded();
+    await byName.click({ force: true });
+  } else {
+    const fallback = sheet.locator('button, a, [role="button"]').first();
+    await expect(fallback).toBeVisible({ timeout: 20000 });
+    await fallback.click({ force: true });
   }
 
-  const drawerExists = (await drawer.count()) > 0;
-  expect(detailRequested || drawerExists).toBeTruthy();
+  // Drawer が開く（Drawer.tsx の aria-label を使う）
+  const drawer = page.locator('[aria-label="Place details"]');
+  await expect(drawer).toHaveClass(/\bopen\b/, { timeout: 20000 });
+  await expect(drawer).toHaveAttribute("aria-hidden", "false");
 });
