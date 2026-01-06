@@ -157,6 +157,23 @@ test("map smoke: clicking a map marker opens the drawer (anti-overlay)", async (
 
   const cpmPins = page.locator(".cpm-pin");
   const markerIcons = page.locator(".leaflet-marker-icon:not(.marker-cluster)");
+
+  // If everything is clustered, zoom in a few times to get individual markers.
+  for (let i = 0; i < 6; i++) {
+    const nonClusterMarkers = await markerIcons.count();
+    if (nonClusterMarkers > 0) break;
+    const zoomIn = page.locator(".leaflet-control-zoom-in");
+    if (await zoomIn.count()) {
+      await zoomIn.click();
+    } else {
+      await page.mouse.wheel(0, -800);
+    }
+    await page.waitForTimeout(250);
+  }
+  const nonClusterMarkers = await markerIcons.count();
+  console.log(`[perf] nonClusterMarkers=${nonClusterMarkers}`);
+  expect(nonClusterMarkers).toBeGreaterThan(0);
+
   const interactive = page.locator(".leaflet-interactive");
 
   await expect
@@ -178,7 +195,34 @@ test("map smoke: clicking a map marker opens the drawer (anti-overlay)", async (
   await target.scrollIntoViewIfNeeded();
   const box = await target.boundingBox();
   if (box) {
-    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    const __cx = box.x + box.width / 2;
+    const __cy = box.y + box.height / 2;
+    const info = await page.evaluate(({ x, y }) => {
+      const el = document.elementFromPoint(x, y);
+      const closest = el && (el.closest ? el.closest(".leaflet-marker-icon") : null);
+      return {
+        hitTag: el ? el.tagName : null,
+        hitId: el && el.id ? el.id : "",
+        hitClass: el && el.className ? el.className.toString() : "",
+        closestClass: closest && closest.className ? closest.className.toString() : "",
+      };
+    }, { x: __cx, y: __cy });
+    console.log(`[clickprobe] x=${Math.round(__cx)} y=${Math.round(__cy)} hit=${info.hitTag ?? "null"} id=${info.hitId} class=${info.hitClass} closest=${info.closestClass || "null"}`);
+    const __stack = await page.evaluate(({ x, y }) => {
+      const els = (document.elementsFromPoint ? document.elementsFromPoint(x, y) : [document.elementFromPoint(x, y)]);
+      return Array.from(els).filter(Boolean).slice(0, 6).map((el) => ({
+        tag: el.tagName,
+        id: el.id || "",
+        className: (el.className || "").toString(),
+      }));
+    }, { x: __cx, y: __cy });
+    console.log(`[clickprobe-stack] ${JSON.stringify(__stack)}`);
+    if (!((info.closestClass || "").includes("leaflet-marker-icon"))) {
+      console.log("[clickprobe] WARN: marker not topmost/clickable at point; fallback to force click");
+      await target.click({ force: true });
+    } else {
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    }
   } else {
     await target.click({ force: true });
   }
