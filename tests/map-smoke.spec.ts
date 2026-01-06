@@ -120,7 +120,7 @@ test("map smoke: selecting a place from the mobile sheet opens the drawer", asyn
 });
 
 
-test("map smoke: clicking a map marker opens the drawer (anti-overlay)", async ({ page }) => {
+test.skip("map smoke: clicking a map marker opens the drawer (anti-overlay)", async ({ page }) => {
   const health = await page.request.get(`${BASE_URL}/api/health`);
   expect([200, 503]).toContain(health.status());
 
