@@ -32,7 +32,7 @@ jobs:
         run: |
           set -eo pipefail
           PORT=3201
-          BASE="http://localhost:${PORT}"
+          BASE="http://127.0.0.1:${PORT}"
           LOG="/tmp/cpm-dev-${PORT}.log"
 
           npm run dev -- -p "${PORT}" > "${LOG}" 2>&1 &
@@ -50,11 +50,11 @@ jobs:
 
           # health 待ち（2分）
           for i in $(seq 1 240); do
-            if curl -fsS "${BASE}/api/health" >/dev/null 2>&1; then break; fi
+            if curl -4 -fsS "${BASE}/api/health" >/dev/null 2>&1; then break; fi
             sleep 0.5
           done
 
-          if ! curl -fsS "${BASE}/api/health" >/dev/null 2>&1; then
+          if ! curl -4 -fsS "${BASE}/api/health" >/dev/null 2>&1; then
             echo "[ERROR] server not ready: ${BASE}/api/health"
             echo "---- dev log ----"
             tail -n 200 "${LOG}" || true
