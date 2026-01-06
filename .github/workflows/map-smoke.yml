@@ -8,7 +8,7 @@ on:
 jobs:
   map-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -22,7 +22,14 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps
 
-      - name: Run dev server + smoke
+      - name: Build (stable for CI)
+        env:
+          CI: "1"
+          NEXT_TELEMETRY_DISABLED: "1"
+          NEXT_PUBLIC_DATA_SOURCE: "json"
+        run: npm run build
+
+      - name: Start server + smoke
         shell: bash
         env:
           CI: "1"
@@ -33,23 +40,13 @@ jobs:
           PORT=3201
           HOST=127.0.0.1
           BASE="http://${HOST}:${PORT}"
-          LOG="/tmp/cpm-dev-${PORT}.log"
+          LOG="/tmp/cpm-start-${PORT}.log"
 
-          npm run dev -- -H "${HOST}" -p "${PORT}" > "${LOG}" 2>&1 &
+          npm run start -- -H "${HOST}" -p "${PORT}" > "${LOG}" 2>&1 &
           PID=$!
           trap 'kill -9 ${PID} >/dev/null 2>&1 || true' EXIT
 
-          # dev が即死してないか
-          sleep 1
-          if ! ki   -0 "${PID}" >/dev/null 2>&1; then
-            echo "[ERROR] dev server exited immediately"
-            echo "---- dev log ----"
-            tail -n 200 "${LOG}" || true
-            exit 1
-          fi
-
-          # /api/health はDB未設定だと503になり得るので「応答が返る」ことだけ確認する
-          # （CIでの目的は map-smoke 実行）
+          # 起動待ち（応答が返るまで）
           for i in $(seq 1 240); do
             CODE=$(curl -4 -s -o /tmp/health.body -w "%{http_code}" "${BASE}/api/health" || true)
             if [ "${CODE}" != "000" ]; then
@@ -59,15 +56,14 @@ jobs:
             sleep 0.5
           done
 
-          CODE=$(curl -4 -s -D /tmp/health.headers -o /tmp/health.body -w "%{http_code}" "${BASE}/api/health" || true)
+          CODE=$(curl -4 -s -o /tmp/health.body -w "%{http_code}" "${BASE}/api/health" || true)
           if [ "${CODE}" = "000" ]; then
             echo "[ERROR] server not reachable: ${BASE}/api/health"
-            echo "---- dev log ----"
+            echo "---- server log ----"
             tail -n 200 "${LOG}" || true
             exit 1
           fi
 
-          # map-smoke 実行
           PW_BASE_URL="${BASE}" npm run test:map-smoke
 
       - name: Upload artifacts on failure
