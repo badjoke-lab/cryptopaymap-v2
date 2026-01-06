@@ -844,7 +844,7 @@ showHeading={false}
                 type="button"
                 className="cpm-map-empty__button"
                 onClick={() => fetchPlacesRef.current?.()}
-                disabled={placesStatus === "loading"}
+                disabled={false}
               >
                 Reload
               </button>
