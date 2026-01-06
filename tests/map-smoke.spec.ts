@@ -43,6 +43,8 @@ test("map smoke: map renders and pins appear when /api/places returns data", asy
   expect([200, 503]).toContain(health.status());
 
   // /api/places（クエリ付きでも拾う）を待つ
+  const __placesT0 = Date.now();
+
   const placesResPromise = page.waitForResponse(
     (r) => r.request().method() === "GET" && r.url().includes("/api/places") && r.status() === 200,
     { timeout: 20000 }
@@ -52,6 +54,10 @@ test("map smoke: map renders and pins appear when /api/places returns data", asy
   await expect(page.locator(".leaflet-container")).toBeVisible({ timeout: 20000 });
 
   const placesRes = await placesResPromise;
+
+  const __pinIcons = await page.locator('.leaflet-marker-icon').count();
+
+  console.log(`[perf] places ms=${Date.now()-__placesT0} status=${placesRes.status()} pinIcons=${__pinIcons}`);
   let placesJson: any = null;
   try {
     placesJson = await placesRes.json();
@@ -74,6 +80,9 @@ test("map smoke: selecting a place from the mobile sheet opens the drawer", asyn
   const health = await page.request.get(`${BASE_URL}/api/health`);
   expect([200, 503]).toContain(health.status());
 
+  const __placesT0 = Date.now();
+
+
   const placesResPromise = page.waitForResponse(
     (r) => r.request().method() === "GET" && r.url().includes("/api/places") && r.status() === 200,
     { timeout: 20000 }
@@ -84,6 +93,9 @@ test("map smoke: selecting a place from the mobile sheet opens the drawer", asyn
 
   const placesRes = await placesResPromise;
 
+  const __pinIcons = await page.locator('.leaflet-marker-icon').count();
+
+  console.log(`[perf] places ms=${Date.now()-__placesT0} status=${placesRes.status()} pinIcons=${__pinIcons}`);
   // places の中身から「画面に出そうな店名」を取る
   let placesJson: any = null;
   try {
@@ -124,6 +136,9 @@ test("map smoke: clicking a map marker opens the drawer (anti-overlay)", async (
   const health = await page.request.get(`${BASE_URL}/api/health`);
   expect([200, 503]).toContain(health.status());
 
+  const __placesT0 = Date.now();
+
+
   const placesResPromise = page.waitForResponse(
     (r) => r.request().method() === "GET" && r.url().includes("/api/places") && r.status() === 200,
     { timeout: 20000 }
@@ -132,7 +147,8 @@ test("map smoke: clicking a map marker opens the drawer (anti-overlay)", async (
   await page.goto(`${BASE_URL}/map`, { waitUntil: "domcontentloaded" });
   await expect(page.locator(".leaflet-container")).toBeVisible({ timeout: 20000 });
   const placesRes = await placesResPromise;
-
+  const __pinIcons = await page.locator('.leaflet-marker-icon').count();
+  console.log(`[perf] places ms=${Date.now()-__placesT0} status=${placesRes.status()} pinIcons=${__pinIcons}`);
   // infer a place label from /api/places for stable fallback click
   let placesJson: any = null;
   try { placesJson = await placesRes.json(); } catch {}
