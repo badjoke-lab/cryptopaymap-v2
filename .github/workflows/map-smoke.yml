@@ -24,17 +24,32 @@ jobs:
 
       - name: Run dev server + smoke
         shell: bash
+        env:
+          CI: "1"
+          NEXT_TELEMETRY_DISABLED: "1"
+          # DB系に倒れないように明示（もし使ってるなら効く）
+          NEXT_PUBLIC_DATA_SOURCE: "json"
         run: |
           set -eo pipefail
           PORT=3201
-          BASE="http://127.0.0.1:${PORT}"
+          BASE="http://localhost:${PORT}"
           LOG="/tmp/cpm-dev-${PORT}.log"
 
           npm run dev -- -p "${PORT}" > "${LOG}" 2>&1 &
           PID=$!
           trap 'kill -9 ${PID} >/dev/null 2>&1 || true' EXIT
 
-          for i in $(seq 1 120); do
+          # dev が即死してないか
+          sleep 1
+          if ! kill -0 "${PID}" >/dev/null 2>&1; then
+            echo "[ERROR] dev server exited immediately"
+            echo "---- dev log ----"
+            tail -n 200 "${LOG}" || true
+            exit 1
+          fi
+
+          # health 待ち（2分）
+          for i in $(seq 1 240); do
             if curl -fsS "${BASE}/api/health" >/dev/null 2>&1; then break; fi
             sleep 0.5
           done
