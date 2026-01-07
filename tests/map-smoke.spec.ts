@@ -159,8 +159,8 @@ test("map smoke: selecting a place from the mobile sheet opens the drawer", asyn
     await fallback.click({ force: true });
   }
 
-  // Drawer が開く（Drawer.tsx の aria-label を使う）
-  const drawer = page.locator('[aria-label="Place details"]');
+  // Drawer が開く（data-testid を使う）
+  const drawer = page.locator('[data-testid="place-drawer"]');
   await expect(drawer).toHaveClass(/\bopen\b/, { timeout: 20000 });
   await expect(drawer).toHaveAttribute("aria-hidden", "false");
 });
@@ -207,18 +207,20 @@ test("map smoke: clicking a map marker opens the drawer (anti-overlay)", async (
     )
     .toBeGreaterThan(0);
 
-  const drawer = page.locator('[aria-label="Place details"], .cpm-drawer');
+  const drawer = page.locator('[data-testid="place-drawer"]');
 
   const isDrawerOpen = async () => {
     const cnt = await drawer.count();
     if (cnt === 0) return false;
-    return (
-      (await drawer
-        .first()
+    const first = drawer.first();
+    const [isVisible, className] = await Promise.all([
+      first
         .getAttribute("aria-hidden")
         .then((value) => value === "false")
-        .catch(() => false)) ?? false
-    );
+        .catch(() => false),
+      first.getAttribute("class").catch(() => ""),
+    ]);
+    return Boolean(isVisible && className?.split(/\s+/).includes("open"));
   };
 
   const clickMarker = async (
