@@ -48,16 +48,21 @@ function pickLabel(place: any): string | null {
 async function mockPlacesRoute(page: import("@playwright/test").Page) {
   let hitCount = 0;
   await page.route("**/api/places**", async (route) => {
-    hitCount += 1;
-    if (PROBE) {
-      console.log(`[mock] /api/places HIT url=${route.request().url()} count=${hitCount}`);
+    if (route.request().method() !== "GET") {
+      await route.fallback();
+      return;
     }
+    hitCount += 1;
+    console.log(`[mock] /api/places hit url=${route.request().url()} count=${hitCount}`);
     await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify(PLACES_FIXTURE_RAW),
     });
   });
+  return {
+    getHitCount: () => hitCount,
+  };
 }
 
 async function waitForPinIcons(page: import("@playwright/test").Page, minCount = 1) {
@@ -68,11 +73,8 @@ async function waitForPinIcons(page: import("@playwright/test").Page, minCount =
   return await locator.count();
 }
 
-test.beforeEach(async ({ page }) => {
-  await mockPlacesRoute(page);
-});
-
 test("map smoke: map renders and pins appear when /api/places returns data", async ({ page }) => {
+  const { getHitCount } = await mockPlacesRoute(page);
   // health（CIはDB無しで503があり得る）
   const health = await page.request.get(`${BASE_URL}/api/health`);
   expect([200, 503]).toContain(health.status());
@@ -102,6 +104,7 @@ test("map smoke: map renders and pins appear when /api/places returns data", asy
   expect(placesRes.status()).toBe(200);
   expect(placesCount).toBe(FIXTURE_COUNT);
   expect(__pinIcons).toBeGreaterThanOrEqual(FIXTURE_COUNT);
+  expect(getHitCount()).toBeGreaterThanOrEqual(1);
 
   // ピン/マーカーが出る
   const cpmPins = page.locator(".cpm-pin");
@@ -113,6 +116,7 @@ test("map smoke: map renders and pins appear when /api/places returns data", asy
 });
 
 test("map smoke: selecting a place from the mobile sheet opens the drawer", async ({ page }) => {
+  const { getHitCount } = await mockPlacesRoute(page);
   const health = await page.request.get(`${BASE_URL}/api/health`);
   expect([200, 503]).toContain(health.status());
 
@@ -165,10 +169,12 @@ test("map smoke: selecting a place from the mobile sheet opens the drawer", asyn
   const drawer = page.locator('[data-testid="place-drawer"]');
   await expect(drawer).toHaveClass(/\bopen\b/, { timeout: 20000 });
   await expect(drawer).toHaveAttribute("aria-hidden", "false");
+  expect(getHitCount()).toBeGreaterThanOrEqual(1);
 });
 
 
 test("map smoke: clicking a map marker opens the drawer (anti-overlay)", async ({ page }) => {
+  const { getHitCount } = await mockPlacesRoute(page);
   const health = await page.request.get(`${BASE_URL}/api/health`);
   expect([200, 503]).toContain(health.status());
 
@@ -345,4 +351,5 @@ test("map smoke: clicking a map marker opens the drawer (anti-overlay)", async (
       `[anti] attempt=${antiState.attempt} kind=${antiState.kind} zoom=${antiState.zoom} markers=${markersInfo} drawer=${antiState.drawer} label=${antiState.label}`
     );
   }
+  expect(getHitCount()).toBeGreaterThanOrEqual(1);
 });
