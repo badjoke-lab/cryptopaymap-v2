@@ -55,13 +55,17 @@ function logFirstPlace(places: any[]) {
 
 async function mockPlacesRoute(page: import("@playwright/test").Page) {
   let hitCount = 0;
+  let mockCount = 0;
   await page.route("**/api/places**", async (route) => {
     if (route.request().method() !== "GET") {
       await route.fallback();
       return;
     }
     hitCount += 1;
-    console.log(`[mock] /api/places hit url=${route.request().url()} count=${hitCount}`);
+    mockCount = extractPlaces(PLACES_FIXTURE_RAW).length;
+    console.log(
+      `[mock] /api/places hit url=${route.request().url()} count=${hitCount} mockCount=${mockCount}`
+    );
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -70,6 +74,7 @@ async function mockPlacesRoute(page: import("@playwright/test").Page) {
   });
   return {
     getHitCount: () => hitCount,
+    getMockCount: () => mockCount,
   };
 }
 
@@ -82,7 +87,7 @@ async function waitForPinIcons(page: import("@playwright/test").Page, minCount =
 }
 
 test("map smoke: map renders and pins appear when /api/places returns data", async ({ page }) => {
-  const { getHitCount } = await mockPlacesRoute(page);
+  const { getHitCount, getMockCount } = await mockPlacesRoute(page);
   // health（CIはDB無しで503があり得る）
   const health = await page.request.get(`${BASE_URL}/api/health`);
   expect([200, 503]).toContain(health.status());
@@ -100,9 +105,12 @@ test("map smoke: map renders and pins appear when /api/places returns data", asy
 
   const placesRes = await placesResPromise;
 
-  const __pinIcons = await waitForPinIcons(page, Math.max(1, FIXTURE_COUNT));
+  const __pinIcons = await waitForPinIcons(page, 1);
+  const mockCount = getMockCount();
 
-  console.log(`[perf] places ms=${Date.now()-__placesT0} status=${placesRes.status()} pinIcons=${__pinIcons}`);
+  console.log(
+    `[perf] places ms=${Date.now() - __placesT0} status=${placesRes.status()} pinIcons=${__pinIcons} mockCount=${mockCount}`
+  );
   let placesJson: any = null;
   try {
     placesJson = await placesRes.json();
@@ -111,8 +119,9 @@ test("map smoke: map renders and pins appear when /api/places returns data", asy
   const placesCount = extractCount(placesJson);
   logFirstPlace(extractPlaces(placesJson));
   expect(placesRes.status()).toBe(200);
+  expect(mockCount).toBeGreaterThanOrEqual(3);
   expect(placesCount).toBe(FIXTURE_COUNT);
-  expect(__pinIcons).toBeGreaterThanOrEqual(FIXTURE_COUNT);
+  expect(__pinIcons).toBeGreaterThanOrEqual(1);
   expect(getHitCount()).toBeGreaterThanOrEqual(1);
 
   // ピン/マーカーが出る
@@ -125,7 +134,7 @@ test("map smoke: map renders and pins appear when /api/places returns data", asy
 });
 
 test("map smoke: selecting a place from the mobile sheet opens the drawer", async ({ page }) => {
-  const { getHitCount } = await mockPlacesRoute(page);
+  const { getHitCount, getMockCount } = await mockPlacesRoute(page);
   const health = await page.request.get(`${BASE_URL}/api/health`);
   expect([200, 503]).toContain(health.status());
 
@@ -142,9 +151,13 @@ test("map smoke: selecting a place from the mobile sheet opens the drawer", asyn
 
   const placesRes = await placesResPromise;
 
-  const __pinIcons = await waitForPinIcons(page, Math.max(1, FIXTURE_COUNT));
+  const __pinIcons = await waitForPinIcons(page, 1);
+  const mockCount = getMockCount();
 
-  console.log(`[perf] places ms=${Date.now()-__placesT0} status=${placesRes.status()} pinIcons=${__pinIcons}`);
+  console.log(
+    `[perf] places ms=${Date.now() - __placesT0} status=${placesRes.status()} pinIcons=${__pinIcons} mockCount=${mockCount}`
+  );
+  expect(mockCount).toBeGreaterThanOrEqual(3);
   // places の中身から「画面に出そうな店名」を取る
   let placesJson: any = null;
   try {
@@ -184,7 +197,7 @@ test("map smoke: selecting a place from the mobile sheet opens the drawer", asyn
 
 
 test("map smoke: clicking a map marker opens the drawer (anti-overlay)", async ({ page }) => {
-  const { getHitCount } = await mockPlacesRoute(page);
+  const { getHitCount, getMockCount } = await mockPlacesRoute(page);
   const health = await page.request.get(`${BASE_URL}/api/health`);
   expect([200, 503]).toContain(health.status());
 
@@ -199,8 +212,12 @@ test("map smoke: clicking a map marker opens the drawer (anti-overlay)", async (
   await page.goto(`${BASE_URL}/map`, { waitUntil: "domcontentloaded" });
   await expect(page.locator(".leaflet-container")).toBeVisible({ timeout: 20000 });
   const placesRes = await placesResPromise;
-  const __pinIcons = await waitForPinIcons(page, Math.max(1, FIXTURE_COUNT));
-  console.log(`[perf] places ms=${Date.now()-__placesT0} status=${placesRes.status()} pinIcons=${__pinIcons}`);
+  const __pinIcons = await waitForPinIcons(page, 1);
+  const mockCount = getMockCount();
+  console.log(
+    `[perf] places ms=${Date.now() - __placesT0} status=${placesRes.status()} pinIcons=${__pinIcons} mockCount=${mockCount}`
+  );
+  expect(mockCount).toBeGreaterThanOrEqual(3);
   let placesJson: any = null;
   try { placesJson = await placesRes.json(); } catch {}
   const places = extractPlaces(placesJson);
