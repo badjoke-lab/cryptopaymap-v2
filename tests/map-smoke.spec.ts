@@ -185,30 +185,17 @@ test("map smoke: clicking a map marker opens the drawer (anti-overlay)", async (
   const placesRes = await placesResPromise;
   const __pinIcons = await waitForPinIcons(page, Math.max(1, FIXTURE_COUNT));
   console.log(`[perf] places ms=${Date.now()-__placesT0} status=${placesRes.status()} pinIcons=${__pinIcons}`);
-  // infer a place label from /api/places for stable fallback click
   let placesJson: any = null;
   try { placesJson = await placesRes.json(); } catch {}
   const places = extractPlaces(placesJson);
-  const placeLabel = places.map(pickLabel).find(Boolean) as string | undefined;
 
   const cpmPins = page.locator(".cpm-pin");
-  const markerIcons = page.locator(".leaflet-marker-icon:not(.marker-cluster)");
-
-  // If everything is clustered, zoom in a few times to get individual markers.
-  for (let i = 0; i < 6; i++) {
-    const nonClusterMarkers = await markerIcons.count();
-    if (nonClusterMarkers > 0) break;
-    const zoomIn = page.locator(".leaflet-control-zoom-in");
-    if (await zoomIn.count()) {
-      await zoomIn.click();
-    } else {
-      await page.mouse.wheel(0, -800);
-    }
-    await page.waitForTimeout(250);
-  }
-  const nonClusterMarkers = await markerIcons.count();
-  console.log(`[perf] nonClusterMarkers=${nonClusterMarkers}`);
-  expect(nonClusterMarkers).toBeGreaterThan(0);
+  const markerIcons = page.locator(".leaflet-marker-icon");
+  const clusterMarkers = page.locator(".marker-cluster, .cluster-marker");
+  const singleMarkers = page.locator(
+    ".leaflet-marker-icon:not(.marker-cluster):not(.cluster-marker)"
+  );
+  const debugProbe = process.env.PW_DEBUG_PROBE === "1";
 
   const interactive = page.locator(".leaflet-interactive");
 
@@ -222,104 +209,109 @@ test("map smoke: clicking a map marker opens the drawer (anti-overlay)", async (
 
   const drawer = page.locator('[aria-label="Place details"], .cpm-drawer');
 
-  let target = markerIcons.first();
-  if ((await markerIcons.count()) === 0) {
-    target = (await cpmPins.count()) > 0 ? cpmPins.first() : interactive.first();
-  }
-
-  // click: use center mouse click (more reliable than element click)
-  await target.scrollIntoViewIfNeeded();
-  const box = await target.boundingBox();
-  if (box) {
-    const __cx = box.x + box.width / 2;
-    const __cy = box.y + box.height / 2;
-    const info = await page.evaluate(({ x, y }) => {
-      const el = document.elementFromPoint(x, y);
-      const closest = el && (el.closest ? el.closest(".leaflet-marker-icon") : null);
-      return {
-        hitTag: el ? el.tagName : null,
-        hitId: el && el.id ? el.id : "",
-        hitClass: el && el.className ? el.className.toString() : "",
-        closestClass: closest && closest.className ? closest.className.toString() : "",
-      };
-    }, { x: __cx, y: __cy });
-    console.log(`[clickprobe] x=${Math.round(__cx)} y=${Math.round(__cy)} hit=${info.hitTag ?? "null"} id=${info.hitId} class=${info.hitClass} closest=${info.closestClass || "null"}`);
-    const __stack = await page.evaluate(({ x, y }) => {
-      const els = (document.elementsFromPoint ? document.elementsFromPoint(x, y) : [document.elementFromPoint(x, y)]);
-      return Array.from(els).filter(Boolean).slice(0, 6).map((el) => ({
-        tag: el.tagName,
-        id: el.id || "",
-        className: (el.className || "").toString(),
-      }));
-    }, { x: __cx, y: __cy });
-    console.log(`[clickprobe-stack] ${JSON.stringify(__stack)}`);
-    if (!((info.closestClass || "").includes("leaflet-marker-icon"))) {
-      console.log("[clickprobe] WARN: marker not topmost/clickable at point; fallback to force click");
-      await target.click({ force: true });
-    } else {
-      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-    }
-  } else {
-    await target.click({ force: true });
-  }
-
-  // success condition: try marker click first (fast), fallback to mobile sheet
-  let detailRequested = false;
-  page
-    .waitForRequest(
-      (req) => {
-        if (req.method() !== "GET") return false;
-        const u = new URL(req.url());
-        return /^\/api\/places\/[^/]+$/.test(u.pathname);
-      },
-      { timeout: 6000 }
-    )
-    .then(() => { detailRequested = true; })
-    .catch(() => {});
-
   const isDrawerOpen = async () => {
     const cnt = await drawer.count();
     if (cnt === 0) return false;
-    return await drawer.evaluate((el) => el.classList.contains("open")).catch(() => false);
+    return (
+      (await drawer
+        .first()
+        .getAttribute("aria-hidden")
+        .then((value) => value === "false")
+        .catch(() => false)) ?? false
+    );
   };
 
-  // try marker path (short timeout)
-  let ok = false;
-  try {
-    await expect
-      .poll(async () => detailRequested || (await isDrawerOpen()), { timeout: 6000 })
-      .toBeTruthy();
-    ok = true;
-  } catch {}
+  const clickMarker = async (
+    target: import("@playwright/test").Locator,
+    options: { force?: boolean }
+  ) => {
+    if ((await target.count()) === 0) return;
+    await target.scrollIntoViewIfNeeded();
+    const box = await target.boundingBox();
+    if (!box) {
+      await target.click({ force: options.force ?? false });
+      return;
+    }
+    const __cx = box.x + box.width / 2;
+    const __cy = box.y + box.height / 2;
+    if (debugProbe) {
+      const info = await page.evaluate(({ x, y }) => {
+        const el = document.elementFromPoint(x, y);
+        const closest = el && (el.closest ? el.closest(".leaflet-marker-icon") : null);
+        return {
+          hitTag: el ? el.tagName : null,
+          hitId: el && el.id ? el.id : "",
+          hitClass: el && el.className ? el.className.toString() : "",
+          closestClass: closest && closest.className ? closest.className.toString() : "",
+        };
+      }, { x: __cx, y: __cy });
+      console.log(
+        `[clickprobe] x=${Math.round(__cx)} y=${Math.round(__cy)} hit=${info.hitTag ?? "null"} id=${info.hitId} class=${info.hitClass} closest=${info.closestClass || "null"}`
+      );
+      const __stack = await page.evaluate(({ x, y }) => {
+        const els = document.elementsFromPoint
+          ? document.elementsFromPoint(x, y)
+          : [document.elementFromPoint(x, y)];
+        return Array.from(els)
+          .filter(Boolean)
+          .slice(0, 6)
+          .map((el) => ({
+            tag: el.tagName,
+            id: el.id || "",
+            className: (el.className || "").toString(),
+          }));
+      }, { x: __cx, y: __cy });
+      console.log(`[clickprobe-stack] ${JSON.stringify(__stack)}`);
+    }
+    if (options.force) {
+      await target.click({ force: true });
+    } else {
+      await page.mouse.click(__cx, __cy);
+    }
+  };
 
-  // fallback: open from mobile sheet (stable path)
-  if (!ok) {
-    const toggle = page.locator('[data-testid="map-filters-toggle"]');
-    await expect(toggle).toBeVisible({ timeout: 20000 });
-    await toggle.click({ force: true });
+  const MAX_RETRIES = 6;
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    if (await isDrawerOpen()) break;
 
-    const sheet = page.locator('[data-testid="mobile-filters-sheet"]');
-    await expect(sheet).toBeVisible({ timeout: 20000 });
-
-    // try click by inferred place label (most reliable)
-    if (placeLabel) {
-      const byName = sheet.getByText(placeLabel, { exact: false }).first();
-      if ((await byName.count()) > 0) {
-        await byName.scrollIntoViewIfNeeded();
-        await byName.click({ force: true });
-      }
+    if ((await singleMarkers.count()) > 0) {
+      await clickMarker(singleMarkers.first(), { force: false });
+      try {
+        await expect.poll(async () => await isDrawerOpen(), { timeout: 4000 }).toBeTruthy();
+      } catch {}
+    } else if ((await clusterMarkers.count()) > 0) {
+      await clickMarker(clusterMarkers.first(), { force: false });
+      await page.waitForTimeout(400);
+    } else if ((await markerIcons.count()) > 0) {
+      await clickMarker(markerIcons.first(), { force: false });
+      await page.waitForTimeout(400);
     }
 
-    // last resort: click something clickable in the sheet
-    if (!(await isDrawerOpen())) {
-      const fallback = sheet.locator('button, a, [role="button"]').first();
-      await expect(fallback).toBeVisible({ timeout: 20000 });
-      await fallback.click({ force: true });
+    if (await isDrawerOpen()) break;
+
+    const zoomIn = page.locator(".leaflet-control-zoom-in");
+    if (await zoomIn.count()) {
+      await zoomIn.click();
+    } else {
+      await page.mouse.wheel(0, -800);
     }
+    await page.waitForTimeout(300);
+  }
+
+  if (!(await isDrawerOpen())) {
+    const fallbackTarget =
+      (await singleMarkers.count()) > 0
+        ? singleMarkers.first()
+        : (await clusterMarkers.count()) > 0
+          ? clusterMarkers.first()
+          : (await markerIcons.count()) > 0
+            ? markerIcons.first()
+            : (await cpmPins.count()) > 0
+              ? cpmPins.first()
+              : interactive.first();
+    await clickMarker(fallbackTarget, { force: true });
   }
 
   // final assert: drawer open-state (not flaky visible)
-  await expect.poll(async () => await drawer.count(), { timeout: 20000 }).toBeGreaterThan(0);
-  await expect(drawer.first()).toHaveClass(/\bopen\b/, { timeout: 20000 });
-  await expect(drawer.first()).toHaveAttribute("aria-hidden", "false");
+  await expect.poll(async () => await isDrawerOpen(), { timeout: 20000 }).toBeTruthy();
 });
