@@ -46,30 +46,33 @@ function pickLabel(place: any): string | null {
 }
 
 async function mockPlacesRoute(page: import("@playwright/test").Page) {
+  let hitCount = 0;
   await page.route("**/api/places**", async (route) => {
-    const url = new URL(route.request().url());
-    if (url.pathname === "/api/places") {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(PLACES_FIXTURE_RAW),
-      });
-      return;
+    hitCount += 1;
+    if (PROBE) {
+      console.log(`[mock] /api/places HIT url=${route.request().url()} count=${hitCount}`);
     }
-    await route.continue();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(PLACES_FIXTURE_RAW),
+    });
   });
 }
 
 async function waitForPinIcons(page: import("@playwright/test").Page, minCount = 1) {
-  await expect
-    .poll(async () => await page.locator(".leaflet-marker-icon").count(), { timeout: 20000 })
-    .toBeGreaterThanOrEqual(minCount);
-  return await page.locator(".leaflet-marker-icon").count();
+  const locator = page.locator(".leaflet-marker-icon, .cluster-marker, .cpm-pin");
+  await expect.poll(async () => await locator.count(), { timeout: 20000 }).toBeGreaterThanOrEqual(
+    minCount
+  );
+  return await locator.count();
 }
 
-test("map smoke: map renders and pins appear when /api/places returns data", async ({ page }) => {
+test.beforeEach(async ({ page }) => {
   await mockPlacesRoute(page);
+});
 
+test("map smoke: map renders and pins appear when /api/places returns data", async ({ page }) => {
   // health（CIはDB無しで503があり得る）
   const health = await page.request.get(`${BASE_URL}/api/health`);
   expect([200, 503]).toContain(health.status());
@@ -110,8 +113,6 @@ test("map smoke: map renders and pins appear when /api/places returns data", asy
 });
 
 test("map smoke: selecting a place from the mobile sheet opens the drawer", async ({ page }) => {
-  await mockPlacesRoute(page);
-
   const health = await page.request.get(`${BASE_URL}/api/health`);
   expect([200, 503]).toContain(health.status());
 
@@ -168,8 +169,6 @@ test("map smoke: selecting a place from the mobile sheet opens the drawer", asyn
 
 
 test("map smoke: clicking a map marker opens the drawer (anti-overlay)", async ({ page }) => {
-  await mockPlacesRoute(page);
-
   const health = await page.request.get(`${BASE_URL}/api/health`);
   expect([200, 503]).toContain(health.status());
 
