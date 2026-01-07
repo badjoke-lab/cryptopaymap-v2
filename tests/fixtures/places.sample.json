@@ -1,0 +1,13 @@
+[
+  {
+    "id": "fixture-place-1",
+    "name": "Fixture Coffee Spot",
+    "category": "cafe",
+    "verification": "community",
+    "lat": 35.681236,
+    "lng": 139.767125,
+    "country": "JP",
+    "city": "Tokyo",
+    "address_full": "1-9-1 Marunouchi, Chiyoda City, Tokyo"
+  }
+]
