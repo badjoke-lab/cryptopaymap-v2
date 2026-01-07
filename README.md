@@ -10,3 +10,7 @@ Install dependencies and start the development server:
 npm install
 npm run dev
 ```
+
+## Map Layout
+
+- [Map layering rules (click-through prevention)](docs/map-layering.md)
