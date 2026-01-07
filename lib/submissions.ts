@@ -33,6 +33,41 @@ type SubmissionErrors = Record<string, string>;
 
 const submissionsDir = path.join(process.cwd(), "data", "submissions");
 
+const HONEYPOT_FIELDS = ["websiteUrl", "url", "website_url"];
+const RATE_LIMIT_WINDOW_MS = 30_000;
+const RATE_LIMIT_MAX = 3;
+const rateLimitBuckets = new Map<string, number[]>();
+
+const getClientIp = (request: Request): string => {
+  const cfConnectingIp = request.headers.get("cf-connecting-ip");
+  if (cfConnectingIp) return cfConnectingIp;
+  const forwardedFor = request.headers.get("x-forwarded-for");
+  if (forwardedFor) return forwardedFor.split(",")[0]?.trim() || "unknown";
+  const realIp = request.headers.get("x-real-ip");
+  return realIp ?? "unknown";
+};
+
+const isRateLimited = (key: string) => {
+  const now = Date.now();
+  const windowStart = now - RATE_LIMIT_WINDOW_MS;
+  const recent = (rateLimitBuckets.get(key) ?? []).filter((timestamp) => timestamp >= windowStart);
+  if (recent.length >= RATE_LIMIT_MAX) {
+    rateLimitBuckets.set(key, recent);
+    return true;
+  }
+  recent.push(now);
+  rateLimitBuckets.set(key, recent);
+  return false;
+};
+
+const getHoneypotValue = (body: Record<string, unknown>): string | undefined => {
+  for (const field of HONEYPOT_FIELDS) {
+    const value = ensureString(body[field]);
+    if (value) return value;
+  }
+  return undefined;
+};
+
 const writeSubmissionToDisk = async (record: StoredSubmission) => {
   await fs.mkdir(submissionsDir, { recursive: true });
   const filePath = path.join(submissionsDir, `${record.submissionId}.json`);
@@ -430,21 +465,51 @@ export const updateSubmissionStatus = async (
 };
 
 export const handleUnifiedSubmission = async (request: Request) => {
+  const ip = getClientIp(request);
+  const rateLimitKey = `${ip}:/api/submissions`;
   let body: unknown;
+
+  // NOTE: This in-memory rate limit is best-effort and may reset in serverless environments.
+  if (isRateLimited(rateLimitKey)) {
+    console.info(`[submissions] reject ip=${ip} reason=rate_limit`);
+    return new Response(JSON.stringify({ ok: false, error: "rate_limited" }), {
+      status: 429,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
   try {
     body = await request.json();
   } catch {
-    return new Response(JSON.stringify({ ok: false, error: "Invalid JSON" }), {
+    console.info(`[submissions] reject ip=${ip} reason=invalid`);
+    return new Response(JSON.stringify({ ok: false, error: "invalid_request" }), {
       status: 400,
       headers: { "Content-Type": "application/json" },
     });
   }
 
   try {
+    if (!body || typeof body !== "object") {
+      console.info(`[submissions] reject ip=${ip} reason=invalid`);
+      return new Response(JSON.stringify({ ok: false, error: "invalid_request" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (getHoneypotValue(body as Record<string, unknown>)) {
+      console.info(`[submissions] reject ip=${ip} reason=honeypot`);
+      return new Response(JSON.stringify({ ok: false, error: "invalid_request" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
     const normalized = normalizeSubmission(body);
 
     if (!normalized.ok) {
-      return new Response(JSON.stringify({ errors: normalized.errors }), {
+      console.info(`[submissions] reject ip=${ip} reason=invalid`);
+      return new Response(JSON.stringify({ ok: false, error: "invalid_request" }), {
         status: 400,
         headers: { "Content-Type": "application/json" },
       });
@@ -452,6 +517,9 @@ export const handleUnifiedSubmission = async (request: Request) => {
 
     const record = await persistSubmission(normalized.payload);
 
+    console.info(
+      `[submissions] accept ip=${ip} kind=${record.payload.verificationRequest}`,
+    );
     return new Response(
       JSON.stringify({
         id: record.submissionId,
