@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 const BASE_URL = process.env.PW_BASE_URL || "http://127.0.0.1:3201";
+const PROBE = process.env.PW_DEBUG_PROBE === "1";
 
 // CI/ローカルで同じ挙動に寄せる（モバイルUIを強制）
 test.use({ viewport: { width: 420, height: 820 } });
@@ -195,8 +196,6 @@ test("map smoke: clicking a map marker opens the drawer (anti-overlay)", async (
   const singleMarkers = page.locator(
     ".leaflet-marker-icon:not(.marker-cluster):not(.cluster-marker)"
   );
-  const debugProbe = process.env.PW_DEBUG_PROBE === "1";
-
   const interactive = page.locator(".leaflet-interactive");
 
   await expect
@@ -236,7 +235,7 @@ test("map smoke: clicking a map marker opens the drawer (anti-overlay)", async (
     }
     const __cx = box.x + box.width / 2;
     const __cy = box.y + box.height / 2;
-    if (debugProbe) {
+    if (PROBE) {
       const info = await page.evaluate(({ x, y }) => {
         const el = document.elementFromPoint(x, y);
         const closest = el && (el.closest ? el.closest(".leaflet-marker-icon") : null);
