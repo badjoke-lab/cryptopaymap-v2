@@ -115,6 +115,7 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
             top: `var(--header-height, ${headerHeight}px)`,
             height: `calc(100vh - ${headerHeight}px)`,
           }}
+          data-testid="place-drawer"
           aria-hidden
         />
       );
@@ -138,6 +139,7 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
         role="dialog"
         aria-label="Place details"
         aria-hidden={!isOpen}
+        data-testid="place-drawer"
       >
         <div className="cpm-drawer__panel">
           <header className="cpm-drawer__header">
