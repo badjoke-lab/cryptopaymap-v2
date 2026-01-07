@@ -1,4 +1,6 @@
 import { test, expect } from "@playwright/test";
+import fs from "node:fs";
+import path from "node:path";
 
 const BASE_URL = process.env.PW_BASE_URL || "http://127.0.0.1:3201";
 
@@ -19,6 +21,11 @@ function extractPlaces(json: any): any[] {
   return [];
 }
 
+const FIXTURE_PATH = path.join(__dirname, "fixtures", "places.sample.json");
+const PLACES_FIXTURE_RAW = JSON.parse(fs.readFileSync(FIXTURE_PATH, "utf8"));
+const PLACES_FIXTURE = extractPlaces(PLACES_FIXTURE_RAW);
+const FIXTURE_COUNT = PLACES_FIXTURE.length;
+
 function extractCount(json: any): number | null {
   const arr = extractPlaces(json);
   return arr.length ? arr.length : null;
@@ -37,7 +44,31 @@ function pickLabel(place: any): string | null {
   return s.length ? s : null;
 }
 
+async function mockPlacesRoute(page: import("@playwright/test").Page) {
+  await page.route("**/api/places**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === "/api/places") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(PLACES_FIXTURE_RAW),
+      });
+      return;
+    }
+    await route.continue();
+  });
+}
+
+async function waitForPinIcons(page: import("@playwright/test").Page, minCount = 1) {
+  await expect
+    .poll(async () => await page.locator(".leaflet-marker-icon").count(), { timeout: 20000 })
+    .toBeGreaterThanOrEqual(minCount);
+  return await page.locator(".leaflet-marker-icon").count();
+}
+
 test("map smoke: map renders and pins appear when /api/places returns data", async ({ page }) => {
+  await mockPlacesRoute(page);
+
   // health（CIはDB無しで503があり得る）
   const health = await page.request.get(`${BASE_URL}/api/health`);
   expect([200, 503]).toContain(health.status());
@@ -55,7 +86,7 @@ test("map smoke: map renders and pins appear when /api/places returns data", asy
 
   const placesRes = await placesResPromise;
 
-  const __pinIcons = await page.locator('.leaflet-marker-icon').count();
+  const __pinIcons = await waitForPinIcons(page, Math.max(1, FIXTURE_COUNT));
 
   console.log(`[perf] places ms=${Date.now()-__placesT0} status=${placesRes.status()} pinIcons=${__pinIcons}`);
   let placesJson: any = null;
@@ -64,8 +95,9 @@ test("map smoke: map renders and pins appear when /api/places returns data", asy
   } catch {}
 
   const placesCount = extractCount(placesJson);
-  expect(placesCount).not.toBeNull();
-  expect(placesCount as number).toBeGreaterThan(0);
+  expect(placesRes.status()).toBe(200);
+  expect(placesCount).toBe(FIXTURE_COUNT);
+  expect(__pinIcons).toBeGreaterThanOrEqual(FIXTURE_COUNT);
 
   // ピン/マーカーが出る
   const cpmPins = page.locator(".cpm-pin");
@@ -77,6 +109,8 @@ test("map smoke: map renders and pins appear when /api/places returns data", asy
 });
 
 test("map smoke: selecting a place from the mobile sheet opens the drawer", async ({ page }) => {
+  await mockPlacesRoute(page);
+
   const health = await page.request.get(`${BASE_URL}/api/health`);
   expect([200, 503]).toContain(health.status());
 
@@ -93,7 +127,7 @@ test("map smoke: selecting a place from the mobile sheet opens the drawer", asyn
 
   const placesRes = await placesResPromise;
 
-  const __pinIcons = await page.locator('.leaflet-marker-icon').count();
+  const __pinIcons = await waitForPinIcons(page, Math.max(1, FIXTURE_COUNT));
 
   console.log(`[perf] places ms=${Date.now()-__placesT0} status=${placesRes.status()} pinIcons=${__pinIcons}`);
   // places の中身から「画面に出そうな店名」を取る
@@ -133,6 +167,8 @@ test("map smoke: selecting a place from the mobile sheet opens the drawer", asyn
 
 
 test("map smoke: clicking a map marker opens the drawer (anti-overlay)", async ({ page }) => {
+  await mockPlacesRoute(page);
+
   const health = await page.request.get(`${BASE_URL}/api/health`);
   expect([200, 503]).toContain(health.status());
 
@@ -147,7 +183,7 @@ test("map smoke: clicking a map marker opens the drawer (anti-overlay)", async (
   await page.goto(`${BASE_URL}/map`, { waitUntil: "domcontentloaded" });
   await expect(page.locator(".leaflet-container")).toBeVisible({ timeout: 20000 });
   const placesRes = await placesResPromise;
-  const __pinIcons = await page.locator('.leaflet-marker-icon').count();
+  const __pinIcons = await waitForPinIcons(page, Math.max(1, FIXTURE_COUNT));
   console.log(`[perf] places ms=${Date.now()-__placesT0} status=${placesRes.status()} pinIcons=${__pinIcons}`);
   // infer a place label from /api/places for stable fallback click
   let placesJson: any = null;
