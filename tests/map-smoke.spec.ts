@@ -189,6 +189,7 @@ test("map smoke: clicking a map marker opens the drawer (anti-overlay)", async (
   let placesJson: any = null;
   try { placesJson = await placesRes.json(); } catch {}
   const places = extractPlaces(placesJson);
+  const firstWithLabel = places.map(pickLabel).find(Boolean) as string | undefined;
 
   const cpmPins = page.locator(".cpm-pin");
   const markerIcons = page.locator(".leaflet-marker-icon");
@@ -207,6 +208,15 @@ test("map smoke: clicking a map marker opens the drawer (anti-overlay)", async (
     .toBeGreaterThan(0);
 
   const drawer = page.locator('[data-testid="place-drawer"]');
+  const antiState = {
+    attempt: 0,
+    kind: "none",
+    zoom: 0,
+    markers: 0,
+    markersNote: "incl.cluster",
+    drawer: "notfound" as "ok" | "timeout" | "notfound",
+    label: firstWithLabel ?? "",
+  };
 
   const isDrawerOpen = async () => {
     const cnt = await drawer.count();
@@ -271,48 +281,69 @@ test("map smoke: clicking a map marker opens the drawer (anti-overlay)", async (
     }
   };
 
-  const MAX_RETRIES = 6;
-  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-    if (await isDrawerOpen()) break;
+  try {
+    antiState.markers = await markerIcons.count();
 
-    if ((await singleMarkers.count()) > 0) {
-      await clickMarker(singleMarkers.first(), { force: false });
-      try {
-        await expect.poll(async () => await isDrawerOpen(), { timeout: 4000 }).toBeTruthy();
-      } catch {}
-    } else if ((await clusterMarkers.count()) > 0) {
-      await clickMarker(clusterMarkers.first(), { force: false });
-      await page.waitForTimeout(400);
-    } else if ((await markerIcons.count()) > 0) {
-      await clickMarker(markerIcons.first(), { force: false });
-      await page.waitForTimeout(400);
+    const MAX_RETRIES = 6;
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      if (await isDrawerOpen()) break;
+      antiState.attempt = attempt + 1;
+
+      if ((await singleMarkers.count()) > 0) {
+        antiState.kind = "marker";
+        await clickMarker(singleMarkers.first(), { force: false });
+        try {
+          await expect.poll(async () => await isDrawerOpen(), { timeout: 4000 }).toBeTruthy();
+        } catch {}
+      } else if ((await clusterMarkers.count()) > 0) {
+        antiState.kind = "cluster";
+        await clickMarker(clusterMarkers.first(), { force: false });
+        await page.waitForTimeout(400);
+      } else if ((await markerIcons.count()) > 0) {
+        antiState.kind = "marker";
+        await clickMarker(markerIcons.first(), { force: false });
+        await page.waitForTimeout(400);
+      }
+
+      if (await isDrawerOpen()) break;
+
+      const zoomIn = page.locator(".leaflet-control-zoom-in");
+      antiState.zoom += 1;
+      if (await zoomIn.count()) {
+        await zoomIn.click();
+      } else {
+        await page.mouse.wheel(0, -800);
+      }
+      await page.waitForTimeout(300);
     }
 
-    if (await isDrawerOpen()) break;
-
-    const zoomIn = page.locator(".leaflet-control-zoom-in");
-    if (await zoomIn.count()) {
-      await zoomIn.click();
-    } else {
-      await page.mouse.wheel(0, -800);
+    if (!(await isDrawerOpen())) {
+      const fallbackTarget =
+        (await singleMarkers.count()) > 0
+          ? { kind: "marker", target: singleMarkers.first() }
+          : (await clusterMarkers.count()) > 0
+            ? { kind: "cluster", target: clusterMarkers.first() }
+            : (await markerIcons.count()) > 0
+              ? { kind: "marker", target: markerIcons.first() }
+              : (await cpmPins.count()) > 0
+                ? { kind: "forceClick", target: cpmPins.first() }
+                : { kind: "fallback", target: interactive.first() };
+      antiState.kind = fallbackTarget.kind;
+      await clickMarker(fallbackTarget.target, { force: true });
     }
-    await page.waitForTimeout(300);
-  }
 
-  if (!(await isDrawerOpen())) {
-    const fallbackTarget =
-      (await singleMarkers.count()) > 0
-        ? singleMarkers.first()
-        : (await clusterMarkers.count()) > 0
-          ? clusterMarkers.first()
-          : (await markerIcons.count()) > 0
-            ? markerIcons.first()
-            : (await cpmPins.count()) > 0
-              ? cpmPins.first()
-              : interactive.first();
-    await clickMarker(fallbackTarget, { force: true });
+    // final assert: drawer open-state (not flaky visible)
+    await expect.poll(async () => await isDrawerOpen(), { timeout: 20000 }).toBeTruthy();
+    antiState.drawer = "ok";
+  } catch (error) {
+    if (!(await isDrawerOpen())) {
+      antiState.drawer = "timeout";
+    }
+    throw error;
+  } finally {
+    const markersInfo = `${antiState.markers}(${antiState.markersNote})`;
+    console.log(
+      `[anti] attempt=${antiState.attempt} kind=${antiState.kind} zoom=${antiState.zoom} markers=${markersInfo} drawer=${antiState.drawer} label=${antiState.label}`
+    );
   }
-
-  // final assert: drawer open-state (not flaky visible)
-  await expect.poll(async () => await isDrawerOpen(), { timeout: 20000 }).toBeTruthy();
 });
