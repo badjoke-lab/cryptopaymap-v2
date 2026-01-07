@@ -7,6 +7,7 @@ export default defineConfig({
   timeout: 60_000,
   expect: { timeout: 10_000 },
   retries: 0,
+  workers: process.env.CI ? 1 : undefined,
   use: {
     baseURL,
     trace: 'retain-on-failure',
