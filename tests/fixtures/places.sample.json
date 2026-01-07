@@ -2,12 +2,34 @@
   {
     "id": "fixture-place-1",
     "name": "Fixture Coffee Spot",
-    "lat": 35.681236,
-    "lng": 139.767125,
+    "lat": 51.5034,
+    "lng": -0.1276,
     "verification": "community",
     "category": "cafe",
-    "city": "Tokyo",
-    "country": "JP",
+    "city": "London",
+    "country": "GB",
+    "accepted": true
+  },
+  {
+    "id": "fixture-place-2",
+    "name": "Fixture Crypto Pub",
+    "lat": 51.5099,
+    "lng": -0.1357,
+    "verification": "community",
+    "category": "bar",
+    "city": "London",
+    "country": "GB",
+    "accepted": true
+  },
+  {
+    "id": "fixture-place-3",
+    "name": "Fixture BTC Books",
+    "lat": 51.5154,
+    "lng": -0.0995,
+    "verification": "community",
+    "category": "shop",
+    "city": "London",
+    "country": "GB",
     "accepted": true
   }
 ]

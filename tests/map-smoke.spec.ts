@@ -45,6 +45,14 @@ function pickLabel(place: any): string | null {
   return s.length ? s : null;
 }
 
+function logFirstPlace(places: any[]) {
+  if (!places.length) return;
+  const first = places[0];
+  console.log(
+    `[fixture] firstPlace id=${first?.id ?? ""} lat=${first?.lat ?? ""} lng=${first?.lng ?? ""}`
+  );
+}
+
 async function mockPlacesRoute(page: import("@playwright/test").Page) {
   let hitCount = 0;
   await page.route("**/api/places**", async (route) => {
@@ -101,6 +109,7 @@ test("map smoke: map renders and pins appear when /api/places returns data", asy
   } catch {}
 
   const placesCount = extractCount(placesJson);
+  logFirstPlace(extractPlaces(placesJson));
   expect(placesRes.status()).toBe(200);
   expect(placesCount).toBe(FIXTURE_COUNT);
   expect(__pinIcons).toBeGreaterThanOrEqual(FIXTURE_COUNT);
@@ -142,6 +151,7 @@ test("map smoke: selecting a place from the mobile sheet opens the drawer", asyn
     placesJson = await placesRes.json();
   } catch {}
   const places = extractPlaces(placesJson);
+  logFirstPlace(places);
   const firstWithLabel = places.map(pickLabel).find(Boolean) as string | undefined;
 
   expect(firstWithLabel, "could not infer a place name from /api/places response").toBeTruthy();
@@ -194,6 +204,7 @@ test("map smoke: clicking a map marker opens the drawer (anti-overlay)", async (
   let placesJson: any = null;
   try { placesJson = await placesRes.json(); } catch {}
   const places = extractPlaces(placesJson);
+  logFirstPlace(places);
   const firstWithLabel = places.map(pickLabel).find(Boolean) as string | undefined;
 
   const cpmPins = page.locator(".cpm-pin");
