@@ -56,6 +56,7 @@ const VERIFICATION_COLORS: Record<VerificationLevel, string> = {
 };
 
 const MAX_AXIS_LABELS = 8;
+const EMPTY_MESSAGE = 'No data (showing 0).';
 
 function getLabelStep(labels: string[]) {
   return Math.max(1, Math.ceil(labels.length / MAX_AXIS_LABELS));
@@ -344,7 +345,102 @@ export default function StatsPage() {
             </div>
           ) : (
             <div className="rounded-md border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-center text-sm text-gray-600">
-              No country data available yet.
+              {EMPTY_MESSAGE}
+            </div>
+          )}
+        </SectionCard>
+
+        <SectionCard
+          eyebrow="Top categories"
+          title="What listings are categorized as"
+          description="Top categories by total published places."
+        >
+          {stats.byCategory.length ? (
+            <div className="overflow-hidden rounded-md border border-gray-200">
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200 text-sm">
+                  <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-600">
+                    <tr>
+                      <th className="px-4 py-2 text-left">Category</th>
+                      <th className="px-4 py-2 text-right">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {stats.byCategory.slice(0, 10).map((entry) => (
+                      <tr key={entry.key} className="bg-white">
+                        <td className="whitespace-nowrap px-4 py-2 font-medium text-gray-900">{entry.key}</td>
+                        <td className="whitespace-nowrap px-4 py-2 text-right text-gray-800">{entry.count}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-md border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-center text-sm text-gray-600">
+              {EMPTY_MESSAGE}
+            </div>
+          )}
+        </SectionCard>
+
+        <SectionCard
+          eyebrow="Verification levels"
+          title="How listings are verified"
+          description="Breakdown of verification statuses across published places."
+        >
+          <div className="overflow-hidden rounded-md border border-gray-200">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200 text-sm">
+                <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-600">
+                  <tr>
+                    <th className="px-4 py-2 text-left">Verification</th>
+                    <th className="px-4 py-2 text-right">Total</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {stats.byVerification.map((entry) => (
+                    <tr key={entry.key} className="bg-white">
+                      <td className="whitespace-nowrap px-4 py-2 font-medium text-gray-900">
+                        {VERIFICATION_LABELS[entry.key]}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-2 text-right text-gray-800">{entry.count}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </SectionCard>
+
+        <SectionCard
+          eyebrow="Top chains"
+          title="Which chains are accepted"
+          description="Top chains or assets accepted in published listings."
+        >
+          {stats.byChain.length ? (
+            <div className="overflow-hidden rounded-md border border-gray-200">
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200 text-sm">
+                  <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-600">
+                    <tr>
+                      <th className="px-4 py-2 text-left">Chain</th>
+                      <th className="px-4 py-2 text-right">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {stats.byChain.slice(0, 10).map((entry) => (
+                      <tr key={entry.key} className="bg-white">
+                        <td className="whitespace-nowrap px-4 py-2 font-medium text-gray-900">{entry.key}</td>
+                        <td className="whitespace-nowrap px-4 py-2 text-right text-gray-800">{entry.count}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-md border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-center text-sm text-gray-600">
+              {EMPTY_MESSAGE}
             </div>
           )}
         </SectionCard>
