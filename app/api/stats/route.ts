@@ -6,9 +6,12 @@ type VerificationLevel = "owner" | "community" | "directory" | "unverified";
 
 // Response shape for GET /api/stats.
 export type StatsApiResponse = {
-  total_places: number;
-  by_country: Array<{ country: string; total: number }>;
-  by_verification: Array<{ level: VerificationLevel; total: number }>;
+  meta: { source: "db" | "zero"; updatedAt: string };
+  totals: { places: number };
+  byCountry: Array<{ key: string; count: number }>;
+  byCategory: Array<{ key: string; count: number }>;
+  byVerification: Array<{ key: VerificationLevel; count: number }>;
+  byChain: Array<{ key: string; count: number }>;
 };
 
 const VERIFICATION_LEVELS: VerificationLevel[] = [
@@ -20,6 +23,8 @@ const VERIFICATION_LEVELS: VerificationLevel[] = [
 
 const CACHE_CONTROL = "public, s-maxage=300, stale-while-revalidate=60";
 const TOP_COUNTRY_LIMIT = 50;
+const TOP_CATEGORY_LIMIT = 50;
+const TOP_CHAIN_LIMIT = 50;
 
 const tableExists = async (route: string, table: string) => {
   const { rows } = await dbQuery<{ present: string | null }>(
@@ -31,7 +36,12 @@ const tableExists = async (route: string, table: string) => {
   return Boolean(rows[0]?.present);
 };
 
-const ensureIndexes = async (route: string, hasVerifications: boolean, verificationColumn: string | null) => {
+const ensureIndexes = async (
+  route: string,
+  hasVerifications: boolean,
+  verificationColumn: string | null,
+  hasPayments: boolean,
+) => {
   await dbQuery(
     "CREATE INDEX IF NOT EXISTS places_country_idx ON public.places (country)",
     [],
@@ -45,6 +55,14 @@ const ensureIndexes = async (route: string, hasVerifications: boolean, verificat
       { route },
     );
   }
+
+  if (hasPayments) {
+    await dbQuery(
+      "CREATE INDEX IF NOT EXISTS payment_accepts_chain_idx ON public.payment_accepts (chain)",
+      [],
+      { route },
+    );
+  }
 };
 
 const normalizeVerificationLevel = (value: string | null): VerificationLevel => {
@@ -54,13 +72,35 @@ const normalizeVerificationLevel = (value: string | null): VerificationLevel => 
   return "unverified";
 };
 
+const toZeroResponse = (updatedAt: string): StatsApiResponse => ({
+  meta: { source: "zero", updatedAt },
+  totals: { places: 0 },
+  byCountry: [],
+  byCategory: [],
+  byVerification: VERIFICATION_LEVELS.map((level) => ({ key: level, count: 0 })),
+  byChain: [],
+});
+
+const hasColumn = async (route: string, table: string, column: string) => {
+  const { rows } = await dbQuery<{ present: number }>(
+    `SELECT COUNT(*)::int AS present
+     FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = $1
+       AND column_name = $2`,
+    [table, column],
+    { route },
+  );
+  return (rows[0]?.present ?? 0) > 0;
+};
+
 export async function GET() {
   const route = "api_stats";
+  const updatedAt = new Date().toISOString();
 
   if (!hasDatabaseUrl()) {
-    const empty = VERIFICATION_LEVELS.map((level) => ({ level, total: 0 }));
     return NextResponse.json<StatsApiResponse>(
-      { total_places: 0, by_country: [], by_verification: empty },
+      toZeroResponse(updatedAt),
       { headers: { "Cache-Control": CACHE_CONTROL } },
     );
   }
@@ -68,14 +108,14 @@ export async function GET() {
   try {
     const placesTableExists = await tableExists(route, "places");
     if (!placesTableExists) {
-      const empty = VERIFICATION_LEVELS.map((level) => ({ level, total: 0 }));
       return NextResponse.json<StatsApiResponse>(
-        { total_places: 0, by_country: [], by_verification: empty },
+        toZeroResponse(updatedAt),
         { headers: { "Cache-Control": CACHE_CONTROL } },
       );
     }
 
     const hasVerifications = await tableExists(route, "verifications");
+    const hasPayments = await tableExists(route, "payment_accepts");
     let verificationColumn: string | null = null;
 
     if (hasVerifications) {
@@ -95,30 +135,78 @@ export async function GET() {
       }
     }
 
-    await ensureIndexes(route, hasVerifications, verificationColumn);
+    await ensureIndexes(route, hasVerifications, verificationColumn, hasPayments);
 
-    const [{ rows: totalRows }, { rows: countryRows }] = await Promise.all([
+    const hasCountry = await hasColumn(route, "places", "country");
+    const hasCategory = await hasColumn(route, "places", "category");
+    const hasPaymentChain = hasPayments ? await hasColumn(route, "payment_accepts", "chain") : false;
+    const hasPaymentAsset = hasPayments ? await hasColumn(route, "payment_accepts", "asset") : false;
+
+    const [{ rows: totalRows }, { rows: countryRows }, { rows: categoryRows }, { rows: chainRows }] = await Promise.all([
       dbQuery<{ total: string }>("SELECT COUNT(*) AS total FROM places", [], { route }),
-      dbQuery<{ country: string | null; total: string }>(
-        `SELECT country, COUNT(*) AS total
-         FROM places
-         WHERE NULLIF(BTRIM(country), '') IS NOT NULL
-         GROUP BY country
-         ORDER BY COUNT(*) DESC
-         LIMIT $1`,
-        [TOP_COUNTRY_LIMIT],
-        { route },
-      ),
+      hasCountry
+        ? dbQuery<{ key: string | null; total: string }>(
+            `SELECT country AS key, COUNT(*) AS total
+             FROM places
+             WHERE NULLIF(BTRIM(country), '') IS NOT NULL
+             GROUP BY country
+             ORDER BY COUNT(*) DESC
+             LIMIT $1`,
+            [TOP_COUNTRY_LIMIT],
+            { route },
+          )
+        : Promise.resolve({ rows: [] }),
+      hasCategory
+        ? dbQuery<{ key: string | null; total: string }>(
+            `SELECT category AS key, COUNT(*) AS total
+             FROM places
+             WHERE NULLIF(BTRIM(category), '') IS NOT NULL
+             GROUP BY category
+             ORDER BY COUNT(*) DESC
+             LIMIT $1`,
+            [TOP_CATEGORY_LIMIT],
+            { route },
+          )
+        : Promise.resolve({ rows: [] }),
+      hasPayments && (hasPaymentChain || hasPaymentAsset)
+        ? dbQuery<{ key: string | null; total: string }>(
+            `SELECT
+               COALESCE(NULLIF(BTRIM(chain), ''), NULLIF(BTRIM(asset), '')) AS key,
+               COUNT(*) AS total
+             FROM payment_accepts
+             WHERE NULLIF(BTRIM(chain), '') IS NOT NULL
+                OR NULLIF(BTRIM(asset), '') IS NOT NULL
+             GROUP BY key
+             ORDER BY COUNT(*) DESC
+             LIMIT $1`,
+            [TOP_CHAIN_LIMIT],
+            { route },
+          )
+        : Promise.resolve({ rows: [] }),
     ]);
 
     const totalPlaces = Number(totalRows[0]?.total ?? 0);
 
     const byCountry = countryRows
       .map((row) => ({
-        country: row.country ?? "Unknown",
-        total: Number(row.total ?? 0),
+        key: row.key ?? "Unknown",
+        count: Number(row.total ?? 0),
       }))
-      .filter((entry) => entry.total > 0);
+      .filter((entry) => entry.count > 0);
+
+    const byCategory = categoryRows
+      .map((row) => ({
+        key: row.key ?? "Unknown",
+        count: Number(row.total ?? 0),
+      }))
+      .filter((entry) => entry.count > 0);
+
+    const byChain = chainRows
+      .map((row) => ({
+        key: row.key ?? "Unknown",
+        count: Number(row.total ?? 0),
+      }))
+      .filter((entry) => entry.count > 0);
 
     let verificationCounts = new Map<VerificationLevel, number>();
     VERIFICATION_LEVELS.forEach((level) => verificationCounts.set(level, 0));
@@ -144,23 +232,30 @@ export async function GET() {
     }
 
     const byVerification = VERIFICATION_LEVELS.map((level) => ({
-      level,
-      total: verificationCounts.get(level) ?? 0,
+      key: level,
+      count: verificationCounts.get(level) ?? 0,
     }));
 
     return NextResponse.json<StatsApiResponse>(
       {
-        total_places: totalPlaces,
-        by_country: byCountry,
-        by_verification: byVerification,
+        meta: { source: "db", updatedAt },
+        totals: { places: totalPlaces },
+        byCountry,
+        byCategory,
+        byVerification,
+        byChain,
       },
       { headers: { "Cache-Control": CACHE_CONTROL } },
     );
   } catch (error) {
     if (error instanceof DbUnavailableError || (error as Error).message?.includes("DATABASE_URL")) {
-      return NextResponse.json({ error: "DB_UNAVAILABLE" }, { status: 503 });
+      console.error("[stats] database unavailable, serving zero stats");
+    } else {
+      console.error("[stats] failed to load stats", error);
     }
-    console.error("[stats] failed to load stats", error);
-    return NextResponse.json({ error: "Failed to load stats" }, { status: 500 });
+    return NextResponse.json<StatsApiResponse>(
+      toZeroResponse(updatedAt),
+      { headers: { "Cache-Control": CACHE_CONTROL } },
+    );
   }
 }

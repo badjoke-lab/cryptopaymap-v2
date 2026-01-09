@@ -7,9 +7,12 @@ import { safeFetch } from '@/lib/safeFetch';
 type VerificationLevel = 'owner' | 'community' | 'directory' | 'unverified';
 
 type StatsResponse = {
-  total_places: number;
-  by_country: Array<{ country: string; total: number }>;
-  by_verification: Array<{ level: VerificationLevel; total: number }>;
+  meta: { source: 'db' | 'zero'; updatedAt: string };
+  totals: { places: number };
+  byCountry: Array<{ key: string; count: number }>;
+  byCategory: Array<{ key: string; count: number }>;
+  byVerification: Array<{ key: VerificationLevel; count: number }>;
+  byChain: Array<{ key: string; count: number }>;
 };
 
 type TrendPoint = {
@@ -177,11 +180,19 @@ export default function StatsPage() {
   const fetchStats = useCallback(async () => {
     setState({ status: 'loading' });
     try {
-      const [stats, trends] = await Promise.all([
+      const [statsResult, trendsResult] = await Promise.allSettled([
         safeFetch<StatsResponse>('/api/stats'),
         safeFetch<TrendsResponse>('/api/stats/trends'),
       ]);
-      setState({ status: 'success', stats, trends });
+
+      if (statsResult.status === 'rejected') {
+        throw statsResult.reason;
+      }
+
+      const trendsFallback: TrendsResponse = { points: [], meta: { reason: 'no_history_data' } };
+      const trendsValue = trendsResult.status === 'fulfilled' ? trendsResult.value : trendsFallback;
+
+      setState({ status: 'success', stats: statsResult.value, trends: trendsValue });
     } catch (error) {
       setState({
         status: 'error',
@@ -263,27 +274,27 @@ export default function StatsPage() {
           <div className="flex flex-col rounded-md bg-white px-4 py-3 shadow-sm ring-1 ring-gray-200 sm:px-5 sm:py-4">
             <span className="text-sm font-medium text-gray-600">Total places</span>
             <span className="mt-1 text-2xl font-semibold text-gray-900 sm:text-[26px]">
-              {stats.total_places.toLocaleString()}
+              {stats.totals.places.toLocaleString()}
             </span>
             <span className="text-xs text-gray-500">All published listings</span>
           </div>
-          {stats.by_verification.map((entry) => (
+          {stats.byVerification.map((entry) => (
             <div
-              key={entry.level}
+              key={entry.key}
               className="flex flex-col rounded-md bg-white px-4 py-3 shadow-sm ring-1 ring-gray-200 sm:px-5 sm:py-4"
             >
-              <span className="text-sm font-medium text-gray-600">{VERIFICATION_LABELS[entry.level]}</span>
+              <span className="text-sm font-medium text-gray-600">{VERIFICATION_LABELS[entry.key]}</span>
               <span className="mt-1 text-2xl font-semibold text-gray-900 sm:text-[26px]">
-                {entry.total.toLocaleString()}
+                {entry.count.toLocaleString()}
               </span>
               <span className="mt-2 h-2 w-full rounded-full bg-gray-100">
                 <span
                   className="block h-full rounded-full"
                   style={{
-                    width: stats.total_places
-                      ? `${Math.round((entry.total / stats.total_places) * 100)}%`
+                    width: stats.totals.places
+                      ? `${Math.round((entry.count / stats.totals.places) * 100)}%`
                       : '0%',
-                    backgroundColor: VERIFICATION_COLORS[entry.level],
+                    backgroundColor: VERIFICATION_COLORS[entry.key],
                   }}
                 />
               </span>
@@ -310,7 +321,7 @@ export default function StatsPage() {
           title="Where listings are growing"
           description="Top countries by total published places."
         >
-          {stats.by_country.length ? (
+          {stats.byCountry.length ? (
             <div className="overflow-hidden rounded-md border border-gray-200">
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200 text-sm">
@@ -321,10 +332,10 @@ export default function StatsPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {stats.by_country.slice(0, 10).map((entry) => (
-                      <tr key={entry.country} className="bg-white">
-                        <td className="whitespace-nowrap px-4 py-2 font-medium text-gray-900">{entry.country}</td>
-                        <td className="whitespace-nowrap px-4 py-2 text-right text-gray-800">{entry.total}</td>
+                    {stats.byCountry.slice(0, 10).map((entry) => (
+                      <tr key={entry.key} className="bg-white">
+                        <td className="whitespace-nowrap px-4 py-2 font-medium text-gray-900">{entry.key}</td>
+                        <td className="whitespace-nowrap px-4 py-2 text-right text-gray-800">{entry.count}</td>
                       </tr>
                     ))}
                   </tbody>
