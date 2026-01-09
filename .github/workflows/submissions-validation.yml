@@ -1,0 +1,29 @@
+name: Submissions Validation
+
+on:
+  pull_request:
+    paths:
+      - "data/submissions/**"
+      - "scripts/validate_submissions.ts"
+  push:
+    branches:
+      - main
+    paths:
+      - "data/submissions/**"
+      - "scripts/validate_submissions.ts"
+
+jobs:
+  validate-submissions:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Validate submissions
+        run: node --import tsx scripts/validate_submissions.ts
