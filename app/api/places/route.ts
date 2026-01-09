@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { promises as fs } from "node:fs";
+import path from "node:path";
 
 type Verification = "owner" | "community" | "directory" | "unverified";
 
@@ -58,13 +60,16 @@ const DEFAULT_LIMIT = 200;
 const MAX_LIMIT = 12000;
 const ALL_MODE_LIMIT = 1000;
 const CACHE_TTL_MS = 20_000;
+const DB_ERROR_LOG_WINDOW_MS = 60_000;
 
 type CacheEntry = {
   expiresAt: number;
   data: Place[];
+  source: "db" | "json";
 };
 
 const placesCache = new Map<string, CacheEntry>();
+let lastDbErrorLogAt = 0;
 
 const getPlaceChains = (place: Place) =>
   place.supported_crypto?.length ? place.supported_crypto : place.accepted ?? [];
@@ -100,6 +105,50 @@ const buildCacheKey = (params: URLSearchParams): string => {
     return aValue.localeCompare(bValue);
   });
   return entries.map(([key, value]) => `${key}=${value}`).join("&");
+};
+
+const getDataSource = (): "auto" | "db" | "json" => {
+  const normalize = (value: string | undefined) => value?.trim().toLowerCase() ?? "";
+  const envValue = normalize(process.env.DATA_SOURCE);
+  if (envValue === "auto" || envValue === "db" || envValue === "json") {
+    return envValue;
+  }
+  const publicValue = normalize(process.env.NEXT_PUBLIC_DATA_SOURCE);
+  if (publicValue === "auto" || publicValue === "db" || publicValue === "json") {
+    return publicValue;
+  }
+  return "auto";
+};
+
+const logDbFailure = (message: string, error?: unknown) => {
+  const now = Date.now();
+  if (now - lastDbErrorLogAt < DB_ERROR_LOG_WINDOW_MS) {
+    return;
+  }
+  lastDbErrorLogAt = now;
+  if (error instanceof Error) {
+    console.warn(`[places] ${message}`, error.message);
+    return;
+  }
+  if (error) {
+    console.warn(`[places] ${message}`, error);
+    return;
+  }
+  console.warn(`[places] ${message}`);
+};
+
+const loadPlacesFromJson = async (): Promise<Place[]> => {
+  try {
+    const filePath = path.join(process.cwd(), "data", "places.json");
+    const raw = await fs.readFile(filePath, "utf8");
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed as Place[];
+    }
+  } catch (error) {
+    logDbFailure("failed to load fallback JSON data", error);
+  }
+  return [];
 };
 
 
@@ -373,8 +422,7 @@ const loadPlacesFromDb = async (
     if (error instanceof DbUnavailableError) {
       throw error;
     }
-    const message = error instanceof Error ? error.message : String(error);
-    console.error("[places] failed to load from database", message);
+    logDbFailure("failed to load from database", error);
     return null;
   }
 };
@@ -438,36 +486,69 @@ export async function GET(request: NextRequest) {
   const cacheKey = buildCacheKey(normalizedParams);
   const cached = placesCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
-    return NextResponse.json(cached.data);
+    return NextResponse.json(cached.data, {
+      headers: {
+        "X-CPM-Data-Source": cached.source,
+      },
+    });
   }
 
   let dbPlaces: Place[] | null = null;
-  try {
-    dbPlaces = await loadPlacesFromDb({
-      category,
-      country,
-      city,
-      bbox: bboxResult.bbox,
-      verification: verificationFilters,
-      payment: combinedPaymentFilters,
-      search: searchTerm,
-      limit,
-      offset,
-    });
-  } catch (error) {
-    if (error instanceof DbUnavailableError) {
+  const dataSource = getDataSource();
+
+  if (dataSource !== "json") {
+    try {
+      dbPlaces = await loadPlacesFromDb({
+        category,
+        country,
+        city,
+        bbox: bboxResult.bbox,
+        verification: verificationFilters,
+        payment: combinedPaymentFilters,
+        search: searchTerm,
+        limit,
+        offset,
+      });
+    } catch (error) {
+      if (error instanceof DbUnavailableError) {
+        logDbFailure("database unavailable", error);
+        if (dataSource === "db") {
+          return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, { status: 503 });
+        }
+      } else {
+        logDbFailure("database query failed", error);
+        if (dataSource === "db") {
+          return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, { status: 503 });
+        }
+      }
+    }
+  }
+
+  if (dataSource === "db") {
+    if (!dbPlaces) {
+      logDbFailure("database unavailable");
       return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, { status: 503 });
     }
-    throw error;
-  }
-
-  if (dbPlaces) {
     const sanitized = dbPlaces.map(sanitizeOptionalStrings);
-    placesCache.set(cacheKey, { data: sanitized, expiresAt: Date.now() + CACHE_TTL_MS });
-    return NextResponse.json(sanitized);
+    placesCache.set(cacheKey, { data: sanitized, expiresAt: Date.now() + CACHE_TTL_MS, source: "db" });
+    return NextResponse.json(sanitized, {
+      headers: {
+        "X-CPM-Data-Source": "db",
+      },
+    });
   }
 
-  const sourcePlaces = places;
+  if (dbPlaces && dbPlaces.length > 0) {
+    const sanitized = dbPlaces.map(sanitizeOptionalStrings);
+    placesCache.set(cacheKey, { data: sanitized, expiresAt: Date.now() + CACHE_TTL_MS, source: "db" });
+    return NextResponse.json(sanitized, {
+      headers: {
+        "X-CPM-Data-Source": "db",
+      },
+    });
+  }
+
+  const sourcePlaces = await loadPlacesFromJson();
 
   const hasChainFilters = combinedPaymentFilters.length > 0;
   const hasVerificationFilters = verificationFilters.length > 0;
@@ -526,7 +607,11 @@ export async function GET(request: NextRequest) {
 
   const ordered = [...filtered].sort((a, b) => a.id.localeCompare(b.id));
   const paged = ordered.slice(offset, offset + limit).map(sanitizeOptionalStrings);
-  placesCache.set(cacheKey, { data: paged, expiresAt: Date.now() + CACHE_TTL_MS });
+  placesCache.set(cacheKey, { data: paged, expiresAt: Date.now() + CACHE_TTL_MS, source: "json" });
 
-  return NextResponse.json(paged);
+  return NextResponse.json(paged, {
+    headers: {
+      "X-CPM-Data-Source": "json",
+    },
+  });
 }
