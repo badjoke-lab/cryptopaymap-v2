@@ -95,11 +95,7 @@ export const places: Place[] = [
     facebook: null,
     amenities: ["wifi"],
     submitterName: "Community hint",
-    images: [
-      "https://images.unsplash.com/photo-1495446815901-a7297e633e8d?auto=format&fit=crop&w=1200&q=80",
-      "https://images.unsplash.com/photo-1521587760476-6c12a4b040da?auto=format&fit=crop&w=1200&q=80",
-      "https://images.unsplash.com/photo-1507842217343-583bb7270b66?auto=format&fit=crop&w=1200&q=80",
-    ],
+    images: [],
     updatedAt: new Date().toISOString(),
   },
   {
