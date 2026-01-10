@@ -13,6 +13,7 @@
     "db:compat-check": "tsx scripts/db_compat_check.ts",
     "db:migrate:compat": "tsx scripts/db_apply_sql.ts migrations/compat_v3_min.sql",
     "db:check": "node scripts/db-check.mjs",
+    "validate:data": "node --import tsx scripts/validate_data.ts",
     "test:map-smoke": "playwright test tests/map-smoke.spec.ts",
     "test:map-smoke:headed": "playwright test tests/map-smoke.spec.ts --headed"
   },
