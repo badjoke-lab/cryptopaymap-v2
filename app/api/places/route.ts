@@ -56,15 +56,27 @@ function sanitizeOptionalStrings<T>(input: T): T {
   return input;
 }
 
-const DEFAULT_LIMIT = 200;
-const MAX_LIMIT = 12000;
-const ALL_MODE_LIMIT = 1000;
+const DEFAULT_LIMIT = 1200;
+const MAX_LIMIT = 5000;
+const ALL_MODE_LIMIT = 1200;
 const CACHE_TTL_MS = 20_000;
 const DB_ERROR_LOG_WINDOW_MS = 60_000;
 
+type PlaceSummary = {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  verification: Verification;
+  category: string;
+  city: string;
+  country: string;
+  accepted: string[];
+};
+
 type CacheEntry = {
   expiresAt: number;
-  data: Place[];
+  data: PlaceSummary[];
   source: "db" | "json";
 };
 
@@ -73,8 +85,6 @@ let lastDbErrorLogAt = 0;
 
 const getPlaceChains = (place: Place) =>
   place.supported_crypto?.length ? place.supported_crypto : place.accepted ?? [];
-
-const u = (v: string | null | undefined): string | undefined => v ?? undefined;
 
 const parsePositiveInt = (value: string | null): number | null => {
   if (!value) return null;
@@ -97,6 +107,23 @@ const parseOffset = (value: string | null): number => {
   if (!Number.isFinite(parsed) || parsed < 0) return 0;
   return parsed;
 };
+
+const buildAccepted = (place: Place): string[] => {
+  const fallbackAccepted = place.accepted ?? place.supported_crypto ?? [];
+  return normalizeAccepted([], fallbackAccepted);
+};
+
+const toSummary = (place: Place, accepted: string[]): PlaceSummary => ({
+  id: place.id,
+  name: place.name,
+  lat: Number(place.lat),
+  lng: Number(place.lng),
+  verification: sanitizeVerification(place.verification) as Verification,
+  category: place.category ?? "unknown",
+  city: place.city ?? "",
+  country: place.country ?? "",
+  accepted,
+});
 
 const buildCacheKey = (params: URLSearchParams): string => {
   const entries = Array.from(params.entries()).sort(([aKey, aValue], [bKey, bValue]) => {
@@ -164,7 +191,7 @@ const loadPlacesFromDb = async (
     limit: number;
     offset: number;
   },
-): Promise<Place[] | null> => {
+): Promise<PlaceSummary[] | null> => {
   if (!hasDatabaseUrl()) return null;
   const route = "api_places";
 
@@ -311,7 +338,7 @@ const loadPlacesFromDb = async (
       ? "ORDER BY p.updated_at DESC NULLS LAST, p.id ASC"
       : "ORDER BY p.id ASC";
 
-    const query = `SELECT p.id, p.name, p.category, p.city, p.country, p.lat, p.lng, p.address, p.about${verificationSelect}${reviewSelect}
+    const query = `SELECT p.id, p.name, p.category, p.city, p.country, p.lat, p.lng${verificationSelect}${reviewSelect}
       FROM places p${joinVerification}
       ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
       ${orderBy}
@@ -328,8 +355,6 @@ const loadPlacesFromDb = async (
       country: string | null;
       lat: number;
       lng: number;
-      address: string | null;
-      about: string | null;
       verification: string | null;
       review_status: string | null;
     }>(query, params, { route });
@@ -398,23 +423,9 @@ const loadPlacesFromDb = async (
         lng: Number(row.lng),
         country: row.country ?? "",
         city: row.city ?? "",
-        address: u(row.address),
-        address_full: u(row.address),
-        about: u(row.about),
-        paymentNote: undefined,
-        accepted,
-        website: undefined,
-        phone: undefined,
-        twitter: undefined,
-        instagram: undefined,
-        facebook: undefined,
-        amenities: [],
-        submitterName: undefined,
-        images: [],
-        updatedAt: undefined,
       };
 
-      return base;
+      return toSummary(base, accepted);
     });
 
     return mapped;
@@ -447,23 +458,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: false, error: "INVALID_BBOX", message: bboxResult.error }, { status: 400 });
   }
 
-  const hasFilters =
-    Boolean(category || country || city || searchTerm || bboxResult.bbox) ||
-    combinedPaymentFilters.length > 0 ||
-    verificationFilters.length > 0;
-
   const requestedLimit = parsePositiveInt(searchParams.get("limit"));
-  if (searchParams.has("limit") && !requestedLimit) {
-    return NextResponse.json({ ok: false, error: "INVALID_LIMIT" }, { status: 400 });
-  }
   let limit = requestedLimit ?? DEFAULT_LIMIT;
+  if (searchParams.has("limit") && !requestedLimit) {
+    limit = DEFAULT_LIMIT;
+  }
   limit = Math.min(limit, MAX_LIMIT);
 
   let offset = parseOffset(searchParams.get("offset"));
-
-  if (!hasFilters && requestedLimit && requestedLimit > DEFAULT_LIMIT) {
-    limit = DEFAULT_LIMIT;
-  }
 
   if (mode === "all") {
     if (!country && !city) {
@@ -493,7 +495,7 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  let dbPlaces: Place[] | null = null;
+  let dbPlaces: PlaceSummary[] | null = null;
   const dataSource = getDataSource();
 
   if (dataSource !== "json") {
@@ -606,7 +608,10 @@ export async function GET(request: NextRequest) {
   });
 
   const ordered = [...filtered].sort((a, b) => a.id.localeCompare(b.id));
-  const paged = ordered.slice(offset, offset + limit).map(sanitizeOptionalStrings);
+  const paged = ordered
+    .slice(offset, offset + limit)
+    .map((place) => toSummary(place, buildAccepted(place)))
+    .map(sanitizeOptionalStrings);
   placesCache.set(cacheKey, { data: paged, expiresAt: Date.now() + CACHE_TTL_MS, source: "json" });
 
   return NextResponse.json(paged, {
