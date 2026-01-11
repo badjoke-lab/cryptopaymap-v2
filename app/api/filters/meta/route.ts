@@ -3,9 +3,15 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import { normalizeAccepted } from "@/lib/accepted";
-import { DbUnavailableError, dbQuery, hasDatabaseUrl } from "@/lib/db";
+import { DbUnavailableError, dbQuery } from "@/lib/db";
 import { deriveFilterMeta, type FilterMeta } from "@/lib/filters";
 import type { Place } from "@/types/places";
+import {
+  buildDataSourceHeaders,
+  getDataSourceContext,
+  getDataSourceSetting,
+  withDbTimeout,
+} from "@/lib/dataSource";
 
 const CACHE_CONTROL = "public, s-maxage=3600, stale-while-revalidate=600";
 const CACHE_TTL_MS = 3_600_000;
@@ -15,23 +21,11 @@ type CacheEntry = {
   expiresAt: number;
   data: FilterMeta;
   source: "db" | "json";
+  limited: boolean;
 };
 
 let cache: CacheEntry | null = null;
 let lastDbErrorLogAt = 0;
-
-const getDataSource = (): "auto" | "db" | "json" => {
-  const normalize = (value: string | undefined) => value?.trim().toLowerCase() ?? "";
-  const envValue = normalize(process.env.DATA_SOURCE);
-  if (envValue === "auto" || envValue === "db" || envValue === "json") {
-    return envValue;
-  }
-  const publicValue = normalize(process.env.NEXT_PUBLIC_DATA_SOURCE);
-  if (publicValue === "auto" || publicValue === "db" || publicValue === "json") {
-    return publicValue;
-  }
-  return "auto";
-};
 
 const logDbFailure = (message: string, error?: unknown) => {
   const now = Date.now();
@@ -90,7 +84,6 @@ const extractChainsFromPlaces = (places: Place[]): string[] => {
 };
 
 const loadMetaFromDb = async (): Promise<FilterMeta | null> => {
-  if (!hasDatabaseUrl()) return null;
   const route = "api_filters_meta";
 
   try {
@@ -230,17 +223,18 @@ export async function GET() {
     return NextResponse.json(cached.data, {
       headers: {
         "Cache-Control": CACHE_CONTROL,
-        "X-CPM-Data-Source": cached.source,
+        ...buildDataSourceHeaders(cached.source, cached.limited),
       },
     });
   }
 
-  const dataSource = getDataSource();
+  const dataSource = getDataSourceSetting();
+  const { shouldAttemptDb, shouldAllowJson } = getDataSourceContext(dataSource);
   let dbMeta: FilterMeta | null = null;
 
-  if (dataSource !== "json") {
+  if (shouldAttemptDb) {
     try {
-      dbMeta = await loadMetaFromDb();
+      dbMeta = await withDbTimeout(loadMetaFromDb(), { message: "DB_TIMEOUT" });
     } catch (error) {
       if (error instanceof DbUnavailableError) {
         logDbFailure("database unavailable", error);
@@ -254,6 +248,9 @@ export async function GET() {
         }
       }
     }
+  } else if (dataSource === "db") {
+    logDbFailure("database unavailable");
+    return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, { status: 503 });
   }
 
   if (dataSource === "db") {
@@ -261,33 +258,52 @@ export async function GET() {
       logDbFailure("database unavailable");
       return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, { status: 503 });
     }
-    cache = { data: dbMeta, expiresAt: Date.now() + CACHE_TTL_MS, source: "db" };
+    cache = {
+      data: dbMeta,
+      expiresAt: Date.now() + CACHE_TTL_MS,
+      source: "db",
+      limited: false,
+    };
     return NextResponse.json(dbMeta, {
       headers: {
         "Cache-Control": CACHE_CONTROL,
-        "X-CPM-Data-Source": "db",
+        ...buildDataSourceHeaders("db", false),
       },
     });
   }
 
   if (dbMeta) {
-    cache = { data: dbMeta, expiresAt: Date.now() + CACHE_TTL_MS, source: "db" };
+    cache = {
+      data: dbMeta,
+      expiresAt: Date.now() + CACHE_TTL_MS,
+      source: "db",
+      limited: false,
+    };
     return NextResponse.json(dbMeta, {
       headers: {
         "Cache-Control": CACHE_CONTROL,
-        "X-CPM-Data-Source": "db",
+        ...buildDataSourceHeaders("db", false),
       },
     });
   }
 
+  if (!shouldAllowJson) {
+    return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, { status: 503 });
+  }
+
   const fallbackPlaces = await loadPlacesFromJson();
   const meta = deriveFilterMeta(fallbackPlaces);
-  cache = { data: meta, expiresAt: Date.now() + CACHE_TTL_MS, source: "json" };
+  cache = {
+    data: meta,
+    expiresAt: Date.now() + CACHE_TTL_MS,
+    source: "json",
+    limited: true,
+  };
 
   return NextResponse.json(meta, {
     headers: {
       "Cache-Control": CACHE_CONTROL,
-      "X-CPM-Data-Source": "json",
+      ...buildDataSourceHeaders("json", true),
     },
   });
 }

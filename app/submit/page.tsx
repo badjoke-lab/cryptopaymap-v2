@@ -101,15 +101,15 @@ export default function SubmitPage() {
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
-    if (!formState.name.trim()) newErrors.name = "Required / 必須";
-    if (!formState.country.trim()) newErrors.country = "Required / 必須";
-    if (!formState.city.trim()) newErrors.city = "Required / 必須";
-    if (!formState.address.trim()) newErrors.address = "Required / 必須";
-    if (!formState.category.trim()) newErrors.category = "Required / 必須";
-    if (!formState.accepted.length) newErrors.accepted = "Select at least one / 1つ以上選択";
-    if (!formState.submitterName.trim()) newErrors.submitterName = "Required / 必須";
+    if (!formState.name.trim()) newErrors.name = "Required";
+    if (!formState.country.trim()) newErrors.country = "Required";
+    if (!formState.city.trim()) newErrors.city = "Required";
+    if (!formState.address.trim()) newErrors.address = "Required";
+    if (!formState.category.trim()) newErrors.category = "Required";
+    if (!formState.accepted.length) newErrors.accepted = "Select at least one";
+    if (!formState.submitterName.trim()) newErrors.submitterName = "Required";
     if (!formState.submitterEmail.trim()) {
-      newErrors.submitterEmail = "Required / 必須";
+      newErrors.submitterEmail = "Required";
     } else if (!emailRegex.test(formState.submitterEmail)) {
       newErrors.submitterEmail = "Invalid email";
     }
@@ -165,11 +165,11 @@ export default function SubmitPage() {
       const data = (await res.json()) as SubmissionResponse;
       const suggestion = data.suggestedPlaceId ? ` Suggested ID: ${data.suggestedPlaceId}` : "";
       setSuccessMessage(
-        `Thanks for your submission! / ご登録ありがとうございます。 We’ll review your place before publishing it on the map.${suggestion}`,
+        `Thanks for your submission! We’ll review your place before publishing it on the map.${suggestion}`,
       );
     } catch (error) {
       console.error(error);
-      setServerError((error as Error)?.message || "Submission failed. Please try again / 送信に失敗しました");
+      setServerError((error as Error)?.message || "Submission failed. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -187,11 +187,11 @@ export default function SubmitPage() {
       <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
         <div className="space-y-2">
           <h1 className="text-3xl font-bold text-gray-900">Submit a crypto-friendly place</h1>
-          <p className="text-gray-600">店舗情報の登録 / 更新リクエスト</p>
+          <p className="text-gray-600">Request a new listing or update an existing place.</p>
         </div>
 
         <div className="rounded-lg bg-white p-4 shadow-sm border border-gray-100 space-y-2">
-          <p className="text-gray-800 font-semibold">Choose submitter type / 投稿者を選択</p>
+          <p className="text-gray-800 font-semibold">Choose submitter type</p>
           <div className="flex space-x-2">
             <button
               type="button"
@@ -200,7 +200,7 @@ export default function SubmitPage() {
                 mode === "owner" ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-800"
               }`}
             >
-              Owner / 店舗オーナー
+              Owner
             </button>
             <button
               type="button"
@@ -209,20 +209,20 @@ export default function SubmitPage() {
                 mode === "community" ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-800"
               }`}
             >
-              Community / コミュニティ
+              Community
             </button>
           </div>
           <p className="text-sm text-gray-700">
             {mode === "owner"
-              ? "For store owners / staff to request verification or updates. 店舗オーナー・スタッフ向けの申請フォーム"
-              : "For customers and fans to recommend a place. 常連客・ファン向けの推薦フォーム"}
+              ? "For store owners or staff to request verification or updates."
+              : "For customers and fans to recommend a place."}
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="rounded-lg bg-white p-4 shadow-sm border border-gray-100 space-y-4">
             <div className="space-y-1">
-              {fieldLabel("Store name / 店舗名 (required)")}
+              {fieldLabel("Store name (required)")}
               <input
                 type="text"
                 className="w-full rounded-md border px-3 py-2"
@@ -234,13 +234,13 @@ export default function SubmitPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1">
-                {fieldLabel("Country / 国 (required)")}
+                {fieldLabel("Country (required)")}
                 <select
                   className="w-full rounded-md border px-3 py-2"
                   value={formState.country}
                   onChange={(e) => handleInputChange("country", e.target.value)}
                 >
-                  <option value="">Select / 選択</option>
+                  <option value="">Select</option>
                   {meta?.countries.map((country) => (
                     <option key={country} value={country}>
                       {country}
@@ -251,14 +251,14 @@ export default function SubmitPage() {
               </div>
 
               <div className="space-y-1">
-                {fieldLabel("City / 市区町村 (required)")}
+                {fieldLabel("City (required)")}
                 {citiesForCountry.length ? (
                   <select
                     className="w-full rounded-md border px-3 py-2"
                     value={formState.city}
                     onChange={(e) => handleInputChange("city", e.target.value)}
                   >
-                    <option value="">Select / 選択</option>
+                    <option value="">Select</option>
                     {citiesForCountry.map((city) => (
                       <option key={city} value={city}>
                         {city}
@@ -278,7 +278,7 @@ export default function SubmitPage() {
             </div>
 
             <div className="space-y-1">
-              {fieldLabel("Address / 住所 (required)")}
+              {fieldLabel("Address (required)")}
               <input
                 type="text"
                 className="w-full rounded-md border px-3 py-2"
@@ -290,13 +290,13 @@ export default function SubmitPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1">
-                {fieldLabel("Category / カテゴリー (required)")}
+                {fieldLabel("Category (required)")}
                 <select
                   className="w-full rounded-md border px-3 py-2"
                   value={formState.category}
                   onChange={(e) => handleInputChange("category", e.target.value)}
                 >
-                  <option value="">Select / 選択</option>
+                  <option value="">Select</option>
                   {meta?.categories.map((cat) => (
                     <option key={cat} value={cat}>
                       {cat}
@@ -307,7 +307,7 @@ export default function SubmitPage() {
               </div>
 
               <div className="space-y-1">
-                {fieldLabel("Accepted crypto / 受け入れ (required)")}
+                {fieldLabel("Accepted crypto (required)")}
                 <div className="flex flex-wrap gap-2">
                   {meta?.chains.map((chain) => (
                     <label key={chain} className="flex items-center space-x-2 border rounded px-2 py-1">
@@ -358,7 +358,7 @@ export default function SubmitPage() {
             </div>
 
             <div className="space-y-1">
-              {fieldLabel("About / 店舗紹介 (optional)")}
+              {fieldLabel("About (optional)")}
               <textarea
                 className="w-full rounded-md border px-3 py-2"
                 rows={3}
@@ -369,7 +369,7 @@ export default function SubmitPage() {
             </div>
 
             <div className="space-y-1">
-              {fieldLabel("Payment note / 支払いメモ (optional)")}
+              {fieldLabel("Payment note (optional)")}
               <input
                 type="text"
                 className="w-full rounded-md border px-3 py-2"
@@ -427,10 +427,10 @@ export default function SubmitPage() {
           </div>
 
           <div className="rounded-lg bg-white p-4 shadow-sm border border-gray-100 space-y-4">
-            <h2 className="text-lg font-semibold text-gray-900">Submitter info / 申請者情報</h2>
+            <h2 className="text-lg font-semibold text-gray-900">Submitter info</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1">
-                {fieldLabel("Name / お名前 (required)")}
+                {fieldLabel("Name (required)")}
                 <input
                   type="text"
                   className="w-full rounded-md border px-3 py-2"
@@ -453,20 +453,20 @@ export default function SubmitPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1">
-                {fieldLabel("Role / 役割")}
+                {fieldLabel("Role")}
                 <select
                   className="w-full rounded-md border px-3 py-2"
                   value={formState.role}
                   onChange={(e) => handleInputChange("role", e.target.value)}
                 >
-                  <option value="owner">Owner / オーナー</option>
-                  <option value="staff">Staff / スタッフ</option>
-                  <option value="customer">Customer / 常連</option>
-                  <option value="other">Other / その他</option>
+                  <option value="owner">Owner</option>
+                  <option value="staff">Staff</option>
+                  <option value="customer">Customer</option>
+                  <option value="other">Other</option>
                 </select>
               </div>
               <div className="space-y-1">
-                {fieldLabel("Notes for admin / 補足")}
+                {fieldLabel("Notes for admin")}
                 <textarea
                   className="w-full rounded-md border px-3 py-2"
                   rows={2}
@@ -495,10 +495,10 @@ export default function SubmitPage() {
               disabled={isSubmitting}
               className="rounded-md bg-blue-600 text-white px-4 py-2 font-semibold disabled:opacity-60"
             >
-              {isSubmitting ? "Submitting..." : "Submit / 送信"}
+              {isSubmitting ? "Submitting..." : "Submit"}
             </button>
             <button type="button" onClick={resetForm} className="text-sm text-gray-600 underline">
-              Send another / もう一度入力
+              Send another
             </button>
           </div>
         </form>

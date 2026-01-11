@@ -27,6 +27,7 @@ import {
   parseFiltersFromSearchParams,
 } from "@/lib/filters";
 import DbStatusIndicator from "@/components/status/DbStatusIndicator";
+import LimitedModeNotice from "@/components/status/LimitedModeNotice";
 
 const HEADER_HEIGHT = 64;
 
@@ -75,13 +76,16 @@ export default function MapClient() {
     zoom: number;
   } | null>(null);
   const lastRequestKeyRef = useRef<string | null>(null);
-  const placesCacheRef = useRef<Map<string, { places: Place[]; limit: number }>>(new Map());
+  const placesCacheRef = useRef<Map<string, { places: Place[]; limit: number; limited: boolean }>>(
+    new Map(),
+  );
   const [places, setPlaces] = useState<Place[]>([]);
   const [placesStatus, setPlacesStatus] = useState<
     "idle" | "loading" | "success" | "error"
   >("loading");
   const [placesError, setPlacesError] = useState<string | null>(null);
   const [limitNotice, setLimitNotice] = useState<{ count: number; limit: number } | null>(null);
+  const [limitedMode, setLimitedMode] = useState(false);
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
   const selectedPlaceIdRef = useRef<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -322,7 +326,7 @@ export default function MapClient() {
 
       if (!isMounted || !mapContainerRef.current || mapInstanceRef.current) return;
 
-      // --- MAP 初期化 ---
+      // --- Map initialization ---
       const map = L.map(mapContainerRef.current, {
         zoomControl: true,
         attributionControl: true,
@@ -364,6 +368,7 @@ export default function MapClient() {
           placesRef.current = cached.places;
           setPlaces(cached.places);
           setLimitNotice(cached.places.length >= cached.limit ? { count: cached.places.length, limit: cached.limit } : null);
+          setLimitedMode(cached.limited);
           buildIndexAndRender(cached.places);
           setPlacesStatus("success");
           return;
@@ -391,10 +396,16 @@ export default function MapClient() {
               query: pageQuery,
             });
           }
-          const nextPlaces = await safeFetch<Place[]>(
-            `/api/places${pageQuery ? `?${pageQuery}` : ""}`,
-            { signal: controller.signal, retries: 0 },
-          );
+          const response = await fetch(`/api/places${pageQuery ? `?${pageQuery}` : ""}`, {
+            signal: controller.signal,
+          });
+          if (!response.ok) {
+            throw new Error(`Request failed with status ${response.status}`);
+          }
+          const nextPlaces = (await response.json()) as Place[];
+          const sourceHeader = response.headers.get("x-cpm-data-source");
+          const limitedHeader = response.headers.get("x-cpm-limited");
+          const isLimited = limitedHeader === "true" || sourceHeader === "json";
           if (!isMounted || requestIdRef.current !== requestId) return;
 
           if (process.env.NODE_ENV !== "production") {
@@ -408,9 +419,10 @@ export default function MapClient() {
 
           placesRef.current = nextPlaces;
           setPlaces(nextPlaces);
+          setLimitedMode(isLimited);
           setLimitNotice(nextPlaces.length >= limit ? { count: nextPlaces.length, limit } : null);
           buildIndexAndRender(nextPlaces);
-          placesCacheRef.current.set(requestKey, { places: nextPlaces, limit });
+          placesCacheRef.current.set(requestKey, { places: nextPlaces, limit, limited: isLimited });
           if (placesCacheRef.current.size > 30) {
             const [firstKey] = placesCacheRef.current.keys();
             if (firstKey) {
@@ -424,8 +436,7 @@ export default function MapClient() {
           }
           console.error(error);
           if (!isMounted || requestIdRef.current !== requestId) return;
-          const message =
-            "Failed to load places. Please try again.\nスポット情報の取得に失敗しました。再読み込みしてください。";
+          const message = "Failed to load places. Please try again.";
           setPlacesError(message);
           if (placesRef.current.length > 0) {
             setPlacesStatus("success");
@@ -528,11 +539,11 @@ export default function MapClient() {
     [filters],
   );
 
-  // ▼ モバイル用フィルタ UI（z-index を Leaflet より上にして overlay 配置）
+  // Mobile filter UI (overlay above Leaflet with higher z-index).
   const renderMobileFilters = () => {
     return (
       <div className="cpm-map-mobile-filters lg:hidden">
-        {/* 上部の「Filters」ボタン + 件数 */}
+        {/* Top Filters button and count */}
         <div className="flex items-center justify-center gap-2">
           <button
             type="button"
@@ -552,7 +563,7 @@ export default function MapClient() {
             {places.length} place{places.length === 1 ? "" : "s"}
           </div>
         </div>
-        {/* 下から出るフィルタシート */}
+        {/* Bottom sheet filters */}
         {filtersOpen && (
           <div
             className="cpm-map-mobile-filters__sheet"
@@ -820,8 +831,9 @@ showHeading={false}
             </div>
             <DbStatusIndicator
               className="cpm-map-db-status"
-              showBanner
+              showBanner={false}
             />
+            {limitedMode ? <LimitedModeNotice className="mt-2 w-full max-w-sm" /> : null}
           </div>
           {renderMobileFilters()}
         </div>
@@ -841,8 +853,6 @@ showHeading={false}
             <div className="cpm-map-empty__title">No places found yet.</div>
             <p className="cpm-map-empty__body">
               Filters might be too strict, the API may be temporarily unavailable, or the dataset could be empty.
-              <br />
-              フィルタが厳しすぎる / 一時的なAPI不調 / データが空の可能性があります。
             </p>
             <div className="cpm-map-empty__actions">
               <button
@@ -867,8 +877,6 @@ showHeading={false}
           <div className="absolute inset-x-0 top-4 z-50 mx-auto w-[min(90%,480px)] rounded-md border border-red-100 bg-white/95 p-4 shadow-lg backdrop-blur">
             <p className="text-sm leading-relaxed text-red-700">
               Failed to load places. Please try again.
-              <br />
-              スポット情報の取得に失敗しました。再読み込みしてください。
             </p>
             <button
               type="button"
