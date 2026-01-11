@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 
-import { DbUnavailableError, dbQuery, hasDatabaseUrl } from "@/lib/db";
+import { DbUnavailableError, dbQuery } from "@/lib/db";
 import { places } from "@/lib/data/places";
 import { computeDashboardStats } from "@/lib/stats/aggregate";
+import {
+  buildDataSourceHeaders,
+  getDataSourceContext,
+  getDataSourceSetting,
+  withDbTimeout,
+} from "@/lib/dataSource";
 
 export const revalidate = 7200;
 
@@ -229,36 +235,50 @@ const responseFromDbFallback = async (route: string): Promise<StatsApiResponse> 
   });
 };
 
+const loadStatsFromDb = async (route: string): Promise<StatsApiResponse> => {
+  const cacheExists = await tableExists(route, "stats_cache");
+  if (cacheExists) {
+    const { rows } = await dbQuery<CacheRow>(
+      `SELECT total_places, total_countries, total_cities, category_breakdown, chain_breakdown, generated_at
+       FROM stats_cache
+       ORDER BY generated_at DESC
+       LIMIT 1`,
+      [],
+      { route },
+    );
+
+    if (rows[0]) {
+      return responseFromCache(rows[0]);
+    }
+  }
+
+  return responseFromDbFallback(route);
+};
+
 export async function GET() {
   const route = "api_stats";
+  const dataSource = getDataSourceSetting();
+  const { shouldAttemptDb, shouldAllowJson, hasDb } = getDataSourceContext(dataSource);
 
-  if (!hasDatabaseUrl()) {
+  if (!hasDb && dataSource === "db") {
+    return NextResponse.json<StatsApiResponse>(limitedResponse(), {
+      status: 503,
+      headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("db", true) },
+    });
+  }
+
+  if (!shouldAttemptDb) {
     return NextResponse.json<StatsApiResponse>(responseFromPlaces(), {
-      headers: { "Cache-Control": CACHE_CONTROL },
+      headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("json", true) },
     });
   }
 
   try {
-    const cacheExists = await tableExists(route, "stats_cache");
-    if (cacheExists) {
-      const { rows } = await dbQuery<CacheRow>(
-        `SELECT total_places, total_countries, total_cities, category_breakdown, chain_breakdown, generated_at
-         FROM stats_cache
-         ORDER BY generated_at DESC
-         LIMIT 1`,
-        [],
-        { route },
-      );
-
-      if (rows[0]) {
-        return NextResponse.json<StatsApiResponse>(responseFromCache(rows[0]), {
-          headers: { "Cache-Control": CACHE_CONTROL },
-        });
-      }
-    }
-
-    return NextResponse.json<StatsApiResponse>(await responseFromDbFallback(route), {
-      headers: { "Cache-Control": CACHE_CONTROL },
+    const statsResponse = await withDbTimeout(loadStatsFromDb(route), {
+      message: "DB_TIMEOUT",
+    });
+    return NextResponse.json<StatsApiResponse>(statsResponse, {
+      headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("db", false) },
     });
   } catch (error) {
     if (error instanceof DbUnavailableError || (error as Error).message?.includes("DATABASE_URL")) {
@@ -267,8 +287,15 @@ export async function GET() {
       console.error("[stats] failed to load stats", error);
     }
 
+    if (!shouldAllowJson) {
+      return NextResponse.json<StatsApiResponse>(limitedResponse(), {
+        status: 503,
+        headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("db", true) },
+      });
+    }
+
     return NextResponse.json<StatsApiResponse>(responseFromPlaces(), {
-      headers: { "Cache-Control": CACHE_CONTROL },
+      headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("json", true) },
     });
   }
 }

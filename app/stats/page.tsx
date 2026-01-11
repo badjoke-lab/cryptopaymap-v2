@@ -2,6 +2,7 @@
 
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 
+import LimitedModeNotice from '@/components/status/LimitedModeNotice';
 import { safeFetch } from '@/lib/safeFetch';
 
 type StatsResponse = {
@@ -253,21 +254,20 @@ export default function StatsPage() {
         </header>
 
         {showLimited ? (
-          <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900">
-            <p className="font-medium">Limited stats data available.</p>
-            <p className="text-sm">
-              Some aggregates are unavailable right now. Showing fallback totals while data catches up.
-            </p>
-            {state.notice ? (
-              <button
-                type="button"
-                onClick={fetchStats}
-                className="mt-3 inline-flex items-center gap-2 rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-700"
-              >
-                Retry
-              </button>
-            ) : null}
-          </div>
+          <LimitedModeNotice
+            className="px-4 py-3 text-sm"
+            actions={
+              state.notice ? (
+                <button
+                  type="button"
+                  onClick={fetchStats}
+                  className="inline-flex items-center gap-2 rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-700"
+                >
+                  Retry
+                </button>
+              ) : null
+            }
+          />
         ) : null}
 
         <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

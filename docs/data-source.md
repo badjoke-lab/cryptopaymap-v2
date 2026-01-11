@@ -1,26 +1,34 @@
 # DATA_SOURCE / NEXT_PUBLIC_DATA_SOURCE
 
-`/api/places` のデータ取得元を切り替えるための設定です。DB 障害時でも 0 件で落ちないように `auto` がデフォルトです。
+This controls how `/api/places`, `/api/stats`, and `/api/filters/meta` select their data source. The default is `auto` so the UI remains available even if the database is unavailable.
 
-## 優先順位
+## Precedence
 
 1. `DATA_SOURCE`
 2. `NEXT_PUBLIC_DATA_SOURCE`
-3. 既定値: `auto`
+3. Default: `auto`
 
-## 値と挙動
+## Values and behavior
 
-| 値 | 挙動 |
+| Value | Behavior |
 | --- | --- |
-| `auto` | まず DB を試し、失敗 / 0 件 / 例外の場合は `data/places.json` にフォールバック |
-| `db` | DB のみ使用。DB 失敗時は `503` を返す |
-| `json` | 常に `data/places.json` を返す |
+| `auto` | Try the DB first. If the DB is unreachable, times out, or throws an availability error, fall back to JSON. Valid empty DB results are returned as-is (no fallback). |
+| `db` | Use the DB only. If the DB is unavailable, return `503`. |
+| `json` | Always use JSON data (fallback mode). |
 
-## 追加ヘッダー
+## Limited mode
 
-レスポンスには `X-CPM-Data-Source` が付きます。
+When JSON data is used (forced or fallback), responses include `X-CPM-Limited: true`. This is used by the UI to show the Limited mode banner. The DB path sets `X-CPM-Limited: false`.
 
-| 値 | 説明 |
+## Headers
+
+Responses include these headers:
+
+| Header | Description |
 | --- | --- |
-| `db` | DB から取得 |
-| `json` | JSON 保険データから取得 |
+| `X-CPM-Data-Source` | `db` or `json` to indicate the source |
+| `X-CPM-Limited` | `true` when fallback JSON is used |
+
+## Logging vs user-facing behavior
+
+DB errors and timeouts are logged server-side. User-facing clients only receive the limited mode signal and safe fallback data (or `503` in `db` mode).

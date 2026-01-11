@@ -5,7 +5,13 @@ import path from "node:path";
 type Verification = "owner" | "community" | "directory" | "unverified";
 
 import { parseBbox, type ParsedBbox } from "@/lib/geo/bbox";
-import { DbUnavailableError, dbQuery, hasDatabaseUrl } from "@/lib/db";
+import { DbUnavailableError, dbQuery } from "@/lib/db";
+import {
+  buildDataSourceHeaders,
+  getDataSourceContext,
+  getDataSourceSetting,
+  withDbTimeout,
+} from "@/lib/dataSource";
 import { places } from "@/lib/data/places";
 import { normalizeCommaParams } from "@/lib/filters";
 import { normalizeAccepted, type PaymentAccept } from "@/lib/accepted";
@@ -78,6 +84,7 @@ type CacheEntry = {
   expiresAt: number;
   data: PlaceSummary[];
   source: "db" | "json";
+  limited: boolean;
 };
 
 const placesCache = new Map<string, CacheEntry>();
@@ -132,19 +139,6 @@ const buildCacheKey = (params: URLSearchParams): string => {
     return aValue.localeCompare(bValue);
   });
   return entries.map(([key, value]) => `${key}=${value}`).join("&");
-};
-
-const getDataSource = (): "auto" | "db" | "json" => {
-  const normalize = (value: string | undefined) => value?.trim().toLowerCase() ?? "";
-  const envValue = normalize(process.env.DATA_SOURCE);
-  if (envValue === "auto" || envValue === "db" || envValue === "json") {
-    return envValue;
-  }
-  const publicValue = normalize(process.env.NEXT_PUBLIC_DATA_SOURCE);
-  if (publicValue === "auto" || publicValue === "db" || publicValue === "json") {
-    return publicValue;
-  }
-  return "auto";
 };
 
 const logDbFailure = (message: string, error?: unknown) => {
@@ -489,41 +483,44 @@ export async function GET(request: NextRequest) {
   const cached = placesCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
     return NextResponse.json(cached.data, {
-      headers: {
-        "X-CPM-Data-Source": cached.source,
-      },
+      headers: buildDataSourceHeaders(cached.source, cached.limited),
     });
   }
 
   let dbPlaces: PlaceSummary[] | null = null;
-  const dataSource = getDataSource();
+  const dataSource = getDataSourceSetting();
+  const { shouldAttemptDb, shouldAllowJson } = getDataSourceContext(dataSource);
 
-  if (dataSource !== "json") {
+  if (shouldAttemptDb) {
     try {
-      dbPlaces = await loadPlacesFromDb({
-        category,
-        country,
-        city,
-        bbox: bboxResult.bbox,
-        verification: verificationFilters,
-        payment: combinedPaymentFilters,
-        search: searchTerm,
-        limit,
-        offset,
-      });
+      dbPlaces = await withDbTimeout(
+        loadPlacesFromDb({
+          category,
+          country,
+          city,
+          bbox: bboxResult.bbox,
+          verification: verificationFilters,
+          payment: combinedPaymentFilters,
+          search: searchTerm,
+          limit,
+          offset,
+        }),
+        { message: "DB_TIMEOUT" },
+      );
     } catch (error) {
       if (error instanceof DbUnavailableError) {
         logDbFailure("database unavailable", error);
-        if (dataSource === "db") {
-          return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, { status: 503 });
-        }
       } else {
         logDbFailure("database query failed", error);
-        if (dataSource === "db") {
-          return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, { status: 503 });
-        }
+      }
+
+      if (dataSource === "db") {
+        return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, { status: 503 });
       }
     }
+  } else if (dataSource === "db") {
+    logDbFailure("database unavailable");
+    return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, { status: 503 });
   }
 
   if (dataSource === "db") {
@@ -532,22 +529,32 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, { status: 503 });
     }
     const sanitized = dbPlaces.map(sanitizeOptionalStrings);
-    placesCache.set(cacheKey, { data: sanitized, expiresAt: Date.now() + CACHE_TTL_MS, source: "db" });
+    placesCache.set(cacheKey, {
+      data: sanitized,
+      expiresAt: Date.now() + CACHE_TTL_MS,
+      source: "db",
+      limited: false,
+    });
     return NextResponse.json(sanitized, {
-      headers: {
-        "X-CPM-Data-Source": "db",
-      },
+      headers: buildDataSourceHeaders("db", false),
     });
   }
 
-  if (dbPlaces && dbPlaces.length > 0) {
+  if (dbPlaces !== null) {
     const sanitized = dbPlaces.map(sanitizeOptionalStrings);
-    placesCache.set(cacheKey, { data: sanitized, expiresAt: Date.now() + CACHE_TTL_MS, source: "db" });
-    return NextResponse.json(sanitized, {
-      headers: {
-        "X-CPM-Data-Source": "db",
-      },
+    placesCache.set(cacheKey, {
+      data: sanitized,
+      expiresAt: Date.now() + CACHE_TTL_MS,
+      source: "db",
+      limited: false,
     });
+    return NextResponse.json(sanitized, {
+      headers: buildDataSourceHeaders("db", false),
+    });
+  }
+
+  if (!shouldAllowJson) {
+    return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, { status: 503 });
   }
 
   const sourcePlaces = await loadPlacesFromJson();
@@ -612,11 +619,14 @@ export async function GET(request: NextRequest) {
     .slice(offset, offset + limit)
     .map((place) => toSummary(place, buildAccepted(place)))
     .map(sanitizeOptionalStrings);
-  placesCache.set(cacheKey, { data: paged, expiresAt: Date.now() + CACHE_TTL_MS, source: "json" });
+  placesCache.set(cacheKey, {
+    data: paged,
+    expiresAt: Date.now() + CACHE_TTL_MS,
+    source: "json",
+    limited: true,
+  });
 
   return NextResponse.json(paged, {
-    headers: {
-      "X-CPM-Data-Source": "json",
-    },
+    headers: buildDataSourceHeaders("json", true),
   });
 }

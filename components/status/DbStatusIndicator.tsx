@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 
 import { useHealthStatus } from "./useHealthStatus";
+import LimitedModeNotice from "./LimitedModeNotice";
 
 type DbStatusIndicatorProps = {
   className?: string;
@@ -50,10 +51,7 @@ export default function DbStatusIndicator({
         DB: {label}
       </div>
       {showBanner && isDown && (
-        <div className="mt-2 w-full max-w-sm rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 shadow-sm">
-          <p className="font-semibold">Temporary data issue</p>
-          <p>Some data may not load while the database is unavailable. Please try again shortly.</p>
-        </div>
+        <LimitedModeNotice className="mt-2 w-full max-w-sm" />
       )}
     </div>
   );
