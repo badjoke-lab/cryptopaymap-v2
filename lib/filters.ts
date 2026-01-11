@@ -1,72 +1,53 @@
 import { normalizeAccepted } from "@/lib/accepted";
 import type { Place } from "@/types/places";
 
-type CountryNameMap = Record<string, string>;
-
-const COUNTRY_NAMES: CountryNameMap = {
-  JP: "Japan",
-  US: "United States",
-  FR: "France",
-  AU: "Australia",
-  CA: "Canada",
-};
-
 export type FilterMeta = {
   categories: string[];
   chains: string[];
-  payments: string[];
-  countries: { code: string; name: string }[];
-  citiesByCountry: Record<string, string[]>;
-  verificationStatuses: Place["verification"][];
+  countries: string[];
+  cities: Record<string, string[]>;
 };
 
 export const deriveFilterMeta = (places: Place[]): FilterMeta => {
   const categorySet = new Set<string>();
   const chainSet = new Set<string>();
-  const paymentSet = new Set<string>();
   const countrySet = new Set<string>();
   const citiesMap = new Map<string, Set<string>>();
-  const verificationSet = new Set<Place["verification"]>();
 
   places.forEach((place) => {
-    if (place.category) categorySet.add(place.category);
+    const category = place.category?.trim();
+    if (category) categorySet.add(category);
     const acceptedPayments =
       place.supported_crypto?.length ? place.supported_crypto : place.accepted ?? [];
-    acceptedPayments.forEach((chain) => {
-      chainSet.add(chain);
-    });
     const normalizedPayments = normalizeAccepted([], acceptedPayments);
     normalizedPayments.forEach((payment) => {
-      paymentSet.add(payment);
+      chainSet.add(payment);
     });
-    if (place.country) {
-      countrySet.add(place.country);
-      if (!citiesMap.has(place.country)) {
-        citiesMap.set(place.country, new Set());
+    const country = place.country?.trim();
+    if (country) {
+      countrySet.add(country);
+      if (!citiesMap.has(country)) {
+        citiesMap.set(country, new Set());
       }
-      if (place.city) {
-        citiesMap.get(place.country)?.add(place.city);
+      const city = place.city?.trim();
+      if (city) {
+        citiesMap.get(country)?.add(city);
       }
     }
-    verificationSet.add(place.verification);
   });
 
-  const countries = Array.from(countrySet)
-    .sort()
-    .map((code) => ({ code, name: COUNTRY_NAMES[code] ?? code }));
+  const countries = Array.from(countrySet).sort((a, b) => a.localeCompare(b));
 
-  const citiesByCountry: Record<string, string[]> = {};
-  citiesMap.forEach((cities, code) => {
-    citiesByCountry[code] = Array.from(cities).sort((a, b) => a.localeCompare(b));
+  const cities: Record<string, string[]> = {};
+  citiesMap.forEach((values, code) => {
+    cities[code] = Array.from(values).sort((a, b) => a.localeCompare(b));
   });
 
   return {
     categories: Array.from(categorySet).sort((a, b) => a.localeCompare(b)),
     chains: Array.from(chainSet).sort((a, b) => a.localeCompare(b)),
-    payments: Array.from(paymentSet).sort((a, b) => a.localeCompare(b)),
     countries,
-    citiesByCountry,
-    verificationStatuses: Array.from(verificationSet).sort(),
+    cities,
   };
 };
 
@@ -131,9 +112,7 @@ export const parseFiltersFromSearchParams = (
 ): FilterState => {
   const availableCategories = new Set(meta?.categories ?? []);
   const availableChains = new Set(meta?.chains ?? []);
-  const availablePayments = new Set(meta?.payments ?? []);
-  const availableVerifications = new Set(meta?.verificationStatuses ?? []);
-  const availableCountries = new Set((meta?.countries ?? []).map((c) => c.code));
+  const availableCountries = new Set(meta?.countries ?? []);
 
   const category = searchParams.get("category");
   const country = searchParams.get("country");
@@ -147,15 +126,11 @@ export const parseFiltersFromSearchParams = (
   const filteredCategory = category && (!availableCategories.size || availableCategories.has(category)) ? category : null;
   const filteredCountry = country && (!availableCountries.size || availableCountries.has(country)) ? country : null;
   const filteredChains = chains.filter((chain) => !availableChains.size || availableChains.has(chain));
-  const filteredPayments = payments.filter(
-    (payment) => !availablePayments.size || availablePayments.has(payment),
-  );
-  const filteredVerifications = verifications.filter(
-    (verification) => !availableVerifications.size || availableVerifications.has(verification),
-  ) as FilterState["verifications"];
+  const filteredPayments = payments;
+  const filteredVerifications = verifications as FilterState["verifications"];
 
   const filteredCity =
-    city && filteredCountry && (!meta?.citiesByCountry[filteredCountry] || meta.citiesByCountry[filteredCountry].includes(city))
+    city && filteredCountry && (!meta?.cities[filteredCountry] || meta.cities[filteredCountry].includes(city))
       ? city
       : null;
 
