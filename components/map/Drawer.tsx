@@ -122,11 +122,17 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
     }
 
     const photos = place.photos?.length ? place.photos : place.images ?? [];
+    const isRestricted =
+      place.verification === "directory" || place.verification === "unverified";
     const canShowPhotos =
       (place.verification === "owner" || place.verification === "community") && photos.length > 0;
-    const canShowDescription = place.verification !== "unverified" && (place.description ?? place.about);
+    const canShowDescription =
+      !isRestricted && Boolean(place.description ?? place.about);
     const shortAddress = [place.city, place.country].filter(Boolean).join(", ");
     const fullAddress = place.address_full ?? place.address ?? "";
+    const canShowLinks = !isRestricted && socialLinks.length > 0;
+    const canShowNavigation = !isRestricted && navigationLinks.length > 0;
+    const canShowFullAddress = !isRestricted && Boolean(fullAddress);
 
     return (
       <div
@@ -210,7 +216,7 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
               </section>
             )}
 
-            {(socialLinks.length > 0) && (
+            {canShowLinks && (
               <section className="cpm-drawer__section">
                 <h3 className="cpm-drawer__section-title">Links</h3>
                 <div className="cpm-drawer__links">
@@ -229,7 +235,7 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
               </section>
             )}
 
-            {navigationLinks.length > 0 && (
+            {canShowNavigation && (
               <section className="cpm-drawer__section">
                 <h3 className="cpm-drawer__section-title">Navigate</h3>
                 <div className="cpm-drawer__nav">
@@ -248,7 +254,7 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
               </section>
             )}
 
-            {fullAddress && (
+            {canShowFullAddress && (
               <section className="cpm-drawer__section">
                 <h3 className="cpm-drawer__section-title">Address</h3>
                 <p className="cpm-drawer__body">{fullAddress}</p>

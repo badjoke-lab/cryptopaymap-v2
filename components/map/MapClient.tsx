@@ -602,28 +602,34 @@ showHeading={false}
 
     return (
       <div className="divide-y divide-gray-100 overflow-hidden rounded-lg border border-gray-100">
-        {places.map((place) => (
-          <button
-            key={place.id}
-            type="button"
-            onClick={() => openDrawerForPlace(place.id)}
-            className="flex w-full items-start gap-3 bg-white px-3 py-2 text-left transition hover:bg-gray-50"
-          >
-            <div className="mt-0.5 h-2 w-2 rounded-full bg-gray-400" aria-hidden />
-            <div className="flex flex-col gap-1">
-              <span className="text-sm font-semibold text-gray-900">
-                {place.name}
-              </span>
-              <span className="text-xs text-gray-600">{place.category}</span>
-              <span className="text-xs text-gray-500">
-                {[place.city, place.country].filter(Boolean).join(", ")}
-              </span>
-            </div>
-          </button>
-        ))}
+        {places.map((place) => {
+          const isSelected = selectedPlaceId === place.id;
+          return (
+            <button
+              key={place.id}
+              type="button"
+              onClick={() => openDrawerForPlace(place.id)}
+              className={`flex w-full items-start gap-3 bg-white px-3 py-2 text-left transition hover:bg-gray-50 ${
+                isSelected ? "bg-blue-50/70" : ""
+              }`}
+              aria-pressed={isSelected}
+            >
+              <div className="mt-0.5 h-2 w-2 rounded-full bg-gray-400" aria-hidden />
+              <div className="flex flex-col gap-1">
+                <span className="text-sm font-semibold text-gray-900">
+                  {place.name}
+                </span>
+                <span className="text-xs text-gray-600">{place.category}</span>
+                <span className="text-xs text-gray-500">
+                  {[place.city, place.country].filter(Boolean).join(", ")}
+                </span>
+              </div>
+            </button>
+          );
+        })}
       </div>
     );
-  }, [openDrawerForPlace, places]);
+  }, [openDrawerForPlace, places, selectedPlaceId]);
 
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -745,6 +751,10 @@ showHeading={false}
         ) {
           return;
         }
+
+        if (target.closest(".leaflet-control")) {
+          return;
+        }
       }
 
       if (target instanceof Node) {
@@ -755,9 +765,11 @@ showHeading={false}
         if (bottomSheetRef.current?.contains(target)) {
           return;
         }
-      }
 
-      closeDrawer();
+        if (mapContainerRef.current?.contains(target)) {
+          closeDrawer();
+        }
+      }
     };
 
     document.addEventListener("pointerdown", handlePointerDown);
