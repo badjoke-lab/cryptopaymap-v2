@@ -1,18 +1,17 @@
 'use client';
 
-import { type ReactNode, useCallback, useEffect, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { safeFetch } from '@/lib/safeFetch';
 
-type VerificationLevel = 'owner' | 'community' | 'directory' | 'unverified';
-
 type StatsResponse = {
-  meta: { source: 'db' | 'zero'; updatedAt: string };
-  totals: { places: number };
-  byCountry: Array<{ key: string; count: number }>;
-  byCategory: Array<{ key: string; count: number }>;
-  byVerification: Array<{ key: VerificationLevel; count: number }>;
-  byChain: Array<{ key: string; count: number }>;
+  total_places: number;
+  countries: number;
+  cities: number;
+  categories: number;
+  chains: Record<string, number>;
+  generated_at?: string;
+  limited?: boolean;
 };
 
 type TrendPoint = {
@@ -26,11 +25,11 @@ type TrendsResponse = {
   meta?: { reason: 'no_history_data' };
 };
 
-type FetchStatus = 'idle' | 'loading' | 'success' | 'error';
+type FetchStatus = 'idle' | 'loading' | 'success';
 
 type StatsState = {
   status: FetchStatus;
-  error?: string;
+  notice?: string;
   stats?: StatsResponse;
   trends?: TrendsResponse;
 };
@@ -41,22 +40,17 @@ type ChartSeries = {
   values: number[];
 };
 
-const VERIFICATION_LABELS: Record<VerificationLevel, string> = {
-  owner: 'Owner verified',
-  community: 'Community verified',
-  directory: 'Directory verified',
-  unverified: 'Unverified',
-};
-
-const VERIFICATION_COLORS: Record<VerificationLevel, string> = {
-  owner: '#F59E0B',
-  community: '#3B82F6',
-  directory: '#14B8A6',
-  unverified: '#9CA3AF',
-};
-
 const MAX_AXIS_LABELS = 8;
 const EMPTY_MESSAGE = 'No data (showing 0).';
+
+const EMPTY_STATS: StatsResponse = {
+  total_places: 0,
+  countries: 0,
+  cities: 0,
+  categories: 0,
+  chains: {},
+  limited: true,
+};
 
 function getLabelStep(labels: string[]) {
   return Math.max(1, Math.ceil(labels.length / MAX_AXIS_LABELS));
@@ -166,40 +160,21 @@ function SectionCard({
 
 export default function StatsPage() {
   const [state, setState] = useState<StatsState>({ status: 'loading' });
-  const stats = state.stats;
-  const trends = state.trends;
-  const trendPoints = trends?.points ?? [];
-  const trendLabels = trendPoints.map((point) => point.date);
-  const trendSeries: ChartSeries[] = [
-    {
-      label: 'Total published places',
-      color: '#2563EB',
-      values: trendPoints.map((point) => point.total),
-    },
-  ];
 
   const fetchStats = useCallback(async () => {
     setState({ status: 'loading' });
-    try {
-      const [statsResult, trendsResult] = await Promise.allSettled([
-        safeFetch<StatsResponse>('/api/stats'),
-        safeFetch<TrendsResponse>('/api/stats/trends'),
-      ]);
+    const [statsResult, trendsResult] = await Promise.allSettled([
+      safeFetch<StatsResponse>('/api/stats'),
+      safeFetch<TrendsResponse>('/api/stats/trends'),
+    ]);
 
-      if (statsResult.status === 'rejected') {
-        throw statsResult.reason;
-      }
+    const statsValue = statsResult.status === 'fulfilled' ? statsResult.value : EMPTY_STATS;
+    const notice = statsResult.status === 'rejected' ? 'Stats data is currently limited.' : undefined;
 
-      const trendsFallback: TrendsResponse = { points: [], meta: { reason: 'no_history_data' } };
-      const trendsValue = trendsResult.status === 'fulfilled' ? trendsResult.value : trendsFallback;
+    const trendsFallback: TrendsResponse = { points: [], meta: { reason: 'no_history_data' } };
+    const trendsValue = trendsResult.status === 'fulfilled' ? trendsResult.value : trendsFallback;
 
-      setState({ status: 'success', stats: statsResult.value, trends: trendsValue });
-    } catch (error) {
-      setState({
-        status: 'error',
-        error: 'Failed to load stats. Please try again.',
-      });
-    }
+    setState({ status: 'success', stats: statsValue, trends: trendsValue, notice });
   }, []);
 
   useEffect(() => {
@@ -233,32 +208,37 @@ export default function StatsPage() {
     );
   }
 
-  if (state.status === 'error' || !stats || !trends) {
-    return (
-      <main className="flex min-h-screen flex-col gap-6 bg-gray-50 px-4 py-8 text-gray-900 sm:px-6 lg:px-10">
-        <div className="mx-auto flex w-full max-w-4xl flex-col gap-4">
-          <header className="space-y-2">
-            <p className="text-sm uppercase tracking-wide text-sky-700">Stats</p>
-            <h1 className="text-3xl font-semibold leading-tight">Marketplace snapshot</h1>
-            <p className="text-sm leading-relaxed text-gray-600 sm:text-base">
-              Live counts for places, verification levels, and trend activity.
-            </p>
-          </header>
-          <div className="rounded-md border border-red-100 bg-red-50 px-4 py-3 text-red-700">
-            <p className="font-medium">{state.error ?? 'Failed to load stats.'}</p>
-            <p className="text-sm">統計データの取得に失敗しました。再度お試しください。</p>
-            <button
-              type="button"
-              onClick={fetchStats}
-              className="mt-3 inline-flex items-center gap-2 rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700"
-            >
-              Retry
-            </button>
-          </div>
-        </div>
-      </main>
-    );
-  }
+  const stats = state.stats ?? EMPTY_STATS;
+  const trends = state.trends ?? { points: [], meta: { reason: 'no_history_data' } };
+  const trendPoints = trends.points;
+  const trendLabels = trendPoints.map((point) => point.date);
+  const trendSeries: ChartSeries[] = [
+    {
+      label: 'Total published places',
+      color: '#2563EB',
+      values: trendPoints.map((point) => point.total),
+    },
+  ];
+
+  const summaryCards = useMemo(
+    () => [
+      { label: 'Total places', value: stats.total_places, description: 'All published listings' },
+      { label: 'Countries', value: stats.countries, description: 'Countries represented' },
+      { label: 'Cities', value: stats.cities, description: 'Cities represented' },
+      { label: 'Categories', value: stats.categories, description: 'Unique listing categories' },
+    ],
+    [stats],
+  );
+
+  const chainEntries = useMemo(() => {
+    return Object.entries(stats.chains)
+      .map(([key, count]) => ({ key, count: Number(count ?? 0) }))
+      .filter((entry) => entry.count > 0)
+      .sort((a, b) => b.count - a.count);
+  }, [stats.chains]);
+
+  const lastUpdated = stats.generated_at ? new Date(stats.generated_at).toLocaleString() : null;
+  const showLimited = Boolean(stats.limited || state.notice);
 
   return (
     <main className="flex min-h-screen flex-col bg-gray-50 px-4 py-8 text-gray-900 sm:px-6 lg:px-10">
@@ -267,38 +247,40 @@ export default function StatsPage() {
           <p className="text-sm uppercase tracking-wide text-sky-700">Stats</p>
           <h1 className="text-3xl font-semibold leading-tight">Marketplace snapshot</h1>
           <p className="text-sm leading-relaxed text-gray-600 sm:text-base">
-            Live counts for places, verification levels, and growth momentum from moderation history.
+            Live counts for places, coverage, and growth momentum from moderation history.
           </p>
+          {lastUpdated ? <p className="text-xs text-gray-500">Last updated {lastUpdated}</p> : null}
         </header>
 
-        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <div className="flex flex-col rounded-md bg-white px-4 py-3 shadow-sm ring-1 ring-gray-200 sm:px-5 sm:py-4">
-            <span className="text-sm font-medium text-gray-600">Total places</span>
-            <span className="mt-1 text-2xl font-semibold text-gray-900 sm:text-[26px]">
-              {stats.totals.places.toLocaleString()}
-            </span>
-            <span className="text-xs text-gray-500">All published listings</span>
+        {showLimited ? (
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900">
+            <p className="font-medium">Limited stats data available.</p>
+            <p className="text-sm">
+              Some aggregates are unavailable right now. Showing fallback totals while data catches up.
+            </p>
+            {state.notice ? (
+              <button
+                type="button"
+                onClick={fetchStats}
+                className="mt-3 inline-flex items-center gap-2 rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-700"
+              >
+                Retry
+              </button>
+            ) : null}
           </div>
-          {stats.byVerification.map((entry) => (
+        ) : null}
+
+        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {summaryCards.map((card) => (
             <div
-              key={entry.key}
+              key={card.label}
               className="flex flex-col rounded-md bg-white px-4 py-3 shadow-sm ring-1 ring-gray-200 sm:px-5 sm:py-4"
             >
-              <span className="text-sm font-medium text-gray-600">{VERIFICATION_LABELS[entry.key]}</span>
+              <span className="text-sm font-medium text-gray-600">{card.label}</span>
               <span className="mt-1 text-2xl font-semibold text-gray-900 sm:text-[26px]">
-                {entry.count.toLocaleString()}
+                {card.value.toLocaleString()}
               </span>
-              <span className="mt-2 h-2 w-full rounded-full bg-gray-100">
-                <span
-                  className="block h-full rounded-full"
-                  style={{
-                    width: stats.totals.places
-                      ? `${Math.round((entry.count / stats.totals.places) * 100)}%`
-                      : '0%',
-                    backgroundColor: VERIFICATION_COLORS[entry.key],
-                  }}
-                />
-              </span>
+              <span className="text-xs text-gray-500">{card.description}</span>
             </div>
           ))}
         </section>
@@ -318,106 +300,11 @@ export default function StatsPage() {
         </SectionCard>
 
         <SectionCard
-          eyebrow="Top countries"
-          title="Where listings are growing"
-          description="Top countries by total published places."
-        >
-          {stats.byCountry.length ? (
-            <div className="overflow-hidden rounded-md border border-gray-200">
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200 text-sm">
-                  <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-600">
-                    <tr>
-                      <th className="px-4 py-2 text-left">Country</th>
-                      <th className="px-4 py-2 text-right">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {stats.byCountry.slice(0, 10).map((entry) => (
-                      <tr key={entry.key} className="bg-white">
-                        <td className="whitespace-nowrap px-4 py-2 font-medium text-gray-900">{entry.key}</td>
-                        <td className="whitespace-nowrap px-4 py-2 text-right text-gray-800">{entry.count}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ) : (
-            <div className="rounded-md border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-center text-sm text-gray-600">
-              {EMPTY_MESSAGE}
-            </div>
-          )}
-        </SectionCard>
-
-        <SectionCard
-          eyebrow="Top categories"
-          title="What listings are categorized as"
-          description="Top categories by total published places."
-        >
-          {stats.byCategory.length ? (
-            <div className="overflow-hidden rounded-md border border-gray-200">
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200 text-sm">
-                  <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-600">
-                    <tr>
-                      <th className="px-4 py-2 text-left">Category</th>
-                      <th className="px-4 py-2 text-right">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {stats.byCategory.slice(0, 10).map((entry) => (
-                      <tr key={entry.key} className="bg-white">
-                        <td className="whitespace-nowrap px-4 py-2 font-medium text-gray-900">{entry.key}</td>
-                        <td className="whitespace-nowrap px-4 py-2 text-right text-gray-800">{entry.count}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ) : (
-            <div className="rounded-md border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-center text-sm text-gray-600">
-              {EMPTY_MESSAGE}
-            </div>
-          )}
-        </SectionCard>
-
-        <SectionCard
-          eyebrow="Verification levels"
-          title="How listings are verified"
-          description="Breakdown of verification statuses across published places."
-        >
-          <div className="overflow-hidden rounded-md border border-gray-200">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200 text-sm">
-                <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-600">
-                  <tr>
-                    <th className="px-4 py-2 text-left">Verification</th>
-                    <th className="px-4 py-2 text-right">Total</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {stats.byVerification.map((entry) => (
-                    <tr key={entry.key} className="bg-white">
-                      <td className="whitespace-nowrap px-4 py-2 font-medium text-gray-900">
-                        {VERIFICATION_LABELS[entry.key]}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-2 text-right text-gray-800">{entry.count}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </SectionCard>
-
-        <SectionCard
           eyebrow="Top chains"
           title="Which chains are accepted"
           description="Top chains or assets accepted in published listings."
         >
-          {stats.byChain.length ? (
+          {chainEntries.length ? (
             <div className="overflow-hidden rounded-md border border-gray-200">
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200 text-sm">
@@ -428,7 +315,7 @@ export default function StatsPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {stats.byChain.slice(0, 10).map((entry) => (
+                    {chainEntries.slice(0, 10).map((entry) => (
                       <tr key={entry.key} className="bg-white">
                         <td className="whitespace-nowrap px-4 py-2 font-medium text-gray-900">{entry.key}</td>
                         <td className="whitespace-nowrap px-4 py-2 text-right text-gray-800">{entry.count}</td>
