@@ -119,12 +119,14 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(({ place, isOpen, on
     return renderedPlace.photos?.length ? renderedPlace.photos : renderedPlace.images ?? [];
   }, [renderedPlace]);
 
+  const isRestricted =
+    renderedPlace?.verification === "directory" || renderedPlace?.verification === "unverified";
   const canShowPhotos =
     renderedPlace && (renderedPlace.verification === "owner" || renderedPlace.verification === "community")
       ? photos.length > 0
       : false;
   const canShowDescription =
-    renderedPlace && renderedPlace.verification !== "unverified" && (renderedPlace.description ?? renderedPlace.about);
+    renderedPlace && !isRestricted && (renderedPlace.description ?? renderedPlace.about);
   const fullAddress = renderedPlace?.address_full ?? renderedPlace?.address ?? "";
   const shortAddress = [renderedPlace?.city, renderedPlace?.country].filter(Boolean).join(", ");
   const amenities = renderedPlace?.amenities ?? [];
@@ -242,7 +244,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(({ place, isOpen, on
             </div>
           </section>
 
-          {showDetails && canShowPhotos && (
+          {showDetails && !isRestricted && canShowPhotos && (
             <section className="cpm-bottom-sheet__section">
               <div className="cpm-bottom-sheet__section-head">
                 <h3 className="cpm-bottom-sheet__section-title">Photos</h3>
@@ -266,7 +268,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(({ place, isOpen, on
             </section>
           )}
 
-          {showDetails && socialLinks.length > 0 && (
+          {showDetails && !isRestricted && socialLinks.length > 0 && (
             <section className="cpm-bottom-sheet__section">
               <div className="cpm-bottom-sheet__section-head">
                 <h3 className="cpm-bottom-sheet__section-title">Links</h3>
@@ -287,7 +289,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(({ place, isOpen, on
             </section>
           )}
 
-          {showDetails && navigationLinks.length > 0 && (
+          {showDetails && !isRestricted && navigationLinks.length > 0 && (
             <section className="cpm-bottom-sheet__section">
               <div className="cpm-bottom-sheet__section-head">
                 <h3 className="cpm-bottom-sheet__section-title">Navigate</h3>
@@ -308,7 +310,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(({ place, isOpen, on
             </section>
           )}
 
-          {showDetails && paymentNote && (
+          {showDetails && !isRestricted && paymentNote && (
             <section className="cpm-bottom-sheet__section">
               <div className="cpm-bottom-sheet__section-head">
                 <h3 className="cpm-bottom-sheet__section-title">Payment note</h3>
@@ -317,7 +319,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(({ place, isOpen, on
             </section>
           )}
 
-          {showDetails && amenities.length > 0 && (
+          {showDetails && !isRestricted && amenities.length > 0 && (
             <section className="cpm-bottom-sheet__section">
               <div className="cpm-bottom-sheet__section-head">
                 <h3 className="cpm-bottom-sheet__section-title">Amenities</h3>
@@ -332,7 +334,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(({ place, isOpen, on
             </section>
           )}
 
-          {showDetails && fullAddress && (
+          {showDetails && !isRestricted && fullAddress && (
             <section className="cpm-bottom-sheet__section">
               <div className="cpm-bottom-sheet__section-head">
                 <h3 className="cpm-bottom-sheet__section-title">Address</h3>
@@ -341,7 +343,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(({ place, isOpen, on
             </section>
           )}
 
-          {showDetails && submitter && (
+          {showDetails && !isRestricted && submitter && (
             <section className="cpm-bottom-sheet__section">
               <div className="cpm-bottom-sheet__section-head">
                 <h3 className="cpm-bottom-sheet__section-title">Submitted by</h3>
