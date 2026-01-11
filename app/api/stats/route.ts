@@ -1,29 +1,32 @@
 import { NextResponse } from "next/server";
 
 import { DbUnavailableError, dbQuery, hasDatabaseUrl } from "@/lib/db";
+import { places } from "@/lib/data/places";
+import { computeDashboardStats } from "@/lib/stats/aggregate";
 
-type VerificationLevel = "owner" | "community" | "directory" | "unverified";
+export const revalidate = 7200;
 
 // Response shape for GET /api/stats.
 export type StatsApiResponse = {
-  meta: { source: "db" | "zero"; updatedAt: string };
-  totals: { places: number };
-  byCountry: Array<{ key: string; count: number }>;
-  byCategory: Array<{ key: string; count: number }>;
-  byVerification: Array<{ key: VerificationLevel; count: number }>;
-  byChain: Array<{ key: string; count: number }>;
+  total_places: number;
+  countries: number;
+  cities: number;
+  categories: number;
+  chains: Record<string, number>;
+  generated_at?: string;
+  limited?: boolean;
 };
 
-const VERIFICATION_LEVELS: VerificationLevel[] = [
-  "owner",
-  "community",
-  "directory",
-  "unverified",
-];
+type CacheRow = {
+  total_places: number | string | null;
+  total_countries: number | string | null;
+  total_cities: number | string | null;
+  category_breakdown: unknown;
+  chain_breakdown: unknown;
+  generated_at: string | Date | null;
+};
 
-const CACHE_CONTROL = "public, s-maxage=300, stale-while-revalidate=60";
-const TOP_COUNTRY_LIMIT = 50;
-const TOP_CATEGORY_LIMIT = 50;
+const CACHE_CONTROL = "public, s-maxage=7200, stale-while-revalidate=600";
 const TOP_CHAIN_LIMIT = 50;
 
 const tableExists = async (route: string, table: string) => {
@@ -35,51 +38,6 @@ const tableExists = async (route: string, table: string) => {
 
   return Boolean(rows[0]?.present);
 };
-
-const ensureIndexes = async (
-  route: string,
-  hasVerifications: boolean,
-  verificationColumn: string | null,
-  hasPayments: boolean,
-) => {
-  await dbQuery(
-    "CREATE INDEX IF NOT EXISTS places_country_idx ON public.places (country)",
-    [],
-    { route },
-  );
-
-  if (hasVerifications && verificationColumn) {
-    await dbQuery(
-      `CREATE INDEX IF NOT EXISTS verifications_${verificationColumn}_idx ON public.verifications (${verificationColumn})`,
-      [],
-      { route },
-    );
-  }
-
-  if (hasPayments) {
-    await dbQuery(
-      "CREATE INDEX IF NOT EXISTS payment_accepts_chain_idx ON public.payment_accepts (chain)",
-      [],
-      { route },
-    );
-  }
-};
-
-const normalizeVerificationLevel = (value: string | null): VerificationLevel => {
-  if (value === "owner" || value === "community" || value === "directory" || value === "unverified") {
-    return value;
-  }
-  return "unverified";
-};
-
-const toZeroResponse = (updatedAt: string): StatsApiResponse => ({
-  meta: { source: "zero", updatedAt },
-  totals: { places: 0 },
-  byCountry: [],
-  byCategory: [],
-  byVerification: VERIFICATION_LEVELS.map((level) => ({ key: level, count: 0 })),
-  byChain: [],
-});
 
 const hasColumn = async (route: string, table: string, column: string) => {
   const { rows } = await dbQuery<{ present: number }>(
@@ -94,168 +52,223 @@ const hasColumn = async (route: string, table: string, column: string) => {
   return (rows[0]?.present ?? 0) > 0;
 };
 
+const normalizeBreakdown = (value: unknown): Record<string, number> => {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+
+  if (Array.isArray(value)) {
+    return value.reduce<Record<string, number>>((acc, entry) => {
+      if (entry && typeof entry === "object") {
+        const key = (entry as { key?: string }).key;
+        const count = Number((entry as { count?: number | string }).count ?? 0);
+        if (key && Number.isFinite(count)) {
+          acc[key] = count;
+        }
+      }
+      return acc;
+    }, {});
+  }
+
+  return Object.entries(value as Record<string, unknown>).reduce<Record<string, number>>((acc, [key, count]) => {
+    const numeric = Number(count);
+    if (Number.isFinite(numeric)) {
+      acc[key] = numeric;
+    }
+    return acc;
+  }, {});
+};
+
+const formatGeneratedAt = (value: CacheRow["generated_at"]): string | undefined => {
+  if (!value) return undefined;
+  if (typeof value === "string") return value;
+  return value.toISOString();
+};
+
+const limitedResponse = (overrides: Partial<StatsApiResponse> = {}): StatsApiResponse => ({
+  total_places: 0,
+  countries: 0,
+  cities: 0,
+  categories: 0,
+  chains: {},
+  limited: true,
+  ...overrides,
+});
+
+const responseFromCache = (row: CacheRow): StatsApiResponse => {
+  const categoryBreakdown = normalizeBreakdown(row.category_breakdown);
+  return {
+    total_places: Number(row.total_places ?? 0),
+    countries: Number(row.total_countries ?? 0),
+    cities: Number(row.total_cities ?? 0),
+    categories: Object.keys(categoryBreakdown).length,
+    chains: normalizeBreakdown(row.chain_breakdown),
+    generated_at: formatGeneratedAt(row.generated_at),
+    limited: false,
+  };
+};
+
+const responseFromPlaces = (): StatsApiResponse => {
+  const { byCountry, byCategory, byChain, kpi } = computeDashboardStats();
+  const cityCount = new Set(
+    places
+      .map((place) => {
+        const country = place.country?.trim();
+        const city = place.city?.trim();
+        if (!country || !city) return null;
+        return `${country}::${city}`;
+      })
+      .filter(Boolean),
+  ).size;
+
+  const chains = byChain.reduce<Record<string, number>>((acc, entry) => {
+    acc[entry.chain] = entry.total;
+    return acc;
+  }, {});
+
+  return limitedResponse({
+    total_places: kpi.totalPlaces,
+    countries: byCountry.length,
+    cities: cityCount,
+    categories: byCategory.length,
+    chains,
+  });
+};
+
+const responseFromDbFallback = async (route: string): Promise<StatsApiResponse> => {
+  const placesTableExists = await tableExists(route, "places");
+  if (!placesTableExists) {
+    return limitedResponse();
+  }
+
+  const [hasCountry, hasCity, hasCategory] = await Promise.all([
+    hasColumn(route, "places", "country"),
+    hasColumn(route, "places", "city"),
+    hasColumn(route, "places", "category"),
+  ]);
+
+  const hasPayments = await tableExists(route, "payment_accepts");
+  const [hasPaymentChain, hasPaymentAsset] = hasPayments
+    ? await Promise.all([
+        hasColumn(route, "payment_accepts", "chain"),
+        hasColumn(route, "payment_accepts", "asset"),
+      ])
+    : [false, false];
+
+  const totalPromise = dbQuery<{ total: string }>("SELECT COUNT(*) AS total FROM places", [], { route });
+
+  const countriesPromise = hasCountry
+    ? dbQuery<{ total: string }>(
+        `SELECT COUNT(DISTINCT country) AS total
+         FROM places
+         WHERE NULLIF(BTRIM(country), '') IS NOT NULL`,
+        [],
+        { route },
+      )
+    : Promise.resolve({ rows: [] as { total: string }[] });
+
+  const citiesPromise = hasCity
+    ? dbQuery<{ total: string }>(
+        hasCountry
+          ? `SELECT COUNT(DISTINCT (country, city)) AS total
+             FROM places
+             WHERE NULLIF(BTRIM(city), '') IS NOT NULL
+               AND NULLIF(BTRIM(country), '') IS NOT NULL`
+          : `SELECT COUNT(DISTINCT city) AS total
+             FROM places
+             WHERE NULLIF(BTRIM(city), '') IS NOT NULL`,
+        [],
+        { route },
+      )
+    : Promise.resolve({ rows: [] as { total: string }[] });
+
+  const categoriesPromise = hasCategory
+    ? dbQuery<{ total: string }>(
+        `SELECT COUNT(DISTINCT category) AS total
+         FROM places
+         WHERE NULLIF(BTRIM(category), '') IS NOT NULL`,
+        [],
+        { route },
+      )
+    : Promise.resolve({ rows: [] as { total: string }[] });
+
+  const chainsPromise = hasPayments && (hasPaymentChain || hasPaymentAsset)
+    ? dbQuery<{ key: string | null; total: string }>(
+        `SELECT
+           COALESCE(NULLIF(BTRIM(chain), ''), NULLIF(BTRIM(asset), '')) AS key,
+           COUNT(*) AS total
+         FROM payment_accepts
+         WHERE NULLIF(BTRIM(chain), '') IS NOT NULL
+            OR NULLIF(BTRIM(asset), '') IS NOT NULL
+         GROUP BY key
+         ORDER BY COUNT(*) DESC
+         LIMIT $1`,
+        [TOP_CHAIN_LIMIT],
+        { route },
+      )
+    : Promise.resolve({ rows: [] as { key: string | null; total: string }[] });
+
+  const [{ rows: totalRows }, { rows: countryRows }, { rows: cityRows }, { rows: categoryRows }, { rows: chainRows }] =
+    await Promise.all([totalPromise, countriesPromise, citiesPromise, categoriesPromise, chainsPromise]);
+
+  const chains = chainRows.reduce<Record<string, number>>((acc, row) => {
+    if (!row.key) return acc;
+    const total = Number(row.total ?? 0);
+    if (Number.isFinite(total)) {
+      acc[row.key] = total;
+    }
+    return acc;
+  }, {});
+
+  return limitedResponse({
+    total_places: Number(totalRows[0]?.total ?? 0),
+    countries: Number(countryRows[0]?.total ?? 0),
+    cities: Number(cityRows[0]?.total ?? 0),
+    categories: Number(categoryRows[0]?.total ?? 0),
+    chains,
+  });
+};
+
 export async function GET() {
   const route = "api_stats";
-  const updatedAt = new Date().toISOString();
 
   if (!hasDatabaseUrl()) {
-    return NextResponse.json<StatsApiResponse>(
-      toZeroResponse(updatedAt),
-      { headers: { "Cache-Control": CACHE_CONTROL } },
-    );
+    return NextResponse.json<StatsApiResponse>(responseFromPlaces(), {
+      headers: { "Cache-Control": CACHE_CONTROL },
+    });
   }
 
   try {
-    const placesTableExists = await tableExists(route, "places");
-    if (!placesTableExists) {
-      return NextResponse.json<StatsApiResponse>(
-        toZeroResponse(updatedAt),
-        { headers: { "Cache-Control": CACHE_CONTROL } },
-      );
-    }
-
-    const hasVerifications = await tableExists(route, "verifications");
-    const hasPayments = await tableExists(route, "payment_accepts");
-    let verificationColumn: string | null = null;
-
-    if (hasVerifications) {
-      const { rows } = await dbQuery<{ column_name: string }>(
-        `SELECT column_name
-         FROM information_schema.columns
-         WHERE table_schema = 'public'
-           AND table_name = 'verifications'
-           AND column_name IN ('level', 'status')`,
+    const cacheExists = await tableExists(route, "stats_cache");
+    if (cacheExists) {
+      const { rows } = await dbQuery<CacheRow>(
+        `SELECT total_places, total_countries, total_cities, category_breakdown, chain_breakdown, generated_at
+         FROM stats_cache
+         ORDER BY generated_at DESC
+         LIMIT 1`,
         [],
         { route },
       );
-      if (rows.some((row) => row.column_name === "level")) {
-        verificationColumn = "level";
-      } else if (rows.some((row) => row.column_name === "status")) {
-        verificationColumn = "status";
+
+      if (rows[0]) {
+        return NextResponse.json<StatsApiResponse>(responseFromCache(rows[0]), {
+          headers: { "Cache-Control": CACHE_CONTROL },
+        });
       }
     }
 
-    await ensureIndexes(route, hasVerifications, verificationColumn, hasPayments);
-
-    const hasCountry = await hasColumn(route, "places", "country");
-    const hasCategory = await hasColumn(route, "places", "category");
-    const hasPaymentChain = hasPayments ? await hasColumn(route, "payment_accepts", "chain") : false;
-    const hasPaymentAsset = hasPayments ? await hasColumn(route, "payment_accepts", "asset") : false;
-
-    const [{ rows: totalRows }, { rows: countryRows }, { rows: categoryRows }, { rows: chainRows }] = await Promise.all([
-      dbQuery<{ total: string }>("SELECT COUNT(*) AS total FROM places", [], { route }),
-      hasCountry
-        ? dbQuery<{ key: string | null; total: string }>(
-            `SELECT country AS key, COUNT(*) AS total
-             FROM places
-             WHERE NULLIF(BTRIM(country), '') IS NOT NULL
-             GROUP BY country
-             ORDER BY COUNT(*) DESC
-             LIMIT $1`,
-            [TOP_COUNTRY_LIMIT],
-            { route },
-          )
-        : Promise.resolve({ rows: [] }),
-      hasCategory
-        ? dbQuery<{ key: string | null; total: string }>(
-            `SELECT category AS key, COUNT(*) AS total
-             FROM places
-             WHERE NULLIF(BTRIM(category), '') IS NOT NULL
-             GROUP BY category
-             ORDER BY COUNT(*) DESC
-             LIMIT $1`,
-            [TOP_CATEGORY_LIMIT],
-            { route },
-          )
-        : Promise.resolve({ rows: [] }),
-      hasPayments && (hasPaymentChain || hasPaymentAsset)
-        ? dbQuery<{ key: string | null; total: string }>(
-            `SELECT
-               COALESCE(NULLIF(BTRIM(chain), ''), NULLIF(BTRIM(asset), '')) AS key,
-               COUNT(*) AS total
-             FROM payment_accepts
-             WHERE NULLIF(BTRIM(chain), '') IS NOT NULL
-                OR NULLIF(BTRIM(asset), '') IS NOT NULL
-             GROUP BY key
-             ORDER BY COUNT(*) DESC
-             LIMIT $1`,
-            [TOP_CHAIN_LIMIT],
-            { route },
-          )
-        : Promise.resolve({ rows: [] }),
-    ]);
-
-    const totalPlaces = Number(totalRows[0]?.total ?? 0);
-
-    const byCountry = countryRows
-      .map((row) => ({
-        key: row.key ?? "Unknown",
-        count: Number(row.total ?? 0),
-      }))
-      .filter((entry) => entry.count > 0);
-
-    const byCategory = categoryRows
-      .map((row) => ({
-        key: row.key ?? "Unknown",
-        count: Number(row.total ?? 0),
-      }))
-      .filter((entry) => entry.count > 0);
-
-    const byChain = chainRows
-      .map((row) => ({
-        key: row.key ?? "Unknown",
-        count: Number(row.total ?? 0),
-      }))
-      .filter((entry) => entry.count > 0);
-
-    let verificationCounts = new Map<VerificationLevel, number>();
-    VERIFICATION_LEVELS.forEach((level) => verificationCounts.set(level, 0));
-
-    if (hasVerifications && verificationColumn) {
-      const { rows } = await dbQuery<{ level: string | null; total: string }>(
-        `SELECT COALESCE(v.${verificationColumn}, 'unverified') AS level, COUNT(*) AS total
-         FROM places p
-         LEFT JOIN verifications v ON v.place_id = p.id
-         GROUP BY level`,
-        [],
-        { route },
-      );
-      verificationCounts = new Map(
-        VERIFICATION_LEVELS.map((level) => [level, 0]),
-      );
-      rows.forEach((row) => {
-        const level = normalizeVerificationLevel(row.level);
-        verificationCounts.set(level, (verificationCounts.get(level) ?? 0) + Number(row.total ?? 0));
-      });
-    } else {
-      verificationCounts.set("unverified", totalPlaces);
-    }
-
-    const byVerification = VERIFICATION_LEVELS.map((level) => ({
-      key: level,
-      count: verificationCounts.get(level) ?? 0,
-    }));
-
-    return NextResponse.json<StatsApiResponse>(
-      {
-        meta: { source: "db", updatedAt },
-        totals: { places: totalPlaces },
-        byCountry,
-        byCategory,
-        byVerification,
-        byChain,
-      },
-      { headers: { "Cache-Control": CACHE_CONTROL } },
-    );
+    return NextResponse.json<StatsApiResponse>(await responseFromDbFallback(route), {
+      headers: { "Cache-Control": CACHE_CONTROL },
+    });
   } catch (error) {
     if (error instanceof DbUnavailableError || (error as Error).message?.includes("DATABASE_URL")) {
-      console.error("[stats] database unavailable, serving zero stats");
+      console.error("[stats] database unavailable, serving limited stats");
     } else {
       console.error("[stats] failed to load stats", error);
     }
-    return NextResponse.json<StatsApiResponse>(
-      toZeroResponse(updatedAt),
-      { headers: { "Cache-Control": CACHE_CONTROL } },
-    );
+
+    return NextResponse.json<StatsApiResponse>(responseFromPlaces(), {
+      headers: { "Cache-Control": CACHE_CONTROL },
+    });
   }
 }
