@@ -84,7 +84,7 @@ export default function SubmitPage() {
 
   const citiesForCountry = useMemo(() => {
     if (!meta) return [];
-    return meta.citiesByCountry[formState.country] ?? [];
+    return meta.cities[formState.country] ?? [];
   }, [meta, formState.country]);
 
   const handleInputChange = (
@@ -241,9 +241,9 @@ export default function SubmitPage() {
                   onChange={(e) => handleInputChange("country", e.target.value)}
                 >
                   <option value="">Select / 選択</option>
-                  {meta?.countries.map((c) => (
-                    <option key={c.code} value={c.code}>
-                      {c.name} ({c.code})
+                  {meta?.countries.map((country) => (
+                    <option key={country} value={country}>
+                      {country}
                     </option>
                   ))}
                 </select>

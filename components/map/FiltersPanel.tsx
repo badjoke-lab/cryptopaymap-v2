@@ -13,17 +13,10 @@ export type FiltersPanelProps = {
   showHeading?: boolean;
 };
 
-const VERIFICATION_LABELS: Record<string, string> = {
-  owner: "Owner",
-  community: "Community",
-  directory: "Directory",
-  unverified: "Unverified",
-};
-
 export function FiltersPanel({ filters, meta, onChange, onClear, disabled, showHeading = true }: FiltersPanelProps) {
   const handleCheckboxChange = (
     event: ChangeEvent<HTMLInputElement>,
-    key: "chains" | "payments" | "verifications",
+    key: "chains",
     value: string,
   ) => {
     const current = new Set(filters[key]);
@@ -38,8 +31,8 @@ export function FiltersPanel({ filters, meta, onChange, onClear, disabled, showH
 
   const isCityDisabled = !filters.country;
   const cityOptions: string[] =
-    filters.country && meta?.citiesByCountry[filters.country]
-      ? meta.citiesByCountry[filters.country]
+    filters.country && meta?.cities[filters.country]
+      ? meta.cities[filters.country]
       : [];
 
   return (
@@ -96,46 +89,6 @@ export function FiltersPanel({ filters, meta, onChange, onClear, disabled, showH
           </div>
         </fieldset>
 
-        <fieldset className="space-y-2">
-          <legend className="text-xs font-semibold uppercase tracking-wide text-gray-600">Payment</legend>
-          <div className="grid max-h-32 grid-cols-2 gap-2 overflow-y-auto rounded-md border border-gray-200 bg-white p-3 text-sm shadow-inner">
-            {meta?.payments.map((payment) => (
-              <label key={payment} className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  checked={filters.payments.includes(payment)}
-                  onChange={(event) => handleCheckboxChange(event, "payments", payment)}
-                  disabled={disabled}
-                />
-                <span>{payment}</span>
-              </label>
-            ))}
-            {!meta && <span className="text-xs text-gray-500">Loading options…</span>}
-            {meta?.payments.length === 0 && (
-              <span className="text-xs text-gray-500">No payment options</span>
-            )}
-          </div>
-        </fieldset>
-
-        <fieldset className="space-y-2">
-          <legend className="text-xs font-semibold uppercase tracking-wide text-gray-600">Verification</legend>
-          <div className="grid grid-cols-1 gap-2 rounded-md border border-gray-200 bg-white p-3 shadow-inner">
-            {(meta?.verificationStatuses ?? Object.keys(VERIFICATION_LABELS)).map((status) => (
-              <label key={status} className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  checked={filters.verifications.includes(status as FilterState["verifications"][number])}
-                  onChange={(event) => handleCheckboxChange(event, "verifications", status)}
-                  disabled={disabled}
-                />
-                <span className="capitalize">{VERIFICATION_LABELS[status] ?? status}</span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
-
         <label className="space-y-1">
           <span className="text-xs font-semibold uppercase tracking-wide text-gray-600">Country</span>
           <select
@@ -152,8 +105,8 @@ export function FiltersPanel({ filters, meta, onChange, onClear, disabled, showH
           >
             <option value="">All countries</option>
             {meta?.countries.map((country) => (
-              <option key={country.code} value={country.code}>
-                {country.name}
+              <option key={country} value={country}>
+                {country}
               </option>
             ))}
           </select>
