@@ -79,18 +79,23 @@ export const normalizeCommaParams = (values: string[]): string[] =>
 
 export const buildQueryFromFilters = (filters: FilterState): string => {
   const params = new URLSearchParams();
+  const appendValues = (key: string, values: string[]) => {
+    Array.from(new Set(values.filter(Boolean))).forEach((value) => {
+      params.append(key, value);
+    });
+  };
 
   if (filters.category) {
     params.set("category", filters.category);
   }
   if (filters.chains.length) {
-    params.set("chain", filters.chains.join(","));
+    appendValues("chain", filters.chains);
   }
   if (filters.verifications.length) {
-    params.set("verification", filters.verifications.join(","));
+    appendValues("verification", filters.verifications);
   }
   if (filters.payments.length) {
-    params.set("payment", filters.payments.join(","));
+    appendValues("payment", filters.payments);
   }
   if (filters.country) {
     params.set("country", filters.country);

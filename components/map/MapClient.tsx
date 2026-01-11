@@ -370,7 +370,7 @@ export default function MapClient() {
         }
 
         const hadPlaces = placesRef.current.length > 0;
-        setPlacesStatus(hadPlaces ? "success" : "loading");
+        setPlacesStatus("loading");
         setPlacesError(null);
         if (!hadPlaces) {
           setLimitNotice(null);
@@ -424,13 +424,13 @@ export default function MapClient() {
           }
           console.error(error);
           if (!isMounted || requestIdRef.current !== requestId) return;
+          const message =
+            "Failed to load places. Please try again.\nスポット情報の取得に失敗しました。再読み込みしてください。";
+          setPlacesError(message);
           if (placesRef.current.length > 0) {
             setPlacesStatus("success");
             return;
           }
-          setPlacesError(
-            "Failed to load places. Please try again.\nスポット情報の取得に失敗しました。再読み込みしてください。",
-          );
           setPlacesStatus("error");
         }
       };
@@ -457,7 +457,7 @@ export default function MapClient() {
             pending.filterQuery,
             pending.requestKey,
           );
-        }, 250);
+        }, 120);
       };
 
       const handleMapViewChange = () => {
@@ -816,7 +816,7 @@ showHeading={false}
         {placesStatus === "loading" && (
           <div className="cpm-map-loading">
             <span className="cpm-map-loading__spinner" aria-hidden />
-            <span>Updating places…</span>
+            <span>Loading markers...</span>
           </div>
         )}
         {limitNotice && placesStatus !== "loading" && (
