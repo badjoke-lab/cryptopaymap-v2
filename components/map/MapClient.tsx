@@ -94,6 +94,10 @@ export default function MapClient() {
   const [drawerMode, setDrawerMode] = useState<"full" | null>(null);
   const [selectionHydrated, setSelectionHydrated] = useState(false);
   const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
+  const [selectedPlaceDetail, setSelectedPlaceDetail] = useState<Place | null>(null);
+  const [selectedPlaceDetailStatus, setSelectedPlaceDetailStatus] = useState<
+    "idle" | "loading" | "error"
+  >("idle");
   const drawerRef = useRef<HTMLDivElement | null>(null);
   const bottomSheetRef = useRef<HTMLDivElement | null>(null);
   const [filterMeta, setFilterMeta] = useState<FilterMeta | null>(null);
@@ -534,6 +538,46 @@ export default function MapClient() {
         : null,
     [places, selectedPlaceId],
   );
+  const selectedPlaceForDrawer = selectedPlace ?? selectedPlaceDetail;
+
+  useEffect(() => {
+    if (!selectedPlaceId) {
+      setSelectedPlaceDetail(null);
+      setSelectedPlaceDetailStatus("idle");
+      return;
+    }
+
+    if (selectedPlace) {
+      setSelectedPlaceDetail(null);
+      setSelectedPlaceDetailStatus("idle");
+      return;
+    }
+
+    let isActive = true;
+    const controller = new AbortController();
+    setSelectedPlaceDetail(null);
+    setSelectedPlaceDetailStatus("loading");
+
+    safeFetch<Place>(`/api/places/${selectedPlaceId}`, {
+      signal: controller.signal,
+      retries: 1,
+    })
+      .then((detail) => {
+        if (!isActive) return;
+        setSelectedPlaceDetail(detail);
+        setSelectedPlaceDetailStatus("idle");
+      })
+      .catch(() => {
+        if (!isActive) return;
+        setSelectedPlaceDetail(null);
+        setSelectedPlaceDetailStatus("error");
+      });
+
+    return () => {
+      isActive = false;
+      controller.abort();
+    };
+  }, [selectedPlace, selectedPlaceId]);
 
   useEffect(() => {
     if (!selectedPlaceId || placesStatus !== "success") return;
@@ -541,10 +585,8 @@ export default function MapClient() {
       setSelectionNotice(
         "Selected place is outside the current map area or filters.",
       );
-      skipNextSelectionRef.current = true;
-      closeDrawer();
     }
-  }, [closeDrawer, placesStatus, selectedPlace, selectedPlaceId]);
+  }, [placesStatus, selectedPlace, selectedPlaceId]);
 
   useEffect(() => {
     if (!fetchPlacesRef.current) return;
@@ -607,6 +649,8 @@ export default function MapClient() {
 
     return () => window.clearTimeout(timeout);
   }, [selectionNotice]);
+
+  const selectionStatus = selectedPlace ? "idle" : selectedPlaceDetailStatus;
 
   const hasActiveFilters = useMemo(
     () =>
@@ -991,20 +1035,22 @@ className="mt-3 inline-flex items-center gap-2 rounded-md bg-red-600 px-4 py-2 t
         />
         <div className="hidden lg:block">
           <Drawer
-            place={selectedPlace}
-            isOpen={drawerOpen && Boolean(selectedPlace)}
+            place={selectedPlaceForDrawer}
+            isOpen={drawerOpen && Boolean(selectedPlaceId)}
             mode={drawerMode}
             onClose={closeDrawer}
             ref={drawerRef}
             headerHeight={HEADER_HEIGHT}
+            selectionStatus={selectionStatus}
           />
         </div>
         <div className="lg:hidden">
           <MobileBottomSheet
-            place={selectedPlace}
-            isOpen={drawerOpen && Boolean(selectedPlace)}
+            place={selectedPlaceForDrawer}
+            isOpen={drawerOpen && Boolean(selectedPlaceId)}
             onClose={closeDrawer}
             ref={bottomSheetRef}
+            selectionStatus={selectionStatus}
           />
         </div>
       </div>

@@ -11,6 +11,7 @@ type Props = {
   mode: "full" | null;
   onClose: () => void;
   headerHeight?: number;
+  selectionStatus?: "idle" | "loading" | "error";
 };
 
 const VERIFICATION_COLORS: Record<Place["verification"], string> = {
@@ -28,7 +29,7 @@ const VERIFICATION_LABELS: Record<Place["verification"], string> = {
 };
 
 const Drawer = forwardRef<HTMLDivElement, Props>(
-  ({ place, isOpen, mode, onClose, headerHeight = 0 }, ref) => {
+  ({ place, isOpen, mode, onClose, headerHeight = 0, selectionStatus = "idle" }, ref) => {
     useEffect(() => {
       if (!isOpen) return;
 
@@ -107,6 +108,10 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
     }, [place]);
 
     if (!place) {
+      const emptyMessage =
+        selectionStatus === "loading"
+          ? "Loading place details..."
+          : "Place details are unavailable right now.";
       return (
         <div
           ref={ref}
@@ -117,7 +122,31 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
           }}
           data-testid="place-drawer"
           aria-hidden
-        />
+        >
+          {isOpen && (
+            <div className="cpm-drawer__panel">
+              <header className="cpm-drawer__header">
+                <div className="cpm-drawer__title-block">
+                  <h2 className="cpm-drawer__title">Place details</h2>
+                </div>
+                <button
+                  type="button"
+                  className="cpm-drawer__close"
+                  aria-label="Close drawer"
+                  onClick={onClose}
+                >
+                  ×
+                </button>
+              </header>
+              <div className="cpm-drawer__content" role="presentation">
+                <section className="cpm-drawer__section">
+                  <h3 className="cpm-drawer__section-title">Status</h3>
+                  <p className="cpm-drawer__muted">{emptyMessage}</p>
+                </section>
+              </div>
+            </div>
+          )}
+        </div>
       );
     }
 
