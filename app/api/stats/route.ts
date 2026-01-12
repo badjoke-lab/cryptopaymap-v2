@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 
-import { DbUnavailableError, dbQuery } from "@/lib/db";
+import { DbUnavailableError, dbQuery, hasDatabaseUrl } from "@/lib/db";
 import { places } from "@/lib/data/places";
 import { computeDashboardStats } from "@/lib/stats/aggregate";
 import {
   buildDataSourceHeaders,
-  getDataSourceContext,
   getDataSourceSetting,
+  resolveDataSourceDecision,
   withDbTimeout,
 } from "@/lib/dataSource";
 
@@ -258,44 +258,43 @@ const loadStatsFromDb = async (route: string): Promise<StatsApiResponse> => {
 export async function GET() {
   const route = "api_stats";
   const dataSource = getDataSourceSetting();
-  const { shouldAttemptDb, shouldAllowJson, hasDb } = getDataSourceContext(dataSource);
+  const hasDb = hasDatabaseUrl();
+  let statsResponse: StatsApiResponse | null = null;
+  let dbError: unknown;
 
-  if (!hasDb && dataSource === "db") {
-    return NextResponse.json<StatsApiResponse>(limitedResponse(), {
-      status: 503,
-      headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("db", true) },
-    });
-  }
-
-  if (!shouldAttemptDb) {
-    return NextResponse.json<StatsApiResponse>(responseFromPlaces(), {
-      headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("json", true) },
-    });
-  }
-
-  try {
-    const statsResponse = await withDbTimeout(loadStatsFromDb(route), {
-      message: "DB_TIMEOUT",
-    });
-    return NextResponse.json<StatsApiResponse>(statsResponse, {
-      headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("db", false) },
-    });
-  } catch (error) {
-    if (error instanceof DbUnavailableError || (error as Error).message?.includes("DATABASE_URL")) {
-      console.error("[stats] database unavailable, serving limited stats");
-    } else {
-      console.error("[stats] failed to load stats", error);
-    }
-
-    if (!shouldAllowJson) {
-      return NextResponse.json<StatsApiResponse>(limitedResponse(), {
-        status: 503,
-        headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("db", true) },
+  if (dataSource !== "json" && hasDb) {
+    try {
+      statsResponse = await withDbTimeout(loadStatsFromDb(route), {
+        message: "DB_TIMEOUT",
       });
+    } catch (error) {
+      dbError = error;
+      if (error instanceof DbUnavailableError || (error as Error).message?.includes("DATABASE_URL")) {
+        console.error("[stats] database unavailable, serving limited stats");
+      } else {
+        console.error("[stats] failed to load stats", error);
+      }
     }
+  }
 
-    return NextResponse.json<StatsApiResponse>(responseFromPlaces(), {
-      headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("json", true) },
+  const decision = resolveDataSourceDecision({
+    setting: dataSource,
+    hasDb,
+    dbResult: statsResponse,
+    dbError,
+  });
+
+  if (decision.source === "db") {
+    const response = statsResponse ?? limitedResponse();
+    const limited = decision.limited || response.limited;
+    return NextResponse.json<StatsApiResponse>(response, {
+      headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("db", limited) },
     });
   }
+
+  const fallbackResponse = responseFromPlaces();
+  const limited = decision.limited || fallbackResponse.limited;
+  return NextResponse.json<StatsApiResponse>(fallbackResponse, {
+    headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("json", limited) },
+  });
 }
