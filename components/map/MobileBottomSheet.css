@@ -49,6 +49,26 @@
   gap: 12px;
 }
 
+.cpm-bottom-sheet__close {
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  border-radius: 999px;
+  width: 32px;
+  height: 32px;
+  color: #6b7280;
+  font-size: 18px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.cpm-bottom-sheet__close:hover {
+  background: #eef2ff;
+  color: #111827;
+}
+
 .cpm-bottom-sheet__title-block {
   display: flex;
   flex-direction: column;
