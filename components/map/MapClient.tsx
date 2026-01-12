@@ -63,6 +63,8 @@ export default function MapClient() {
   const leafletRef = useRef<typeof import("leaflet") | null>(null);
   const markersRef = useRef<Map<string, import("leaflet").Marker>>(new Map());
   const userMarkerRef = useRef<import("leaflet").Marker | null>(null);
+  const lastFocusedElementRef = useRef<HTMLElement | null>(null);
+  const skipNextSelectionRef = useRef(false);
   const filtersRef = useRef<FilterState>(defaultFilterState);
   const placesRef = useRef<Place[]>([]);
   const requestIdRef = useRef(0);
@@ -90,6 +92,8 @@ export default function MapClient() {
   const selectedPlaceIdRef = useRef<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<"full" | null>(null);
+  const [selectionHydrated, setSelectionHydrated] = useState(false);
+  const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
   const drawerRef = useRef<HTMLDivElement | null>(null);
   const bottomSheetRef = useRef<HTMLDivElement | null>(null);
   const [filterMeta, setFilterMeta] = useState<FilterMeta | null>(null);
@@ -107,7 +111,17 @@ export default function MapClient() {
   );
   const closeFilters = useCallback(() => setFiltersOpen(false), []);
 
+  const restoreFocus = useCallback(() => {
+    const target = lastFocusedElementRef.current ?? mapContainerRef.current;
+    if (target && typeof target.focus === "function") {
+      target.focus();
+    }
+  }, []);
+
   const openDrawerForPlace = useCallback((placeId: string) => {
+    lastFocusedElementRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setSelectionNotice(null);
     setSelectedPlaceId((prev) => {
       if (prev === placeId) {
         return prev;
@@ -119,10 +133,14 @@ export default function MapClient() {
   }, []);
 
   const closeDrawer = useCallback(() => {
+    skipNextSelectionRef.current = true;
     setSelectedPlaceId(null);
     setDrawerOpen(false);
     setDrawerMode(null);
-  }, []);
+    window.requestAnimationFrame(() => {
+      restoreFocus();
+    });
+  }, [restoreFocus]);
 
   useEffect(() => {
     let isMounted = true;
@@ -170,9 +188,16 @@ export default function MapClient() {
   useEffect(() => {
     if (!hasHydratedFiltersRef.current) return;
     const nextQuery = buildQueryFromFilters(filters);
+    const nextParams = new URLSearchParams(nextQuery.replace("?", ""));
+    const selectParam = searchParams.get("select");
+    if (selectParam) {
+      nextParams.set("select", selectParam);
+    }
+    const nextQueryWithSelection = nextParams.toString();
     const currentQuery = searchParams.toString() ? `?${searchParams.toString()}` : "";
-    if (nextQuery !== currentQuery) {
-      router.replace(`${pathname}${nextQuery}`, { scroll: false });
+    const normalizedQuery = nextQueryWithSelection ? `?${nextQueryWithSelection}` : "";
+    if (normalizedQuery !== currentQuery) {
+      router.replace(`${pathname}${normalizedQuery}`, { scroll: false });
     }
   }, [filters, pathname, router, searchParams]);
 
@@ -511,10 +536,15 @@ export default function MapClient() {
   );
 
   useEffect(() => {
-    if (selectedPlaceId && !selectedPlace) {
+    if (!selectedPlaceId || placesStatus !== "success") return;
+    if (!selectedPlace) {
+      setSelectionNotice(
+        "Selected place is outside the current map area or filters.",
+      );
+      skipNextSelectionRef.current = true;
       closeDrawer();
     }
-  }, [closeDrawer, selectedPlace, selectedPlaceId]);
+  }, [closeDrawer, placesStatus, selectedPlace, selectedPlaceId]);
 
   useEffect(() => {
     if (!fetchPlacesRef.current) return;
@@ -524,6 +554,59 @@ export default function MapClient() {
 
     return () => window.clearTimeout(timeout);
   }, [filters]);
+
+  useEffect(() => {
+    const selectParam = searchParams.get("select");
+    if (skipNextSelectionRef.current) {
+      if (!selectParam) {
+        skipNextSelectionRef.current = false;
+      }
+      if (!selectionHydrated) {
+        setSelectionHydrated(true);
+      }
+      return;
+    }
+    if (selectParam) {
+      if (selectParam !== selectedPlaceId) {
+        setSelectedPlaceId(selectParam);
+      }
+      if (!drawerOpen) {
+        setDrawerOpen(true);
+        setDrawerMode("full");
+      }
+    } else if (selectedPlaceId) {
+      closeDrawer();
+    }
+
+    if (!selectionHydrated) {
+      setSelectionHydrated(true);
+    }
+  }, [closeDrawer, drawerOpen, searchParams, selectedPlaceId, selectionHydrated]);
+
+  useEffect(() => {
+    if (!selectionHydrated) return;
+    const params = new URLSearchParams(searchParams.toString());
+    if (selectedPlaceId) {
+      params.set("select", selectedPlaceId);
+    } else {
+      params.delete("select");
+    }
+    const nextQuery = params.toString();
+    const currentQuery = searchParams.toString();
+    if (nextQuery !== currentQuery) {
+      const normalizedQuery = nextQuery ? `?${nextQuery}` : "";
+      router.replace(`${pathname}${normalizedQuery}`, { scroll: false });
+    }
+  }, [pathname, router, searchParams, selectedPlaceId, selectionHydrated]);
+
+  useEffect(() => {
+    if (!selectionNotice) return;
+    const timeout = window.setTimeout(() => {
+      setSelectionNotice(null);
+    }, 4000);
+
+    return () => window.clearTimeout(timeout);
+  }, [selectionNotice]);
 
   const hasActiveFilters = useMemo(
     () =>
@@ -828,6 +911,11 @@ showHeading={false}
               {geolocationError && (
                 <div className="cpm-map-toast">{geolocationError}</div>
               )}
+              {selectionNotice && (
+                <div className="cpm-map-toast" role="status" aria-live="polite">
+                  {selectionNotice}
+                </div>
+              )}
             </div>
             <DbStatusIndicator
               className="cpm-map-db-status"
@@ -897,6 +985,8 @@ className="mt-3 inline-flex items-center gap-2 rounded-md bg-red-600 px-4 py-2 t
           id="map"
           ref={mapContainerRef}
           data-selected-place={selectedPlaceId ?? ""}
+          tabIndex={0}
+          aria-label="Map"
           className="absolute inset-0 w-full"
         />
         <div className="hidden lg:block">
