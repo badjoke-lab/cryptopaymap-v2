@@ -12,6 +12,8 @@ type ValidationIssue = {
   message: string;
 };
 
+type ValidationContext = Pick<ValidationIssue, "source" | "recordId">;
+
 type DbPlace = {
   id: string;
   name: string | null;
@@ -78,6 +80,9 @@ const getDataSource = (): DataSource => {
 const isNonEmptyString = (value: unknown): string | null =>
   typeof value === "string" && value.trim() ? value.trim() : null;
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
 const asNumber = (value: unknown): number | null => {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && value.trim() !== "") {
@@ -96,7 +101,13 @@ const isValidHttpUrl = (value: string): boolean => {
   }
 };
 
-const validateMaxLength = (issues: ValidationIssue[], context: ValidationIssue, label: string, value: string | null, max: number) => {
+const validateMaxLength = (
+  issues: ValidationIssue[],
+  context: ValidationContext,
+  label: string,
+  value: string | null,
+  max: number,
+) => {
   if (!value) return;
   if (value.length > max) {
     issues.push({
@@ -107,13 +118,18 @@ const validateMaxLength = (issues: ValidationIssue[], context: ValidationIssue, 
   }
 };
 
-const validateUrl = (issues: ValidationIssue[], context: ValidationIssue, label: string, value: string | null) => {
+const validateUrl = (
+  issues: ValidationIssue[],
+  context: ValidationContext,
+  field: string,
+  value: string | null | undefined,
+) => {
   if (!value) return;
   if (!isValidHttpUrl(value)) {
     issues.push({
       ...context,
-      field: label,
-      message: `${label} must be a http(s) URL`,
+      field,
+      message: `Invalid URL for ${field}: ${value}`,
     });
   }
 };
@@ -429,29 +445,31 @@ const findJsonFiles = async (dir: string): Promise<string[]> => {
   return files;
 };
 
-const validateSubmissionPayload = (issues: ValidationIssue[], context: ValidationIssue, payload: Record<string, unknown>) => {
-  const name = isNonEmptyString(payload.name);
-  const contactName = isNonEmptyString(payload.contactName ?? payload.submitterName);
-  const contactEmail = isNonEmptyString(payload.contactEmail ?? payload.submitterEmail);
-  const country = isNonEmptyString(payload.country);
-  const city = isNonEmptyString(payload.city);
-  const address = isNonEmptyString(payload.address);
-  const category = isNonEmptyString(payload.category);
-  const acceptedChains = Array.isArray(payload.acceptedChains ?? payload.accepted)
-    ? (payload.acceptedChains ?? payload.accepted).map((entry) => String(entry).trim()).filter(Boolean)
+const validateSubmissionPayload = (issues: ValidationIssue[], context: ValidationContext, payload: unknown) => {
+  const p = isRecord(payload) ? payload : {};
+  const name = isNonEmptyString(p["name"]);
+  const contactName = isNonEmptyString(p["contactName"] ?? p["submitterName"]);
+  const contactEmail = isNonEmptyString(p["contactEmail"] ?? p["submitterEmail"]);
+  const country = isNonEmptyString(p["country"]);
+  const city = isNonEmptyString(p["city"]);
+  const address = isNonEmptyString(p["address"]);
+  const category = isNonEmptyString(p["category"]);
+  const acceptedRaw = p["acceptedChains"] ?? p["accepted"];
+  const acceptedChains = Array.isArray(acceptedRaw)
+    ? acceptedRaw.map((entry) => String(entry).trim()).filter(Boolean)
     : null;
-  const verificationRequest = isNonEmptyString(payload.verificationRequest);
-  const role = isNonEmptyString(payload.role);
-  const about = isNonEmptyString(payload.about);
-  const paymentNote = isNonEmptyString(payload.paymentNote);
-  const website = isNonEmptyString(payload.website);
-  const twitter = isNonEmptyString(payload.twitter);
-  const instagram = isNonEmptyString(payload.instagram);
-  const facebook = isNonEmptyString(payload.facebook);
-  const notesForAdmin = isNonEmptyString(payload.notesForAdmin);
-  const evidenceUrl = isNonEmptyString(payload.evidenceUrl);
-  const amenities = Array.isArray(payload.amenities)
-    ? payload.amenities.map((entry) => String(entry).trim()).filter(Boolean)
+  const verificationRequest = isNonEmptyString(p["verificationRequest"]);
+  const role = isNonEmptyString(p["role"]);
+  const about = isNonEmptyString(p["about"]);
+  const paymentNote = isNonEmptyString(p["paymentNote"]);
+  const website = isNonEmptyString(p["website"]);
+  const twitter = isNonEmptyString(p["twitter"]);
+  const instagram = isNonEmptyString(p["instagram"]);
+  const facebook = isNonEmptyString(p["facebook"]);
+  const notesForAdmin = isNonEmptyString(p["notesForAdmin"]);
+  const evidenceUrl = isNonEmptyString(p["evidenceUrl"]);
+  const amenities = Array.isArray(p["amenities"])
+    ? p["amenities"].map((entry) => String(entry).trim()).filter(Boolean)
     : null;
 
   if (!contactName) {
@@ -537,8 +555,8 @@ const validateSubmissionPayload = (issues: ValidationIssue[], context: Validatio
   validateUrl(issues, context, "website", website);
   validateUrl(issues, context, "evidenceUrl", evidenceUrl);
 
-  const lat = asNumber(payload.lat);
-  const lng = asNumber(payload.lng);
+  const lat = asNumber(p["lat"]);
+  const lng = asNumber(p["lng"]);
   if ((lat !== null && lng === null) || (lat === null && lng !== null)) {
     issues.push({ ...context, field: "lat", message: "Lat/Lng must be provided together" });
     issues.push({ ...context, field: "lng", message: "Lat/Lng must be provided together" });
@@ -550,7 +568,7 @@ const validateSubmissionPayload = (issues: ValidationIssue[], context: Validatio
     issues.push({ ...context, field: "lng", message: "Longitude out of range" });
   }
 
-  if (payload.termsAccepted === false) {
+  if (p["termsAccepted"] === false) {
     issues.push({
       ...context,
       field: "termsAccepted",
