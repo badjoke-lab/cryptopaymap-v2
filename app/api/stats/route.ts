@@ -286,7 +286,7 @@ export async function GET() {
 
   if (decision.source === "db") {
     const response = statsResponse ?? limitedResponse();
-    const limited = decision.limited || response.limited;
+    const limited = (decision.limited ?? false) || (response.limited ?? false);
     return NextResponse.json<StatsApiResponse>(response, {
       headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("db", limited) },
     });
