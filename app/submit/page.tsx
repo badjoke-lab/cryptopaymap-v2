@@ -164,9 +164,7 @@ export default function SubmitPage() {
 
       const data = (await res.json()) as SubmissionResponse;
       const suggestion = data.suggestedPlaceId ? ` Suggested ID: ${data.suggestedPlaceId}` : "";
-      setSuccessMessage(
-        `Thanks for your submission! We’ll review your place before publishing it on the map.${suggestion}`,
-      );
+      setSuccessMessage(`Thanks! We’ll review your submission before publishing it.${suggestion}`);
     } catch (error) {
       console.error(error);
       setServerError((error as Error)?.message || "Submission failed. Please try again.");
@@ -186,12 +184,12 @@ export default function SubmitPage() {
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
         <div className="space-y-2">
-          <h1 className="text-3xl font-bold text-gray-900">Submit a crypto-friendly place</h1>
-          <p className="text-gray-600">Request a new listing or update an existing place.</p>
+          <h1 className="text-3xl font-bold text-gray-900">Submit a place</h1>
+          <p className="text-gray-600">Request a new listing or an update.</p>
         </div>
 
         <div className="rounded-lg bg-white p-4 shadow-sm border border-gray-100 space-y-2">
-          <p className="text-gray-800 font-semibold">Choose submitter type</p>
+          <p className="text-gray-800 font-semibold">Submitter type</p>
           <div className="flex space-x-2">
             <button
               type="button"
@@ -214,15 +212,15 @@ export default function SubmitPage() {
           </div>
           <p className="text-sm text-gray-700">
             {mode === "owner"
-              ? "For store owners or staff to request verification or updates."
-              : "For customers and fans to recommend a place."}
+              ? "For owners or staff requesting verification or updates."
+              : "For customers recommending a place."}
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="rounded-lg bg-white p-4 shadow-sm border border-gray-100 space-y-4">
             <div className="space-y-1">
-              {fieldLabel("Store name (required)")}
+              {fieldLabel("Place name (required)")}
               <input
                 type="text"
                 className="w-full rounded-md border px-3 py-2"
@@ -427,7 +425,7 @@ export default function SubmitPage() {
           </div>
 
           <div className="rounded-lg bg-white p-4 shadow-sm border border-gray-100 space-y-4">
-            <h2 className="text-lg font-semibold text-gray-900">Submitter info</h2>
+            <h2 className="text-lg font-semibold text-gray-900">Your info</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1">
                 {fieldLabel("Name (required)")}
@@ -498,7 +496,7 @@ export default function SubmitPage() {
               {isSubmitting ? "Submitting..." : "Submit"}
             </button>
             <button type="button" onClick={resetForm} className="text-sm text-gray-600 underline">
-              Send another
+              Submit another
             </button>
           </div>
         </form>
