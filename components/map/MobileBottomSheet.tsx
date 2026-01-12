@@ -15,7 +15,7 @@ type Props = {
 
 type SheetStage = "peek" | "expanded";
 
-const PEEK_HEIGHT = 32;
+const PEEK_HEIGHT = 35;
 const EXPANDED_HEIGHT = 88;
 
 const VERIFICATION_COLORS: Record<Place["verification"], string> = {
@@ -167,12 +167,8 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
 
       if (deltaY < -threshold) {
         setStage("expanded");
-      } else if (deltaY > threshold) {
-        if (stage === "expanded") {
-          setStage("peek");
-        } else {
-          onClose();
-        }
+      } else if (deltaY > threshold && stage === "expanded") {
+        setStage("peek");
       }
 
       touchStartY.current = null;
