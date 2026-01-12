@@ -41,8 +41,8 @@ export const getDataSourceContext = (setting: DataSourceSetting) => {
 };
 
 export const buildDataSourceHeaders = (source: DataSourceResult, limited: boolean) => ({
-  "X-CPM-Data-Source": source,
-  "X-CPM-Limited": limited ? "true" : "false",
+  "x-cpm-data-source": source,
+  "x-cpm-limited": limited ? "1" : "0",
 });
 
 export const withDbTimeout = async <T>(promise: Promise<T>, options: TimeoutOptions = {}) => {
