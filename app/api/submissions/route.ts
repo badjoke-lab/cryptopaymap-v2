@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { promises as fs } from "fs";
 import path from "path";
 
+import { buildDataSourceHeaders } from "@/lib/dataSource";
 import { handleUnifiedSubmission, normalizeSubmission, SubmissionPayload } from "@/lib/submissions";
 
 const pendingSubmissionsPath = path.join(process.cwd(), "data", "submissions-pending.ndjson");
@@ -55,9 +56,17 @@ export async function POST(request: Request) {
 
   const response = await handleUnifiedSubmission(request);
   const dbFailureSummary = await getDbFailureSummary(response);
+  const headers = new Headers(response.headers);
+  const dataSourceHeaders = buildDataSourceHeaders("db", Boolean(dbFailureSummary));
+  Object.entries(dataSourceHeaders).forEach(([key, value]) => {
+    headers.set(key, value);
+  });
 
   if (!dbFailureSummary) {
-    return response;
+    return new Response(response.body, {
+      status: response.status,
+      headers,
+    });
   }
 
   const submissionId = randomUUID();
@@ -80,6 +89,9 @@ export async function POST(request: Request) {
       status: "pending",
       accepted: true,
     }),
-    { status: 202, headers: { "Content-Type": "application/json" } },
+    {
+      status: 202,
+      headers: { "Content-Type": "application/json", ...buildDataSourceHeaders("db", true) },
+    },
   );
 }
