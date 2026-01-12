@@ -293,7 +293,7 @@ export async function GET() {
   }
 
   const fallbackResponse = responseFromPlaces();
-  const limited = decision.limited || fallbackResponse.limited;
+  const limited = (decision.limited ?? false) || (fallbackResponse.limited ?? false);
   return NextResponse.json<StatsApiResponse>(fallbackResponse, {
     headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("json", limited) },
   });
