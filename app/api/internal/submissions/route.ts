@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { DbUnavailableError, dbQuery, hasDatabaseUrl } from "@/lib/db";
+import { buildDataSourceHeaders } from "@/lib/dataSource";
 import { ensureSubmissionColumns, mapSubmissionRow, tableExists } from "@/lib/internal-submissions";
 
 export const runtime = "nodejs";
@@ -16,7 +17,10 @@ const parseLimit = (value: string | null) => {
 
 export async function GET(request: NextRequest) {
   if (!hasDatabaseUrl()) {
-    return NextResponse.json({ error: "DB_UNAVAILABLE" }, { status: 503 });
+    return NextResponse.json(
+      { error: "DB_UNAVAILABLE" },
+      { status: 503, headers: buildDataSourceHeaders("db", true) },
+    );
   }
 
   const route = "api_internal_submissions_list";
@@ -27,7 +31,10 @@ export async function GET(request: NextRequest) {
   try {
     const submissionsTableExists = await tableExists(route, "submissions");
     if (!submissionsTableExists) {
-      return NextResponse.json({ error: "submissions table is missing" }, { status: 500 });
+      return NextResponse.json(
+        { error: "submissions table is missing" },
+        { status: 500, headers: buildDataSourceHeaders("db", true) },
+      );
     }
 
     await ensureSubmissionColumns(route);
@@ -64,12 +71,18 @@ export async function GET(request: NextRequest) {
     }>(query, params, { route });
 
     const submissions = rows.map(mapSubmissionRow);
-    return NextResponse.json({ submissions });
+    return NextResponse.json({ submissions }, { headers: buildDataSourceHeaders("db", false) });
   } catch (error) {
     if (error instanceof DbUnavailableError || (error as Error).message?.includes("DATABASE_URL")) {
-      return NextResponse.json({ error: "DB_UNAVAILABLE" }, { status: 503 });
+      return NextResponse.json(
+        { error: "DB_UNAVAILABLE" },
+        { status: 503, headers: buildDataSourceHeaders("db", true) },
+      );
     }
     console.error("[internal submissions] failed to list", error);
-    return NextResponse.json({ error: "Failed to load submissions" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to load submissions" },
+      { status: 500, headers: buildDataSourceHeaders("db", true) },
+    );
   }
 }
