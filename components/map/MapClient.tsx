@@ -28,6 +28,7 @@ import {
 } from "@/lib/filters";
 import DbStatusIndicator from "@/components/status/DbStatusIndicator";
 import LimitedModeNotice from "@/components/status/LimitedModeNotice";
+import MapFetchStatus from "./MapFetchStatus";
 
 const HEADER_HEIGHT = 64;
 
@@ -107,6 +108,7 @@ export default function MapClient() {
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [geolocationError, setGeolocationError] = useState<string | null>(null);
   const [isLocating, setIsLocating] = useState(false);
+  const [showLoadingIndicator, setShowLoadingIndicator] = useState(false);
   const showEmptyState = placesStatus === "success" && places.length === 0 && !placesError;
 
   const toggleFilters = useCallback(
@@ -650,6 +652,18 @@ export default function MapClient() {
     return () => window.clearTimeout(timeout);
   }, [selectionNotice]);
 
+  useEffect(() => {
+    if (placesStatus !== "loading") {
+      setShowLoadingIndicator(false);
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      setShowLoadingIndicator(true);
+    }, 220);
+
+    return () => window.clearTimeout(timeout);
+  }, [placesStatus]);
+
   const selectionStatus = selectedPlace ? "idle" : selectedPlaceDetailStatus;
 
   const hasActiveFilters = useMemo(
@@ -967,14 +981,13 @@ showHeading={false}
             />
             {limitedMode ? <LimitedModeNotice className="mt-2 w-full max-w-sm" /> : null}
           </div>
+          <MapFetchStatus
+            isLoading={placesStatus === "loading" && showLoadingIndicator}
+            error={placesError}
+            onRetry={() => fetchPlacesRef.current?.()}
+          />
           {renderMobileFilters()}
         </div>
-        {placesStatus === "loading" && (
-          <div className="cpm-map-loading">
-            <span className="cpm-map-loading__spinner" aria-hidden />
-            <span>Loading markers...</span>
-          </div>
-        )}
         {limitNotice && placesStatus !== "loading" && (
           <div className="pointer-events-none absolute inset-x-0 top-4 z-40 mx-auto w-[min(90%,520px)] rounded-md border border-amber-200 bg-amber-50/95 px-4 py-2 text-sm font-medium text-amber-900 shadow-sm backdrop-blur">
             Too many results ({limitNotice.count} of {limitNotice.limit}). Zoom in to narrow down.
@@ -1003,26 +1016,6 @@ showHeading={false}
                 Reload
               </button>
             </div>
-          </div>
-        )}
-        {placesError && (
-          <div className="absolute inset-x-0 top-4 z-50 mx-auto w-[min(90%,480px)] rounded-md border border-red-100 bg-white/95 p-4 shadow-lg backdrop-blur">
-            <p className="text-sm leading-relaxed text-red-700">
-              Failed to load places. Please try again.
-            </p>
-            <button
-              type="button"
-              onClick={() => fetchPlacesRef.current?.()}
-className="mt-3 inline-flex items-center gap-2 rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-400"
-            >
-              {placesStatus === "loading" && (
-                <span
-                  className="h-4 w-4 animate-spin rounded-full border-2 border-white/60 border-t-white"
-                  aria-hidden
-                />
-              )}
-              Retry
-            </button>
           </div>
         )}
         <div

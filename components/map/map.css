@@ -87,32 +87,52 @@
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
 }
 
-.cpm-map-loading {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  z-index: 60;
+.cpm-map-fetch-status {
+  align-self: flex-end;
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
+  padding: 6px 12px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.9);
   border: 1px solid #e5e7eb;
   color: #475569;
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   font-weight: 600;
   box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
-  pointer-events: none;
+  pointer-events: auto;
 }
 
-.cpm-map-loading__spinner {
-  width: 14px;
-  height: 14px;
+.cpm-map-fetch-status__spinner {
+  width: 12px;
+  height: 12px;
   border-radius: 999px;
   border: 2px solid #c7d2fe;
   border-top-color: #6366f1;
   animation: cpm-spin 0.9s linear infinite;
+}
+
+.cpm-map-fetch-status__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #ef4444;
+}
+
+.cpm-map-fetch-status__retry {
+  appearance: none;
+  border: none;
+  background: #ef4444;
+  color: #ffffff;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.cpm-map-fetch-status__retry:hover {
+  background: #dc2626;
 }
 
 .cpm-map-empty {
