@@ -8,8 +8,8 @@ import { parseBbox, type ParsedBbox } from "@/lib/geo/bbox";
 import { DbUnavailableError, dbQuery, hasDatabaseUrl } from "@/lib/db";
 import {
   buildDataSourceHeaders,
-  getDataSourceContext,
   getDataSourceSetting,
+  resolveDataSourceDecision,
   withDbTimeout,
 } from "@/lib/dataSource";
 import { places } from "@/lib/data/places";
@@ -488,10 +488,11 @@ export async function GET(request: NextRequest) {
   }
 
   let dbPlaces: PlaceSummary[] | null = null;
+  let dbError: unknown;
   const dataSource = getDataSourceSetting();
-  const { shouldAttemptDb, shouldAllowJson } = getDataSourceContext(dataSource);
+  const hasDb = hasDatabaseUrl();
 
-  if (shouldAttemptDb) {
+  if (dataSource !== "json" && hasDb) {
     try {
       dbPlaces = await withDbTimeout(
         loadPlacesFromDb({
@@ -508,53 +509,33 @@ export async function GET(request: NextRequest) {
         { message: "DB_TIMEOUT" },
       );
     } catch (error) {
+      dbError = error;
       if (error instanceof DbUnavailableError) {
         logDbFailure("database unavailable", error);
       } else {
         logDbFailure("database query failed", error);
       }
-
-      if (dataSource === "db") {
-        return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, { status: 503 });
-      }
     }
-  } else if (dataSource === "db") {
-    logDbFailure("database unavailable");
-    return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, { status: 503 });
   }
 
-  if (dataSource === "db") {
-    if (!dbPlaces) {
-      logDbFailure("database unavailable");
-      return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, { status: 503 });
-    }
-    const sanitized = dbPlaces.map(sanitizeOptionalStrings);
+  const decision = resolveDataSourceDecision({
+    setting: dataSource,
+    hasDb,
+    dbResult: dbPlaces,
+    dbError,
+  });
+
+  if (decision.source === "db") {
+    const sanitized = (dbPlaces ?? []).map(sanitizeOptionalStrings);
     placesCache.set(cacheKey, {
       data: sanitized,
       expiresAt: Date.now() + CACHE_TTL_MS,
       source: "db",
-      limited: false,
+      limited: decision.limited,
     });
     return NextResponse.json(sanitized, {
-      headers: buildDataSourceHeaders("db", false),
+      headers: buildDataSourceHeaders("db", decision.limited),
     });
-  }
-
-  if (dbPlaces !== null) {
-    const sanitized = dbPlaces.map(sanitizeOptionalStrings);
-    placesCache.set(cacheKey, {
-      data: sanitized,
-      expiresAt: Date.now() + CACHE_TTL_MS,
-      source: "db",
-      limited: false,
-    });
-    return NextResponse.json(sanitized, {
-      headers: buildDataSourceHeaders("db", false),
-    });
-  }
-
-  if (!shouldAllowJson) {
-    return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, { status: 503 });
   }
 
   const sourcePlaces = await loadPlacesFromJson();
@@ -623,10 +604,10 @@ export async function GET(request: NextRequest) {
     data: paged,
     expiresAt: Date.now() + CACHE_TTL_MS,
     source: "json",
-    limited: true,
+    limited: decision.limited,
   });
 
   return NextResponse.json(paged, {
-    headers: buildDataSourceHeaders("json", true),
+    headers: buildDataSourceHeaders("json", decision.limited),
   });
 }
