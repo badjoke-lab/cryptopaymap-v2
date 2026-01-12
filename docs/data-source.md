@@ -18,7 +18,7 @@ This controls how `/api/places`, `/api/stats`, and `/api/filters/meta` select th
 
 ## Limited mode
 
-When JSON data is used (forced or fallback), responses include `X-CPM-Limited: true`. This is used by the UI to show the Limited mode banner. The DB path sets `X-CPM-Limited: false`.
+When JSON data is used (forced or fallback), responses include `x-cpm-limited: 1`. This is used by the UI to show the Limited mode banner. DB-only errors can also return `x-cpm-limited: 1` to signal degraded data availability.
 
 ## Headers
 
@@ -26,8 +26,18 @@ Responses include these headers:
 
 | Header | Description |
 | --- | --- |
-| `X-CPM-Data-Source` | `db` or `json` to indicate the source |
-| `X-CPM-Limited` | `true` when fallback JSON is used |
+| `x-cpm-data-source` | `db` or `json` to indicate the source |
+| `x-cpm-limited` | `1` when fallback/limited mode is active, `0` otherwise |
+
+## Auto mode quick check
+
+`auto` uses the DB when `DATABASE_URL` is configured and reachable; it falls back to JSON if the DB is unavailable or times out. If `DATABASE_URL` is not set, `auto` immediately uses JSON.
+
+## Local fallback reproduction
+
+1. Set `DATA_SOURCE=auto`.
+2. Use an invalid `DATABASE_URL` (or stop your DB) to force a timeout/unavailable error.
+3. Request `/api/places`, `/api/stats`, or `/api/filters/meta` and confirm headers `x-cpm-data-source: json` and `x-cpm-limited: 1`.
 
 ## Logging vs user-facing behavior
 

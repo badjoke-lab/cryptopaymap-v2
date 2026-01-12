@@ -28,6 +28,7 @@ import {
 } from "@/lib/filters";
 import DbStatusIndicator from "@/components/status/DbStatusIndicator";
 import LimitedModeNotice from "@/components/status/LimitedModeNotice";
+import { isLimitedHeader } from "@/lib/clientDataSource";
 import MapFetchStatus from "./MapFetchStatus";
 
 const HEADER_HEIGHT = 64;
@@ -434,9 +435,7 @@ export default function MapClient() {
             throw new Error(`Request failed with status ${response.status}`);
           }
           const nextPlaces = (await response.json()) as Place[];
-          const sourceHeader = response.headers.get("x-cpm-data-source");
-          const limitedHeader = response.headers.get("x-cpm-limited");
-          const isLimited = limitedHeader === "true" || sourceHeader === "json";
+          const isLimited = isLimitedHeader(response.headers);
           if (!isMounted || requestIdRef.current !== requestId) return;
 
           if (process.env.NODE_ENV !== "production") {
