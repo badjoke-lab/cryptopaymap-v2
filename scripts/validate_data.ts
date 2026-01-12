@@ -12,6 +12,8 @@ type ValidationIssue = {
   message: string;
 };
 
+type ValidationContext = Pick<ValidationIssue, "source" | "recordId">;
+
 type DbPlace = {
   id: string;
   name: string | null;
@@ -96,7 +98,13 @@ const isValidHttpUrl = (value: string): boolean => {
   }
 };
 
-const validateMaxLength = (issues: ValidationIssue[], context: ValidationIssue, label: string, value: string | null, max: number) => {
+const validateMaxLength = (
+  issues: ValidationIssue[],
+  context: ValidationContext,
+  label: string,
+  value: string | null,
+  max: number,
+) => {
   if (!value) return;
   if (value.length > max) {
     issues.push({
@@ -107,13 +115,18 @@ const validateMaxLength = (issues: ValidationIssue[], context: ValidationIssue, 
   }
 };
 
-const validateUrl = (issues: ValidationIssue[], context: ValidationIssue, label: string, value: string | null) => {
+const validateUrl = (
+  issues: ValidationIssue[],
+  context: ValidationContext,
+  field: string,
+  value: string | null | undefined,
+) => {
   if (!value) return;
   if (!isValidHttpUrl(value)) {
     issues.push({
       ...context,
-      field: label,
-      message: `${label} must be a http(s) URL`,
+      field,
+      message: `Invalid URL for ${field}: ${value}`,
     });
   }
 };
@@ -429,7 +442,7 @@ const findJsonFiles = async (dir: string): Promise<string[]> => {
   return files;
 };
 
-const validateSubmissionPayload = (issues: ValidationIssue[], context: ValidationIssue, payload: Record<string, unknown>) => {
+const validateSubmissionPayload = (issues: ValidationIssue[], context: ValidationContext, payload: Record<string, unknown>) => {
   const name = isNonEmptyString(payload.name);
   const contactName = isNonEmptyString(payload.contactName ?? payload.submitterName);
   const contactEmail = isNonEmptyString(payload.contactEmail ?? payload.submitterEmail);
