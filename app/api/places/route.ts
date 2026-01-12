@@ -5,7 +5,7 @@ import path from "node:path";
 type Verification = "owner" | "community" | "directory" | "unverified";
 
 import { parseBbox, type ParsedBbox } from "@/lib/geo/bbox";
-import { DbUnavailableError, dbQuery } from "@/lib/db";
+import { DbUnavailableError, dbQuery, hasDatabaseUrl } from "@/lib/db";
 import {
   buildDataSourceHeaders,
   getDataSourceContext,
