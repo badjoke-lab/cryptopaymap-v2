@@ -231,8 +231,12 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       );
     }
 
+    if (!renderedPlace) {
+      return null;
+    }
+
     return (
-      <div className={`cpm-bottom-sheet ${isVisible ? "open" : ""}`} ref={ref}>
+    <div className={`cpm-bottom-sheet ${isVisible ? "open" : ""}`} ref={ref}>
         <div
           className="cpm-bottom-sheet__panel"
           style={{ height: sheetHeight, transform: `translateY(${isVisible ? "0" : "100%"})` }}
