@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { DbUnavailableError, dbQuery, hasDatabaseUrl } from "@/lib/db";
+import { buildDataSourceHeaders } from "@/lib/dataSource";
 import { ensureHistoryTable } from "@/lib/history";
 
 export type StatsTrendsPoint = {
@@ -45,7 +46,12 @@ export async function GET() {
   if (!hasDatabaseUrl()) {
     return NextResponse.json<StatsTrendsResponse>(
       { points: [], meta: { reason: "no_history_data" } },
-      { headers: { "Cache-Control": CACHE_CONTROL } },
+      {
+        headers: {
+          "Cache-Control": CACHE_CONTROL,
+          ...buildDataSourceHeaders("db", true),
+        },
+      },
     );
   }
 
@@ -69,7 +75,12 @@ export async function GET() {
     if (!rows.length) {
       return NextResponse.json<StatsTrendsResponse>(
         { points: [], meta: { reason: "no_history_data" } },
-        { headers: { "Cache-Control": CACHE_CONTROL } },
+        {
+          headers: {
+            "Cache-Control": CACHE_CONTROL,
+            ...buildDataSourceHeaders("db", false),
+          },
+        },
       );
     }
 
@@ -91,13 +102,24 @@ export async function GET() {
 
     return NextResponse.json<StatsTrendsResponse>(
       { points },
-      { headers: { "Cache-Control": CACHE_CONTROL } },
+      {
+        headers: {
+          "Cache-Control": CACHE_CONTROL,
+          ...buildDataSourceHeaders("db", false),
+        },
+      },
     );
   } catch (error) {
     if (error instanceof DbUnavailableError || (error as Error).message?.includes("DATABASE_URL")) {
-      return NextResponse.json({ error: "DB_UNAVAILABLE" }, { status: 503 });
+      return NextResponse.json(
+        { error: "DB_UNAVAILABLE" },
+        { status: 503, headers: buildDataSourceHeaders("db", true) },
+      );
     }
     console.error("[stats] failed to load trends", error);
-    return NextResponse.json({ error: "Failed to load trends" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to load trends" },
+      { status: 500, headers: buildDataSourceHeaders("db", true) },
+    );
   }
 }

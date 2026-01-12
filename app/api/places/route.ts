@@ -434,6 +434,11 @@ const loadPlacesFromDb = async (
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
+  const dataSource = getDataSourceSetting();
+  const { shouldAttemptDb, shouldAllowJson } = getDataSourceContext(dataSource);
+  const defaultSource =
+    dataSource === "json" ? "json" : dataSource === "db" ? "db" : shouldAttemptDb ? "db" : "json";
+  const defaultHeaders = buildDataSourceHeaders(defaultSource, defaultSource === "json");
 
   const category = searchParams.get("category");
   const country = searchParams.get("country");
@@ -449,7 +454,10 @@ export async function GET(request: NextRequest) {
   const bboxResult = parseBbox(searchParams.get("bbox"));
 
   if (bboxResult.error) {
-    return NextResponse.json({ ok: false, error: "INVALID_BBOX", message: bboxResult.error }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: "INVALID_BBOX", message: bboxResult.error },
+      { status: 400, headers: defaultHeaders },
+    );
   }
 
   const requestedLimit = parsePositiveInt(searchParams.get("limit"));
@@ -488,8 +496,6 @@ export async function GET(request: NextRequest) {
   }
 
   let dbPlaces: PlaceSummary[] | null = null;
-  const dataSource = getDataSourceSetting();
-  const { shouldAttemptDb, shouldAllowJson } = getDataSourceContext(dataSource);
 
   if (shouldAttemptDb) {
     try {
@@ -515,18 +521,27 @@ export async function GET(request: NextRequest) {
       }
 
       if (dataSource === "db") {
-        return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, { status: 503 });
+        return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, {
+          status: 503,
+          headers: buildDataSourceHeaders("db", true),
+        });
       }
     }
   } else if (dataSource === "db") {
     logDbFailure("database unavailable");
-    return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, { status: 503 });
+    return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, {
+      status: 503,
+      headers: buildDataSourceHeaders("db", true),
+    });
   }
 
   if (dataSource === "db") {
     if (!dbPlaces) {
       logDbFailure("database unavailable");
-      return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, { status: 503 });
+      return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, {
+        status: 503,
+        headers: buildDataSourceHeaders("db", true),
+      });
     }
     const sanitized = dbPlaces.map(sanitizeOptionalStrings);
     placesCache.set(cacheKey, {
@@ -554,7 +569,10 @@ export async function GET(request: NextRequest) {
   }
 
   if (!shouldAllowJson) {
-    return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, { status: 503 });
+    return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, {
+      status: 503,
+      headers: buildDataSourceHeaders("db", true),
+    });
   }
 
   const sourcePlaces = await loadPlacesFromJson();

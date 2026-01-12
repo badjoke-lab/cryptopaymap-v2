@@ -239,24 +239,36 @@ export async function GET() {
       if (error instanceof DbUnavailableError) {
         logDbFailure("database unavailable", error);
         if (dataSource === "db") {
-          return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, { status: 503 });
+          return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, {
+            status: 503,
+            headers: buildDataSourceHeaders("db", true),
+          });
         }
       } else {
         logDbFailure("database query failed", error);
         if (dataSource === "db") {
-          return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, { status: 503 });
+          return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, {
+            status: 503,
+            headers: buildDataSourceHeaders("db", true),
+          });
         }
       }
     }
   } else if (dataSource === "db") {
     logDbFailure("database unavailable");
-    return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, { status: 503 });
+    return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, {
+      status: 503,
+      headers: buildDataSourceHeaders("db", true),
+    });
   }
 
   if (dataSource === "db") {
     if (!dbMeta) {
       logDbFailure("database unavailable");
-      return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, { status: 503 });
+      return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, {
+        status: 503,
+        headers: buildDataSourceHeaders("db", true),
+      });
     }
     cache = {
       data: dbMeta,
@@ -288,7 +300,10 @@ export async function GET() {
   }
 
   if (!shouldAllowJson) {
-    return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, { status: 503 });
+    return NextResponse.json({ ok: false, error: "DB_UNAVAILABLE" }, {
+      status: 503,
+      headers: buildDataSourceHeaders("db", true),
+    });
   }
 
   const fallbackPlaces = await loadPlacesFromJson();

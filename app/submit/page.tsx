@@ -2,6 +2,8 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
+import LimitedModeNotice from "@/components/status/LimitedModeNotice";
+import { isLimitedHeader } from "@/lib/clientDataSource";
 import type { SubmissionKind } from "@/lib/submissions";
 import type { FilterMeta } from "@/lib/filters";
 
@@ -67,6 +69,7 @@ export default function SubmitPage() {
   const [serverError, setServerError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [meta, setMeta] = useState<FilterMeta | null>(null);
+  const [limitedMode, setLimitedMode] = useState(false);
 
   useEffect(() => {
     const loadMeta = async () => {
@@ -75,6 +78,7 @@ export default function SubmitPage() {
         if (!res.ok) throw new Error("Failed to load meta");
         const data = (await res.json()) as FilterMeta;
         setMeta(data);
+        setLimitedMode(isLimitedHeader(res.headers));
       } catch (error) {
         console.error(error);
       }
@@ -187,6 +191,7 @@ export default function SubmitPage() {
           <h1 className="text-3xl font-bold text-gray-900">Submit a place</h1>
           <p className="text-gray-600">Request a new listing or an update.</p>
         </div>
+        {limitedMode ? <LimitedModeNotice className="w-full max-w-sm" /> : null}
 
         <div className="rounded-lg bg-white p-4 shadow-sm border border-gray-100 space-y-2">
           <p className="text-gray-800 font-semibold">Submitter type</p>
