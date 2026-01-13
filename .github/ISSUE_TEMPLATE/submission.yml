@@ -1,0 +1,115 @@
+name: Submission
+description: Submit a new place or an update request (owner/community).
+title: "[Submission] <Business name> - <City, Country>"
+labels:
+  - submission:needs-review
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for contributing! Please fill in the required fields so reviewers can process quickly.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Submission type
+      options:
+        - Owner submission
+        - Community submission
+    validations:
+      required: true
+  - type: input
+    id: business_name
+    attributes:
+      label: Business name
+      placeholder: Satoshi Coffee
+    validations:
+      required: true
+  - type: input
+    id: address
+    attributes:
+      label: Address
+      placeholder: 1-1 Chiyoda, Tokyo
+    validations:
+      required: true
+  - type: input
+    id: city
+    attributes:
+      label: City
+      placeholder: Tokyo
+    validations:
+      required: true
+  - type: input
+    id: country
+    attributes:
+      label: Country (ISO 2-letter code)
+      placeholder: JP
+    validations:
+      required: true
+  - type: input
+    id: category
+    attributes:
+      label: Category
+      placeholder: cafe / restaurant / store
+    validations:
+      required: true
+  - type: textarea
+    id: accepted_chains
+    attributes:
+      label: Accepted chains / assets
+      description: List chains/assets, one per line (e.g., BTC, BTC@Lightning).
+      placeholder: |
+        BTC
+        BTC@Lightning
+    validations:
+      required: true
+  - type: input
+    id: lat_lng
+    attributes:
+      label: Coordinates (optional)
+      placeholder: "35.68, 139.76"
+    validations:
+      required: false
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence / proof (URL)
+      description: Link to official site, social post, or photo showing crypto acceptance.
+      placeholder: https://...
+    validations:
+      required: false
+  - type: textarea
+    id: about
+    attributes:
+      label: About / notes (optional)
+      placeholder: Payment notes, additional context, etc.
+    validations:
+      required: false
+  - type: input
+    id: submitter_name
+    attributes:
+      label: Your name
+    validations:
+      required: true
+  - type: input
+    id: submitter_email
+    attributes:
+      label: Your email
+      placeholder: name@example.com
+    validations:
+      required: true
+  - type: input
+    id: submitter_role
+    attributes:
+      label: Role (owner / staff / customer / other)
+    validations:
+      required: true
+  - type: checkboxes
+    id: reviewer_checklist
+    attributes:
+      label: Reviewer checklist (maintainers)
+      options:
+        - label: Required fields are present
+        - label: Evidence/links checked
+        - label: Duplicate not found in data/places.json
+        - label: Coordinates verified (if provided)
+        - label: Ready to move to data/submissions + data/places.json
