@@ -4,14 +4,30 @@ import { ReactNode } from 'react';
 import GlobalHeader from '@/components/GlobalHeader';
 
 const description = 'CryptoPayMap — discover places that accept cryptocurrency payments.';
+const siteUrl =
+  process.env.NEXT_PUBLIC_SITE_URL ??
+  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
 
 export const metadata: Metadata = {
-  title: 'CryptoPayMap',
+  metadataBase: new URL(siteUrl),
+  title: {
+    default: 'CryptoPayMap',
+    template: '%s | CryptoPayMap',
+  },
   description,
   icons: {
     icon: '/favicon.svg',
   },
   openGraph: {
+    title: 'CryptoPayMap',
+    description,
+    url: siteUrl,
+    siteName: 'CryptoPayMap',
+    images: ['/og.svg'],
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
     title: 'CryptoPayMap',
     description,
     images: ['/og.svg'],
