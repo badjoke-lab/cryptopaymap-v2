@@ -1,0 +1,3 @@
+# DB — CryptoPayMap v2 (Authoritative)
+
+TODO: consolidate from archived db docs.
