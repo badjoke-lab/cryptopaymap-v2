@@ -1,3 +1,4 @@
+```mermaid
 stateDiagram-v2
   [*] --> AppBoot
 
@@ -130,3 +131,4 @@ stateDiagram-v2
     StatsLoad --> StatsError
     StatsError --> StatsLoad : retry
   }
+```
