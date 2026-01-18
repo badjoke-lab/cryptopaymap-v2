@@ -140,3 +140,6 @@ test-results/
 playwright-report/
 blob-report/
 artifacts/
+db-schema-*/
+docs.zip
+.DS_Store
