@@ -1,8 +1,6 @@
-# Docs — CryptoPayMap v2 (Authoritative)
+# CryptoPayMap v2 Docs
 
-This directory contains the authoritative docs only.
-Do not add new top-level docs. Update these files.
-
+Authoritative docs (edit only these):
 - spec.md
 - db.md
 - api.md
@@ -11,3 +9,6 @@ Do not add new top-level docs. Update these files.
 - submissions.md
 - stats.md
 - policies.md
+- state-machine-site.md
+
+Legacy docs are stored under docs/archive for reference only.
