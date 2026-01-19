@@ -1,391 +1,224 @@
 # Submissions — CryptoPayMap v2 (Authoritative)
 
-## Canonical decisions
-- Submission kinds are only: owner, community, report
-- unverified and directory are place state, not a submission kind
-- Unverified places do not have submission_media by definition
-
-## Appendices (legacy sources)
-
+この文書は **Submit（申請）と審査・反映（internal）** に関する唯一の正本。
 
 ---
 
-# Owner & Community Submission Flow v1
+## 0. スコープ宣言（固定）
 
-オーナー＆コミュニティ登録フロー v1
-
-## 1. 目的 / Purpose
-
-* **目的（日本語）**
-  既存の OSM 由来データに加えて、
-
-  * 店舗オーナー
-  * コミュニティメンバー（常連客・運営関係者など）
-    からの登録リクエストを受け付けるための「応募フロー」を定義する。
-
-* **Purpose (English)**
-  Define the initial submission flow that allows:
-
-  * store owners
-  * community members
-    to submit new places or updates, on top of the existing OSM-derived dataset.
-
-このバージョンでは「最終保存先（JSON / DB）」を固定せず、
-**後から保存先を差し替え可能な API 契約と UI** を目標にする。
+- **申請（Submission.kind）は `owner` / `community` / `report` のみ。**
+- **`unverified` / `directory` は「Placeの状態（データ出自/品質）」であり、申請ではない。**
+- 画像は **placeレベル（unverified等）とは無関係**。画像は **Submissionにだけ紐づく**。
+- DBには互換/実装都合で `submissions.level` が存在するが、**これを Place状態と混同しない**（下の「levelの意味」を参照）。
 
 ---
 
-## 2. 対象ロール / User roles
+## 1. 目的
 
-### 2.1 Owner submission
-
-* 実店舗の **オーナー / 運営者** 本人、またはそれに準ずる担当者。
-* 新規登録だけでなく、既存店舗の
-
-  * 情報修正
-  * 認証ステータス（例: directory → owner）
-    などの申請もここで受け付ける。
-
-### 2.2 Community submission
-
-* 常連客・コミュニティメンバー・ファン等、**店舗関係者ではないが、店舗をよく知るユーザー**。
-* 新しく見つけた「クリプト決済対応店舗」の推薦や、
-  既存データの誤り報告（例: もうクリプトを受け付けていない）を送る。
+- Owner/Community の申請を受け付け、内部審査で承認したものだけを掲載に反映する。
+- Report は「掲載の追加」ではなく、既存掲載の問題報告（誤情報/詐欺/閉店/不正）として扱う。
+- DB不調でも申請を受け付け、**保留（NDJSON）** に落として後で回収できるようにする。
 
 ---
 
-## 3. 入力項目 / Form fields
+## 2. 用語
 
-`Place` 型をベースに、Owner / Community 共通の「場所情報」＋「連絡用情報」を集める。
-
-### 3.1 共通の場所情報（CandidatePlace core）
-
-必須（Required）：
-
-* `name`
-* `country`（ISOコード, 例: JP, US — `/api/filters/meta` の `countries` に合わせる）
-* `city`（filters.meta で扱う city 名に近い表記）
-* `address`（人間が見て分かる住所）
-* `category`（cafe, restaurant, diner など、`/api/filters/meta` の `categories` から選択）
-* `accepted`（複数選択。`chains` から選択: BTC / BTC@Lightning / ETH / USDT など）
-* `verificationTypeRequested`
-
-  * `"owner"` または `"community"`
-  * directory/unverified への変更は運営側のみが使う（ユーザーは選べない）
-
-任意（Optional）：
-
-* `lat`, `lng`
-
-  * 分かる場合のみ。分からなければ運営側で補完。
-* `about`
-
-  * 店の説明（max 600 文字くらいを推奨）
-* `paymentNote`
-
-  * 「Lightningのみ」「少額はBTC, 高額はUSDT」など (max 150 文字程度)
-* SNS / web:
-
-  * `website`
-  * `twitter`, `instagram`, `facebook`
-* `amenities`
-
-  * wifi / outlets / takeout など（チェックボックス形式を想定）
-
-### 3.2 申請者情報 / Submitter info
-
-Owner / Community 共通：
-
-* `submitterName`（必須）
-* `submitterEmail`（必須）
-* `role`（owner / staff / customer / other）
-* `notesForAdmin`（任意。運営への補足 〜300 文字）
+- **Submission**: ユーザーからの入力（owner/community/report）を「審査対象」として保存したもの。
+- **Place**: 地図上の掲載データ（OSM/インポート/手動/審査反映で作成・更新される）。
+- **Verification**: placeに対して付く検証結果/検証レベル（owner/community等）。Submissionとは別概念。
+- **Media**:
+  - `submission_media`: 申請に添付された画像/証拠
+  - `media`: placeに紐づく公開用画像（カバー/ギャラリー）
 
 ---
 
-## 4. ID 付与ルールとの関係 / ID policy
+## 3. データモデル（DB正本：現状の実体）
 
-ID のルールは別ファイル `docs/place-id-policy-v1.md` に定義済み。
+### 3.1 `public.submissions`
 
-この仕様では、**フォームから送信された時点では以下のように扱う**：
+| column | type | meaning (policy) |
+|---|---|---|
+| id | text | submission id（UUID文字列想定） |
+| kind | text | `owner` / `community` / `report`（CHECKあり） |
+| status | text | `pending` / `approved` / `rejected`（CHECKあり, default pending） |
+| place_id | text nullable | 既存placeに対する申請/報告の場合に入る（新規の場合はnull可） |
+| payload | jsonb | フォーム入力の本体（正規化済み） |
+| submitted_by | jsonb | Submitter情報（最小限） |
+| reviewed_by | jsonb | 審査者情報（internalのみ） |
+| review_note | text nullable | 審査メモ（internalのみ） |
+| created_at | timestamptz |  |
+| updated_at | timestamptz |  |
+| level | text | **重要：Place状態ではない**。この列は互換の残骸。下の「levelの意味」で運用を固定する。 |
 
-1. **クライアント側**
+#### `submissions.level` の意味（ここで固定）
+- **policy**: `level` は「申請が目指す検証ターゲット」＝ `requested_verification_level` としてのみ使う。
+- `kind=owner`  → `level=owner` 固定  
+- `kind=community` → `level=community` 固定  
+- `kind=report` → `level=unverified` 固定（= *reportは検証申請ではない* を明示するためのダミー値）  
+- **禁止**: `kind in (owner,community)` なのに `level in (unverified,directory)` を入れるのは禁止（APIで拒否）。
 
-   * ID はその場では確定しない（Preview 用に一時 ID を生成するのはアリ）。
-2. **サーバー側 (API)**
-
-   * 保存時に `place-id-policy-v1` のルールに従って ID を生成する。
-   * 例（Owner 提出の東京のカフェ）：
-
-     * `cpm:tokyo:owner-cafe-7`
-   * OSM 由来のデータは `place-id-policy-v1` に記載した「OSM ソース用の接頭辞ルール」に従う。
-
-この v1 仕様では：
-
-* **「ID の決定＝永続保存タイミング」** とし、
-* Submit 時点では `candidateId` などの一時 ID を使うことはあっても、
-  本番 ID はまだ確定しない前提。
-
----
-
-## 5. API レイヤーの設計方針 / API design (v1)
-
-将来 DB に差し替えやすいよう、**API の形だけ先に固定しておく**。
-
-### 5.1 エンドポイント候補
-
-* `POST /api/submissions/owner`
-* `POST /api/submissions/community`
-
-リクエストボディ（例／共通）：
-
-```jsonc
-{
-  "kind": "owner",              // "owner" | "community"
-  "place": {
-    "name": "Satoshi Coffee",
-    "country": "JP",
-    "city": "Tokyo",
-    "address": "1-1 Chiyoda, Tokyo",
-    "category": "cafe",
-    "lat": 35.68,
-    "lng": 139.76,
-    "accepted": ["BTC", "BTC@Lightning", "ETH"],
-    "about": "A cozy Bitcoin-first cafe...",
-    "paymentNote": "Lightning preferred under $20",
-    "website": "https://...",
-    "twitter": "@...",
-    "instagram": "@...",
-    "facebook": "..."
-  },
-  "submitter": {
-    "name": "Store Owner",
-    "email": "owner@example.com",
-    "role": "owner",
-    "notesForAdmin": "We started accepting BTC last month."
-  }
-}
-```
-
-レスポンス（v1 の想定）：
-
-* 200 OK 時：
-
-```jsonc
-{
-  "status": "received",               // or "preview"
-  "normalizedPlace": {
-    // Place 型に近い形に正規化したオブジェクト
-    // id はあってもなくてもよい（v1では optional）
-  }
-}
-```
-
-* 保存方式はこの仕様では固定しない：
-
-  * v1: ログ出力のみ / ダミー保存
-  * v2: JSON ファイル（例: `data/submissions/owner-*.json`）
-  * v3: Postgres + PostGIS の正式テーブル
+> 将来の整理：`level` を `requested_level` にrenameする or reportではnull化する（別フェーズで実施）。  
+> ただし今は **仕様で運用を固定**して混乱を止める。
 
 ---
 
-## 6. フロントエンド UX 方針 / Frontend UX
+### 3.2 `public.submission_media`
 
-### 6.1 ページ構成
+| column | type | policy |
+|---|---|---|
+| id | bigserial |  |
+| submission_id | text | submissions(id) 参照 |
+| kind | text | `gallery` / `proof` / `evidence`（CHECKあり） |
+| url | text | 画像URL（アップロード後の永続URL） |
+| caption | text nullable | 任意 |
+| source | text nullable | 任意 |
+| created_at | timestamptz |  |
 
-* `/submit` (仮)
-
-  * タブまたはトグル：
-
-    * `Owner`
-    * `Community`
-  * 上部に各ロール向けの説明（EN/JA 並記）
-  * 中央：フォーム
-  * 送信後：
-
-    * v1 では「受け付けました」メッセージ＋
-      （あれば）normalizedPlace のプレビュー表示
-    * まだ「マイページ」などは持たない（ログインなし）
-
-### 6.2 バリデーション
-
-* 必須項目はクライアント側で basic チェック：
-
-  * 空欄チェック
-  * メール形式チェック
-  * country / category / accepted は選択肢からのみ
-* 文字数上限（目安）：
-
-  * `about`: ~600
-  * `paymentNote`: ~150
-  * `notesForAdmin`: ~300
+#### 添付画像の運用ルール（固定）
+- `kind=gallery` : 店舗紹介/雰囲気写真（公開反映されうる）
+- `kind=proof` : **Ownerのみ**。所有/運営の証拠（公開しない）
+- `kind=evidence` : **Reportのみ**。問題の証拠（公開しない or 状況により公開）
 
 ---
 
-## 7. 将来の拡張 / Future phases
+### 3.3 `public.verifications`（重要：Submissionと別）
 
-この仕様のあとで検討する拡張：
+- verifications は placeに付く検証情報。
+- default status は **pending**（危険な approved デフォルトは禁止）。
 
-* 保存先を **Neon / Postgres + PostGIS** に切り替える
-* submissions に
-
-  * `status`（pending / approved / rejected）
-  * `source`（osm / owner / community / directory）
-  * `reviewedBy` などのメタデータを付ける
-* 管理用 UI（非公開）：
-
-  * pending submissions の一覧
-  * 差分ビュー（既存 Place との比較）
-  * ワンクリックで「承認 → map/stats に反映」
+> ここは `docs/db.md` 側にも同じ内容があるはず。重複はこの正本に寄せる。
 
 ---
 
+## 4. フォーム仕様（UI制限は“必要な箇所だけ”）
+
+### 4.1 共通（全フォーム）
+- 画像の許可形式：`image/jpeg,image/png,image/webp`
+- 画像サイズ：**≤ 2MB**（UI＋サーバーでチェック）
+- SubmitterName：min 2 / max 80（UI制限）
+- 送信前のクライアントバリデーション：必須項目、文字数、画像枚数、honeypot
 
 ---
 
-# Submissions 運用の最小導線 v1 (GitHub only)
+### 4.2 Owner 申請（`kind=owner`）
+**主な上限制約（現状フォームから確定）**
+- About: **≤600**
+- PaymentNote: **≤150**
+- amenities_notes: **≤150**
+- CategoryOther: **≤100**
+- Gallery: **最大 8枚**
+- ProofImage: **単独 1枚**（`kind=proof` として保存する）
 
-目的: admin UI なしで「投稿 → レビュー → 反映」を GitHub だけで回せる最小運用を定義する。  
-実装追加は行わず、ドキュメントとテンプレで運用を固める。
-
----
-
-## 1. 投稿が溜まる場所
-
-現状の保存先は以下の通り。
-
-* **通常保存**: `data/submissions/<submissionId>.json`  
-  API 受信後に JSON で保存される。スキーマは `StoredSubmission` 相当で、
-  `status` や `payload` を含む。  
-* **DB 障害時の保留**: `data/submissions-pending.ndjson`  
-  DB が利用できない場合に NDJSON として追記される。
-
-> GitHub-only 運用では Issue を一次窓口にしつつ、反映のタイミングで
-> `data/submissions` / `data/places.json` を更新する。
+**保存ポリシー**
+- `submissions.kind=owner`
+- `submissions.level=owner`
+- `submission_media`:
+  - `proof` : 0..1
+  - `gallery`: 0..8
 
 ---
 
-## 2. 投稿受付（Issue）
+### 4.3 Community 申請（`kind=community`）
+**上限制約（確定）**
+- About: **≤300**
+- PaymentNote: **≤150**
+- amenities_notes: **≤150**
+- Address: max 200（UI制限）
+- BusinessName: max 80（UI制限）
+- Gallery: **最大 4枚**
 
-1. GitHub Issue を `Submission` テンプレから作成する。
-2. 必須項目の入力漏れがあれば Issue で追記依頼する。
-3. ラベル例:
-   * `submission:owner` / `submission:community`
-   * `submission:needs-review`
-
----
-
-## 3. レビュー観点（最小）
-
-最低限、以下を確認する:
-
-* **必須項目が揃っているか**  
-  例: 店名、住所、国/都市、カテゴリ、受け入れチェーン、申請者情報。
-* **重複・既存店の確認**  
-  `data/places.json` に同名/同住所が無いか。
-* **受け入れ実態の根拠**  
-  公式サイト・SNS・写真などの根拠リンクがあるか。
-* **位置情報の妥当性**  
-  lat/lng がある場合は実在チェック（Google Maps など）。
-
-レビューの結果は Issue のチェックボックスに反映する。
+**保存ポリシー**
+- `submissions.kind=community`
+- `submissions.level=community`
+- `submission_media.gallery`: 0..4
 
 ---
 
-## 4. 反映手順（PR）
+### 4.4 Report（問題報告 `kind=report`）
+**上限制約（確定）**
+- PlaceName: max 80（UI制限）
+- Evidence images: **最大 4枚**（フォーム上 “gallery up to 4” と表示。DBでは `kind=evidence` に統一して保存する）
 
-### 4.1 data/submissions に記録
-
-Issue の内容をもとに `data/submissions/<submissionId>.json` を追加する。
-
-* 既存 API で作られる形式に合わせる:
-
-```jsonc
-{
-  "submissionId": "sub-YYYYMMDD-HHMMSS-xxxxx",
-  "createdAt": "2024-01-01T00:00:00.000Z",
-  "status": "pending",
-  "suggestedPlaceId": "cpm:jp-tokyo-owner-cafe-satoshi-abcde",
-  "payload": {
-    "name": "Satoshi Coffee",
-    "country": "JP",
-    "city": "Tokyo",
-    "address": "1-1 Chiyoda, Tokyo",
-    "category": "cafe",
-    "acceptedChains": ["BTC", "BTC@Lightning"],
-    "verificationRequest": "owner",
-    "contactName": "Store Owner",
-    "contactEmail": "owner@example.com",
-    "role": "owner",
-    "about": "...",
-    "paymentNote": "...",
-    "website": "https://..."
-  }
-}
-```
-
-* Issue に紐づく PR で **ステータス更新**:
-  * 承認時: `status: "approved"` + `reviewedAt` を追加
-  * 却下時: `status: "rejected"` + `reviewNote` を追加
-
-### 4.2 data/places.json への反映
-
-承認された submission を `data/places.json` に追加する。  
-`name`/`address`/`category`/`lat`/`lng` などを一致させ、必要に応じて
-レビューコメントで理由を残す。
-
-> 反映の詳細な変換ロジックは次 PR で自動化予定。現状は手動で OK。
+**保存ポリシー**
+- `submissions.kind=report`
+- `submissions.level=unverified`（=reportは検証申請ではない）
+- `submission_media.evidence`: 0..4
+- report は原則、**既存placeに紐づく**（`place_id` が取れる場合は必ず入れる）
+  - deep link/内部UIから report を出す場合は place_id 必須にする（将来）
 
 ---
 
-## 5. バリデーション（任意だが推奨）
+## 5. API仕様（/api/submissions）
 
-PR 作成時に以下で簡易チェックできる:
+### 5.1 エンドポイント
+- `POST /api/submissions` （統合）
+- 互換：`POST /api/submissions/owner`, `/community` は legacy（内部で統合に流す）
 
-```bash
-node scripts/validate_submissions.ts
-```
+### 5.2 受理/拒否
+- **429**: rate limit
+- **400**: invalid（schema/required）または honeypot
+- **200/201**: 通常受理（DB保存OK）
+- **202**: DB障害 → NDJSON保留に保存して受理扱い（accepted=true）
+
+### 5.3 DB障害時の保留（確定）
+- 保留ファイル：`data/submissions-pending.ndjson`
+- レコード：`submissionId, receivedAt, payload, error`
+- 返却：`{ submissionId, status:"pending", accepted:true }`
 
 ---
 
-## 6. Manual test (最小確認)
+## 6. Internal 審査（/internal/* と /api/internal/*）
 
-* Issue テンプレから投稿が作れること。
-* Review のチェックリストが機能すること。
+### 6.1 Internal の基本フロー
+1. Pending一覧を取得
+2. 詳細を見て判断
+3. `approve` または `reject`
+4. `promote`（掲載反映）※ owner/community のみ
 
+### 6.2 審査状態の意味（submissions.status）
+- `pending`: 未処理
+- `approved`: 承認（まだ反映前）
+- `rejected`: 却下
+- `promote`: **DB列ではない**（操作）。promoteの結果は places 等に反映される
 
+### 6.3 Promote 反映先（確定）
+- `places`：新規作成または更新
+- `media`：公開用の cover/gallery（submission_media.gallery のうち採用分のみ）
+- `payment_accepts` / `payments` / `socials`：payload から正規化して反映
+
+> proof/evidence は **public media に出さない**（内部証跡）。
 
 ---
 
-# JSON保険（places.json fallback）運用ルール
+## 7. 「unverified/directory」について（混同を止める）
 
-## 目的
-DB障害などで本来のデータソースが0件になる事故を避け、最低限のデモ/回遊ができる状態を保つための「保険」として運用する。
+- **OSM/インポート由来の Place が unverified**（=Place状態）
+- **申請は owner/community/report のみ**（=Submission.kind）
+- **画像は Submissionにのみ紐づく**（Place状態とは独立）
+- Placeの検証状態は `verifications`（または place flags）で管理し、Submissionに持ち込まない。
 
-## なぜ必要か
-- DB障害や接続不良が起きたときに、0件表示で体験が止まるのを防ぐ。
-- 最低限のデータがあることで、UIや導線の確認が継続できる。
+---
 
-## いつ更新するか
-以下のいずれかを満たすタイミングで更新する。
-- 大きなデータ更新（カテゴリ追加や構造変更）を行ったとき
-- リリース前（動作確認の基準を合わせたいとき）
-- 月1回の定期メンテナンス時
+## 8. 実装チェックリスト（改修時に必ず見る）
 
-## いつ捨てるか
-次の状態が揃ったら保険JSONの運用を廃止する。
-- DB稼働が安定し、障害時の監視・アラートが整備されている
-- 再試行・キャッシュ・フェイルオーバーなどの仕組みが実装済み
-- DB停止時でも最低限の体験が保証される手段がある
+### 8.1 Submit（owner/community/report）
+- [ ] kind/required が APIで弾ける
+- [ ] `kind=owner` → `level=owner` 固定
+- [ ] `kind=community` → `level=community` 固定
+- [ ] `kind=report` → `level=unverified` 固定
+- [ ] gallery/proof/evidence の枚数制限が両側（UI+API）で効く
+- [ ] 画像2MB/形式制限が効く
+- [ ] DB落ちたら 202 + NDJSON で受理される
 
-## 古さの許容範囲
-- 目的は「最低限のデモ/回遊」なので、多少古くても許容する。
-- 正確性が必要な情報（例: 営業時間や最新イベント）はJSONで担保しない。
+### 8.2 Internal
+- [ ] pending一覧が取得できる
+- [ ] approve/reject が status を更新する
+- [ ] promote が places 等へ反映する（proof/evidence は公開しない）
 
-## 事故時の挙動確認方法
-- `DATA_SOURCE=json` に切り替えてJSONが返ることを確認する
-- `DATA_SOURCE=auto` でDBが落ちている状況を想定し、JSON fallback が動くことを確認する
+---
 
-## 注意
-- JSONは真実のデータではなく「保険」である。
-- 仕様決定や最新情報の根拠にしない。
+## 9. Decision Log（この文書でのみ更新）
+
+- YYYY-MM-DD: submissions.level は requested_verification_level として運用固定（reportはunverified固定）
+- YYYY-MM-DD: report の画像は submission_media.kind=evidence に統一
+- YYYY-MM-DD: proof/evidence は公開に出さない
