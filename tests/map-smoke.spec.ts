@@ -297,7 +297,7 @@ test("map smoke: clicking a map marker opens the drawer (anti-overlay)", async (
           ? document.elementsFromPoint(x, y)
           : [document.elementFromPoint(x, y)];
         return Array.from(els)
-          .filter(Boolean)
+          .filter((el): el is Element => Boolean(el))
           .slice(0, 6)
           .map((el) => ({
             tag: el.tagName,
