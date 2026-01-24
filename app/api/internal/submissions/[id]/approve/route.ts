@@ -1,109 +1,26 @@
-import { randomUUID } from "crypto";
-
 import { NextResponse } from "next/server";
 
 import { DbUnavailableError, dbQuery, getDbClient, hasDatabaseUrl } from "@/lib/db";
 import { recordHistoryEntry, resolveActorFromRequest } from "@/lib/history";
 import { ensureSubmissionColumns, hasColumn, tableExists } from "@/lib/internal-submissions";
 import { requireInternalAuth } from "@/lib/internalAuth";
-import type { SubmissionPayload } from "@/lib/submissions";
 
 export const runtime = "nodejs";
 
+type ApproveBody = {
+  review_note?: unknown;
+};
+
 type SubmissionRow = {
-  id: string;
   status: string;
-  kind: string;
-  created_at: string;
-  name: string;
   country: string;
   city: string;
-  address: string;
+  kind: string;
   category: string;
-  accepted_chains: string[];
-  contact_email: string;
-  contact_name: string | null;
-  role: string | null;
-  about: string | null;
-  payment_note: string | null;
-  website: string | null;
-  twitter: string | null;
-  instagram: string | null;
-  facebook: string | null;
-  lat: number | null;
-  lng: number | null;
-  amenities: string[] | null;
-  notes_for_admin: string | null;
-  terms_accepted: boolean | null;
-  payload: SubmissionPayload;
-  published_place_id: string | null;
 };
 
-const buildVerificationInsert = async (
-  route: string,
-  client: Awaited<ReturnType<typeof getDbClient>>,
-  placeId: string,
-  level: string,
-) => {
-  const columnsCheck = await dbQuery<{ column_name: string }>(
-    `SELECT column_name
-     FROM information_schema.columns
-     WHERE table_schema = 'public'
-       AND table_name = 'verifications'
-       AND column_name IN ('level', 'status', 'last_checked', 'last_verified')`,
-    [],
-    { route, client, retry: false },
-  );
-
-  const columns = new Set(columnsCheck.rows.map((row) => row.column_name));
-  const hasLevel = columns.has("level");
-  const hasStatus = columns.has("status");
-  const hasLastChecked = columns.has("last_checked");
-  const hasLastVerified = columns.has("last_verified");
-
-  if (!hasLevel && !hasStatus) {
-    return;
-  }
-
-  const insertColumns = ["place_id"];
-  const values: string[] = ["$1"];
-  const params: unknown[] = [placeId];
-
-  if (hasStatus) {
-    insertColumns.push("status");
-    values.push(`$${params.length + 1}`);
-    params.push(level);
-  }
-
-  if (hasLevel) {
-    insertColumns.push("level");
-    values.push(`$${params.length + 1}`);
-    params.push(level);
-  }
-
-  if (hasLastChecked) {
-    insertColumns.push("last_checked");
-    values.push("NOW()");
-  }
-
-  if (hasLastVerified) {
-    insertColumns.push("last_verified");
-    values.push("NOW()");
-  }
-
-  const updateColumns = insertColumns
-    .filter((column) => column !== "place_id")
-    .map((column) => `${column} = EXCLUDED.${column}`)
-    .join(", ");
-
-  await dbQuery(
-    `INSERT INTO verifications (${insertColumns.join(", ")})
-     VALUES (${values.join(", ")})
-     ON CONFLICT (place_id) DO UPDATE SET ${updateColumns}`,
-    params,
-    { route, client, retry: false },
-  );
-};
+const parseReviewNote = (body: ApproveBody) =>
+  typeof body.review_note === "string" ? body.review_note.trim() : null;
 
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   const auth = requireInternalAuth(request);
@@ -118,6 +35,16 @@ export async function POST(request: Request, { params }: { params: { id: string 
   const { id } = params;
   const route = "api_internal_submissions_approve";
   const actor = resolveActorFromRequest(request, "internal");
+
+  let body: ApproveBody = {};
+  try {
+    body = (await request.json()) as ApproveBody;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  const reviewNote = parseReviewNote(body);
+
   let client: Awaited<ReturnType<typeof getDbClient>> | null = null;
 
   try {
@@ -130,18 +57,10 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
     await ensureSubmissionColumns(route, client);
 
-    const placesTableExists = await tableExists(route, "places", client);
-    if (!placesTableExists) {
-      return NextResponse.json({ error: "places table is missing" }, { status: 500 });
-    }
-
     await dbQuery("BEGIN", [], { route, client, retry: false });
 
     const { rows } = await dbQuery<SubmissionRow>(
-      `SELECT id, status, kind, created_at, name, country, city, address, category,
-        accepted_chains, contact_email, contact_name, role, about, payment_note, website,
-        twitter, instagram, facebook, lat, lng, amenities, notes_for_admin, terms_accepted,
-        payload, published_place_id
+      `SELECT status, country, city, kind, category
        FROM submissions
        WHERE id = $1
        FOR UPDATE`,
@@ -157,64 +76,33 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
     if (submission.status !== "pending") {
       await dbQuery("ROLLBACK", [], { route, client, retry: false });
-      if (submission.status === "approved" && submission.published_place_id) {
-        return NextResponse.json({ placeId: submission.published_place_id });
+      if (submission.status === "approved") {
+        return NextResponse.json({ status: "approved" });
       }
       return NextResponse.json({ error: `Submission already ${submission.status}` }, { status: 409 });
     }
 
-    const placeId = randomUUID();
+    const hasReviewedBy = await hasColumn(route, "submissions", "reviewed_by", client);
+    const hasReviewNote = await hasColumn(route, "submissions", "review_note", client);
 
-    await dbQuery(
-      `INSERT INTO places (id, name, country, city, category, lat, lng, address, about)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [
-        placeId,
-        submission.name,
-        submission.country,
-        submission.city,
-        submission.category,
-        submission.lat,
-        submission.lng,
-        submission.address,
-        submission.about,
-      ],
-      { route, client, retry: false },
-    );
+    const updates = ["status = 'approved'", "approved_at = NOW()"];
+    const paramsList: unknown[] = [id];
 
-    const verificationsTableExists = await tableExists(route, "verifications", client);
-    if (verificationsTableExists) {
-      const verificationLevel = submission.kind === "owner" ? "owner" : "community";
-      await buildVerificationInsert(route, client, placeId, verificationLevel);
+    if (hasReviewedBy) {
+      updates.push(`reviewed_by = $${paramsList.length + 1}`);
+      paramsList.push(actor);
     }
 
-    const paymentAcceptsExists = await tableExists(route, "payment_accepts", client);
-    if (paymentAcceptsExists && submission.accepted_chains?.length) {
-      const hasMethod = await hasColumn(route, "payment_accepts", "method", client);
-      const columns = hasMethod ? "(place_id, asset, chain, method)" : "(place_id, asset, chain)";
-      const values = hasMethod ? "($1, $2, $3, $4)" : "($1, $2, $3)";
-      const conflictTarget = hasMethod
-        ? "(place_id, asset, chain, method)"
-        : "(place_id, asset, chain)";
-
-      for (const asset of submission.accepted_chains) {
-        await dbQuery(
-          `INSERT INTO payment_accepts ${columns}
-           VALUES ${values}
-           ON CONFLICT ${conflictTarget} DO NOTHING`,
-          hasMethod ? [placeId, asset, asset, null] : [placeId, asset, asset],
-          { route, client, retry: false },
-        );
-      }
+    if (hasReviewNote && reviewNote !== null) {
+      updates.push(`review_note = $${paramsList.length + 1}`);
+      paramsList.push(reviewNote);
     }
 
     await dbQuery(
       `UPDATE submissions
-       SET status = 'approved',
-           published_place_id = $2,
-           approved_at = NOW()
+       SET ${updates.join(", ")}
        WHERE id = $1`,
-      [id, placeId],
+      paramsList,
       { route, client, retry: false },
     );
 
@@ -224,7 +112,6 @@ export async function POST(request: Request, { params }: { params: { id: string 
       actor,
       action: "approve",
       submissionId: id,
-      placeId,
       meta: {
         statusBefore: submission.status,
         statusAfter: "approved",
@@ -232,12 +119,13 @@ export async function POST(request: Request, { params }: { params: { id: string 
         city: submission.city,
         kind: submission.kind,
         category: submission.category,
+        reviewNote: reviewNote ?? undefined,
       },
     });
 
     await dbQuery("COMMIT", [], { route, client, retry: false });
 
-    return NextResponse.json({ placeId });
+    return NextResponse.json({ status: "approved" });
   } catch (error) {
     if (client) {
       await dbQuery("ROLLBACK", [], { route, client, retry: false }).catch(() => undefined);
