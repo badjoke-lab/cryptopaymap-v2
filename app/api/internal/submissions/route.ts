@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { DbUnavailableError, dbQuery, hasDatabaseUrl } from "@/lib/db";
 import { buildDataSourceHeaders } from "@/lib/dataSource";
 import { ensureSubmissionColumns, mapSubmissionRow, tableExists } from "@/lib/internal-submissions";
+import { requireInternalAuth } from "@/lib/internalAuth";
 
 export const runtime = "nodejs";
 
@@ -16,6 +17,11 @@ const parseLimit = (value: string | null) => {
 };
 
 export async function GET(request: NextRequest) {
+  const auth = requireInternalAuth(request);
+  if (!("ok" in auth)) {
+    return auth;
+  }
+
   if (!hasDatabaseUrl()) {
     return NextResponse.json(
       { error: "DB_UNAVAILABLE" },
