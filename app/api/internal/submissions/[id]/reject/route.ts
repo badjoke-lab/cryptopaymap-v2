@@ -2,10 +2,32 @@ import { NextResponse } from "next/server";
 
 import { DbUnavailableError, dbQuery, getDbClient, hasDatabaseUrl } from "@/lib/db";
 import { recordHistoryEntry, resolveActorFromRequest } from "@/lib/history";
-import { ensureSubmissionColumns, tableExists } from "@/lib/internal-submissions";
+import { ensureSubmissionColumns, hasColumn, tableExists } from "@/lib/internal-submissions";
 import { requireInternalAuth } from "@/lib/internalAuth";
 
 export const runtime = "nodejs";
+
+type RejectBody = {
+  reject_reason?: unknown;
+  reason?: unknown;
+  review_note?: unknown;
+};
+
+type SubmissionRow = {
+  status: string;
+  country: string;
+  city: string;
+  kind: string;
+  category: string;
+};
+
+const parseRejectReason = (body: RejectBody) => {
+  const value = typeof body.reject_reason === "string" ? body.reject_reason : body.reason;
+  return typeof value === "string" ? value.trim() : "";
+};
+
+const parseReviewNote = (body: RejectBody) =>
+  typeof body.review_note === "string" ? body.review_note.trim() : null;
 
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   const auth = requireInternalAuth(request);
@@ -20,20 +42,20 @@ export async function POST(request: Request, { params }: { params: { id: string 
   const { id } = params;
   const route = "api_internal_submissions_reject";
   const actor = resolveActorFromRequest(request, "internal");
-  let body: unknown;
 
+  let body: RejectBody = {};
   try {
-    body = await request.json();
+    body = (await request.json()) as RejectBody;
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const reason = typeof (body as { reason?: string }).reason === "string" ? (body as { reason: string }).reason : "";
-  const trimmedReason = reason.trim();
-
-  if (!trimmedReason) {
+  const rejectReason = parseRejectReason(body);
+  if (!rejectReason) {
     return NextResponse.json({ error: "Reject reason is required" }, { status: 400 });
   }
+
+  const reviewNote = parseReviewNote(body);
 
   let client: Awaited<ReturnType<typeof getDbClient>> | null = null;
 
@@ -49,13 +71,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
     await dbQuery("BEGIN", [], { route, client, retry: false });
 
-    const { rows } = await dbQuery<{
-      status: string;
-      country: string;
-      city: string;
-      kind: string;
-      category: string;
-    }>(
+    const { rows } = await dbQuery<SubmissionRow>(
       `SELECT status, country, city, kind, category
        FROM submissions
        WHERE id = $1
@@ -78,13 +94,27 @@ export async function POST(request: Request, { params }: { params: { id: string 
       return NextResponse.json({ error: `Submission already ${submission.status}` }, { status: 409 });
     }
 
+    const hasReviewedBy = await hasColumn(route, "submissions", "reviewed_by", client);
+    const hasReviewNote = await hasColumn(route, "submissions", "review_note", client);
+
+    const updates = ["status = 'rejected'", "reject_reason = $2", "rejected_at = NOW()"];
+    const paramsList: unknown[] = [id, rejectReason];
+
+    if (hasReviewedBy) {
+      updates.push(`reviewed_by = $${paramsList.length + 1}`);
+      paramsList.push(actor);
+    }
+
+    if (hasReviewNote && reviewNote !== null) {
+      updates.push(`review_note = $${paramsList.length + 1}`);
+      paramsList.push(reviewNote);
+    }
+
     await dbQuery(
       `UPDATE submissions
-       SET status = 'rejected',
-           reject_reason = $2,
-           rejected_at = NOW()
+       SET ${updates.join(", ")}
        WHERE id = $1`,
-      [id, trimmedReason],
+      paramsList,
       { route, client, retry: false },
     );
 
@@ -97,7 +127,8 @@ export async function POST(request: Request, { params }: { params: { id: string 
       meta: {
         statusBefore: submission.status,
         statusAfter: "rejected",
-        rejectReason: trimmedReason,
+        rejectReason,
+        reviewNote: reviewNote ?? undefined,
         country: submission.country,
         city: submission.city,
         kind: submission.kind,
