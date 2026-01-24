@@ -3,6 +3,7 @@ import { promises as fs } from "fs";
 import path from "path";
 
 import { buildDataSourceHeaders } from "@/lib/dataSource";
+import { parseMultipartSubmission } from "@/lib/submissions/parseMultipart";
 import { handleUnifiedSubmission, normalizeSubmission, SubmissionPayload } from "@/lib/submissions";
 
 const pendingSubmissionsPath = path.join(process.cwd(), "data", "submissions-pending.ndjson");
@@ -27,9 +28,10 @@ const getDbFailureSummary = async (response: Response) => {
   if (![500, 503].includes(response.status)) return null;
 
   try {
-    const payload = (await response.clone().json()) as { error?: string };
-    if (response.status === 503 && payload.error === "DB_UNAVAILABLE") return payload.error;
-    if (response.status === 500 && payload.error === "Submissions table missing") return payload.error;
+    const payload = (await response.clone().json()) as { error?: { code?: string } };
+    const code = payload.error?.code;
+    if (response.status === 503 && code === "DB_UNAVAILABLE") return code;
+    if (response.status === 500 && code === "SUBMISSIONS_TABLE_MISSING") return code;
   } catch {
     return null;
   }
@@ -44,15 +46,10 @@ export async function POST(request: Request) {
   try {
     const contentType = request.headers.get("content-type") ?? "";
     if (contentType.includes("multipart/form-data")) {
-      const form = await request.clone().formData();
-      const payloadField = form.get("payload");
-      const parsed =
-        typeof payloadField === "string"
-          ? (JSON.parse(payloadField) as unknown)
-          : Object.fromEntries(form.entries());
-      if (parsed && typeof parsed === "object") {
-        parsedBody = parsed as Record<string, unknown>;
-        const normalized = normalizeSubmission(parsed);
+      const parsedMultipart = await parseMultipartSubmission(request.clone());
+      if (parsedMultipart.ok) {
+        parsedBody = parsedMultipart.value.payload;
+        const normalized = normalizeSubmission(parsedMultipart.value.payload);
         if (normalized.ok) {
           normalizedPayload = normalized.payload;
         }

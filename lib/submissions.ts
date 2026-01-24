@@ -3,6 +3,9 @@ import path from "path";
 
 import { DbUnavailableError, dbQuery, hasDatabaseUrl } from "@/lib/db";
 
+import { parseMultipartSubmission } from "@/lib/submissions/parseMultipart";
+import { emptyAcceptedMediaSummary, validateMultipartSubmission } from "@/lib/submissions/validateMultipart";
+
 export type SubmissionKind = "owner" | "community" | "report";
 export type SubmissionLevel = "owner" | "community" | "unverified";
 
@@ -625,67 +628,143 @@ export const updateSubmissionStatus = async (
   return saveSubmission(updated);
 };
 
+type SubmissionErrorCode =
+  | "INVALID_PAYLOAD"
+  | "INVALID_MEDIA_TYPE"
+  | "FILE_TOO_LARGE"
+  | "TOO_MANY_FILES"
+  | "UNKNOWN_FORM_FIELD"
+  | "RATE_LIMIT"
+  | "DB_UNAVAILABLE"
+  | "SUBMISSIONS_TABLE_MISSING"
+  | "INTERNAL";
+
+type SubmissionError = {
+  code: SubmissionErrorCode;
+  message: string;
+  details?: Record<string, unknown>;
+};
+
+const errorResponse = (status: number, error: SubmissionError) =>
+  new Response(JSON.stringify({ error }), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+
+const invalidPayloadResponse = (message: string, details?: Record<string, unknown>) =>
+  errorResponse(400, { code: "INVALID_PAYLOAD", message, details });
+
 export const handleUnifiedSubmission = async (request: Request) => {
   const ip = getClientIp(request);
   const rateLimitKey = `${ip}:/api/submissions`;
-  let body: unknown;
+  const contentType = request.headers.get("content-type") ?? "";
+  const isMultipart = contentType.includes("multipart/form-data");
+  let body: Record<string, unknown> | null = null;
+  let acceptedMediaSummary: Record<string, number> | null = null;
 
   // NOTE: This in-memory rate limit is best-effort and may reset in serverless environments.
   if (isRateLimited(rateLimitKey)) {
     console.info(`[submissions] reject ip=${ip} reason=rate_limit`);
-    return new Response(JSON.stringify({ ok: false, error: "rate_limited" }), {
-      status: 429,
-      headers: { "Content-Type": "application/json" },
+    return errorResponse(429, {
+      code: "RATE_LIMIT",
+      message: "Too many requests",
+      details: { route: "/api/submissions" },
     });
   }
 
-  const contentType = request.headers.get("content-type") ?? "";
-  try {
-    if (contentType.includes("multipart/form-data")) {
-      const form = await request.formData();
-      const payloadField = form.get("payload");
-      if (typeof payloadField === "string") {
-        body = JSON.parse(payloadField);
-      } else {
-        body = Object.fromEntries(form.entries());
+  if (isMultipart) {
+    const parsedMultipart = await parseMultipartSubmission(request);
+    if (!parsedMultipart.ok) {
+      console.info(`[submissions] reject ip=${ip} reason=invalid_payload`);
+      return invalidPayloadResponse(parsedMultipart.error.message, parsedMultipart.error.details);
+    }
+
+    body = parsedMultipart.value.payload;
+
+    if (getHoneypotValue(body)) {
+      console.info(`[submissions] reject ip=${ip} reason=honeypot`);
+      return invalidPayloadResponse("Honeypot triggered", { field: "website" });
+    }
+
+    const normalized = normalizeSubmission(body);
+    if (!normalized.ok) {
+      console.info(`[submissions] reject ip=${ip} reason=invalid_payload`);
+      return invalidPayloadResponse("payload failed validation", { errors: normalized.errors });
+    }
+
+    const multipartValidation = validateMultipartSubmission(
+      normalized.payload.verificationRequest,
+      parsedMultipart.value.filesByField,
+      parsedMultipart.value.unexpectedFileFields,
+    );
+    if (!multipartValidation.ok) {
+      console.info(`[submissions] reject ip=${ip} reason=${multipartValidation.error.code}`);
+      return errorResponse(400, multipartValidation.error);
+    }
+
+    acceptedMediaSummary = multipartValidation.acceptedMediaSummary;
+
+    try {
+      const record = await persistSubmission(normalized.payload);
+      console.info(`[submissions] accept ip=${ip} kind=${record.kind}`);
+      return new Response(
+        JSON.stringify({
+          submissionId: record.submissionId,
+          kind: record.kind,
+          acceptedMediaSummary,
+        }),
+        { status: 201, headers: { "Content-Type": "application/json" } },
+      );
+    } catch (error) {
+      if (error instanceof DbUnavailableError || (error as Error).message?.includes("DATABASE_URL")) {
+        return errorResponse(503, {
+          code: "DB_UNAVAILABLE",
+          message: "Database unavailable",
+        });
       }
-    } else {
-      body = await request.json();
+      if (error instanceof Error && error.message === "SUBMISSIONS_TABLE_MISSING") {
+        return errorResponse(500, {
+          code: "SUBMISSIONS_TABLE_MISSING",
+          message: "Submissions table missing",
+        });
+      }
+      console.error("[submissions] unexpected", error);
+      return errorResponse(500, {
+        code: "INTERNAL",
+        message: "Failed to process submission",
+      });
+    }
+  }
+
+  try {
+    const parsed = await request.json();
+    if (parsed && typeof parsed === "object") {
+      body = parsed as Record<string, unknown>;
     }
   } catch {
-    console.info(`[submissions] reject ip=${ip} reason=invalid`);
-    return new Response(JSON.stringify({ ok: false, error: "invalid_request" }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    });
+    console.info(`[submissions] reject ip=${ip} reason=invalid_payload`);
+    return invalidPayloadResponse("Request body must be valid JSON");
   }
 
   try {
-    if (!body || typeof body !== "object") {
-      console.info(`[submissions] reject ip=${ip} reason=invalid`);
-      return new Response(JSON.stringify({ ok: false, error: "invalid_request" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
+    if (!body) {
+      console.info(`[submissions] reject ip=${ip} reason=invalid_payload`);
+      return invalidPayloadResponse("payload must be a JSON object");
     }
 
-    if (getHoneypotValue(body as Record<string, unknown>)) {
+    if (getHoneypotValue(body)) {
       console.info(`[submissions] reject ip=${ip} reason=honeypot`);
-      return new Response(JSON.stringify({ ok: false, error: "invalid_request" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
+      return invalidPayloadResponse("Honeypot triggered", { field: "website" });
     }
 
     const normalized = normalizeSubmission(body);
 
     if (!normalized.ok) {
-      console.info(`[submissions] reject ip=${ip} reason=invalid`);
-      return new Response(JSON.stringify({ ok: false, error: "invalid_request" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
+      console.info(`[submissions] reject ip=${ip} reason=invalid_payload`);
+      return invalidPayloadResponse("payload failed validation", { errors: normalized.errors });
     }
+
+    acceptedMediaSummary = emptyAcceptedMediaSummary(normalized.payload.verificationRequest);
 
     const record = await persistSubmission(normalized.payload);
 
@@ -693,28 +772,28 @@ export const handleUnifiedSubmission = async (request: Request) => {
     return new Response(
       JSON.stringify({
         submissionId: record.submissionId,
-        status: record.status,
-        accepted: true,
+        kind: record.kind,
+        acceptedMediaSummary,
       }),
       { status: 201, headers: { "Content-Type": "application/json" } },
     );
   } catch (error) {
     if (error instanceof DbUnavailableError || (error as Error).message?.includes("DATABASE_URL")) {
-      return new Response(JSON.stringify({ error: "DB_UNAVAILABLE" }), {
-        status: 503,
-        headers: { "Content-Type": "application/json" },
+      return errorResponse(503, {
+        code: "DB_UNAVAILABLE",
+        message: "Database unavailable",
       });
     }
     if (error instanceof Error && error.message === "SUBMISSIONS_TABLE_MISSING") {
-      return new Response(JSON.stringify({ error: "Submissions table missing" }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
+      return errorResponse(500, {
+        code: "SUBMISSIONS_TABLE_MISSING",
+        message: "Submissions table missing",
       });
     }
     console.error("[submissions] unexpected", error);
-    return new Response(JSON.stringify({ ok: false, error: "Failed to process submission" }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
+    return errorResponse(500, {
+      code: "INTERNAL",
+      message: "Failed to process submission",
     });
   }
 };
