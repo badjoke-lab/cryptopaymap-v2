@@ -42,12 +42,29 @@ export async function POST(request: Request) {
   let normalizedPayload: SubmissionPayload | null = null;
 
   try {
-    const parsed = await request.clone().json();
-    if (parsed && typeof parsed === "object") {
-      parsedBody = parsed as Record<string, unknown>;
-      const normalized = normalizeSubmission(parsed);
-      if (normalized.ok) {
-        normalizedPayload = normalized.payload;
+    const contentType = request.headers.get("content-type") ?? "";
+    if (contentType.includes("multipart/form-data")) {
+      const form = await request.clone().formData();
+      const payloadField = form.get("payload");
+      const parsed =
+        typeof payloadField === "string"
+          ? (JSON.parse(payloadField) as unknown)
+          : Object.fromEntries(form.entries());
+      if (parsed && typeof parsed === "object") {
+        parsedBody = parsed as Record<string, unknown>;
+        const normalized = normalizeSubmission(parsed);
+        if (normalized.ok) {
+          normalizedPayload = normalized.payload;
+        }
+      }
+    } else {
+      const parsed = await request.clone().json();
+      if (parsed && typeof parsed === "object") {
+        parsedBody = parsed as Record<string, unknown>;
+        const normalized = normalizeSubmission(parsed);
+        if (normalized.ok) {
+          normalizedPayload = normalized.payload;
+        }
       }
     }
   } catch {

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import type { HistoryEntry } from "@/lib/history";
 import type { InternalSubmission } from "@/lib/internal-submissions";
+import type { OwnerCommunitySubmissionPayload, ReportSubmissionPayload } from "@/lib/submissions";
 
 type SubmissionDetailResponse = {
   submission: InternalSubmission;
@@ -37,6 +38,22 @@ const formatValue = (value: unknown) => {
   if (typeof value === "boolean") return value ? "Yes" : "No";
   return String(value);
 };
+
+const getSubmittedByValue = (submission: InternalSubmission, key: string) => {
+  const source = submission.submittedBy ?? submission.payload.submittedBy;
+  if (!source || typeof source !== "object") return undefined;
+  return (source as Record<string, unknown>)[key];
+};
+
+const isReportSubmission = (
+  submission: InternalSubmission,
+): submission is InternalSubmission & { kind: "report"; payload: ReportSubmissionPayload } =>
+  submission.kind === "report" || submission.payload.verificationRequest === "report";
+
+const isOwnerCommunitySubmission = (
+  submission: InternalSubmission,
+): submission is InternalSubmission & { payload: OwnerCommunitySubmissionPayload } =>
+  submission.payload.verificationRequest === "owner" || submission.payload.verificationRequest === "community";
 
 export default function SubmissionDetailClient({ submissionId }: { submissionId: string }) {
   const router = useRouter();
@@ -163,13 +180,24 @@ export default function SubmissionDetailClient({ submissionId }: { submissionId:
   }
 
   const isPending = submission.status === "pending";
+  const reportSubmission = isReportSubmission(submission) ? submission : null;
+  const ownerSubmission =
+    !reportSubmission && isOwnerCommunitySubmission(submission) ? submission : null;
+  const isReport = Boolean(reportSubmission);
+  const displayTitle = reportSubmission
+    ? reportSubmission.payload.placeName ?? reportSubmission.payload.name ?? reportSubmission.name
+    : submission.name;
+  const reportReason = reportSubmission?.payload.reportReason ?? reportSubmission?.payload.notes;
+  const reportDetails = reportSubmission?.payload.reportDetails;
+  const submitterName = getSubmittedByValue(submission, "name") ?? submission.payload.contactName;
+  const submitterEmail = getSubmittedByValue(submission, "email") ?? submission.payload.contactEmail;
 
   return (
     <div className="space-y-6">
       <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-xl font-semibold text-gray-900">{submission.name}</h1>
+            <h1 className="text-xl font-semibold text-gray-900">{displayTitle}</h1>
             <p className="text-sm text-gray-500">Submission ID: {submission.id}</p>
           </div>
           <div className="text-sm font-semibold text-gray-700">Status: {submission.status}</div>
@@ -188,6 +216,14 @@ export default function SubmissionDetailClient({ submissionId }: { submissionId:
                 <dd>{submission.kind}</dd>
               </div>
               <div className="flex justify-between">
+                <dt>Level</dt>
+                <dd>{submission.level ?? "—"}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt>Place ID</dt>
+                <dd>{submission.placeId ?? submission.payload.placeId ?? "—"}</dd>
+              </div>
+              <div className="flex justify-between">
                 <dt>Approved at</dt>
                 <dd>{formatDate(submission.approvedAt)}</dd>
               </div>
@@ -199,98 +235,155 @@ export default function SubmissionDetailClient({ submissionId }: { submissionId:
                 <dt>Published place</dt>
                 <dd>{submission.publishedPlaceId ?? "—"}</dd>
               </div>
+              <div className="flex justify-between">
+                <dt>Review note</dt>
+                <dd>{submission.reviewNote ?? "—"}</dd>
+              </div>
             </dl>
           </div>
 
-          <div className="rounded-lg border border-gray-100 bg-gray-50 p-4">
-            <h2 className="mb-3 text-sm font-semibold text-gray-800">Location</h2>
-            <dl className="space-y-2 text-sm text-gray-700">
-              <div className="flex justify-between">
-                <dt>Country</dt>
-                <dd>{formatValue(submission.payload.country)}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt>City</dt>
-                <dd>{formatValue(submission.payload.city)}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt>Address</dt>
-                <dd>{formatValue(submission.payload.address)}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt>Lat</dt>
-                <dd>{formatValue(submission.payload.lat)}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt>Lng</dt>
-                <dd>{formatValue(submission.payload.lng)}</dd>
-              </div>
-            </dl>
-          </div>
+          {isReport ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+              <h2 className="mb-3 text-sm font-semibold text-amber-900">Report summary</h2>
+              <dl className="space-y-2 text-sm text-amber-900">
+                <div className="flex justify-between">
+                  <dt>Reported place</dt>
+                  <dd>{formatValue(submission.payload.placeName ?? submission.payload.name)}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt>Reason</dt>
+                  <dd>{formatValue(reportReason)}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt>Details</dt>
+                  <dd>{formatValue(reportDetails)}</dd>
+                </div>
+              </dl>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-gray-100 bg-gray-50 p-4">
+              <h2 className="mb-3 text-sm font-semibold text-gray-800">Location</h2>
+              <dl className="space-y-2 text-sm text-gray-700">
+                <div className="flex justify-between">
+                  <dt>Country</dt>
+                  <dd>{formatValue(ownerSubmission?.payload.country)}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt>City</dt>
+                  <dd>{formatValue(ownerSubmission?.payload.city)}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt>Address</dt>
+                  <dd>{formatValue(ownerSubmission?.payload.address)}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt>Lat</dt>
+                  <dd>{formatValue(ownerSubmission?.payload.lat)}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt>Lng</dt>
+                  <dd>{formatValue(ownerSubmission?.payload.lng)}</dd>
+                </div>
+              </dl>
+            </div>
+          )}
         </div>
 
         <div className="mt-6 grid gap-4 md:grid-cols-2">
-          <div className="rounded-lg border border-gray-100 bg-gray-50 p-4">
-            <h2 className="mb-3 text-sm font-semibold text-gray-800">Business</h2>
-            <dl className="space-y-2 text-sm text-gray-700">
-              <div className="flex justify-between">
-                <dt>Category</dt>
-                <dd>{formatValue(submission.payload.category)}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt>Accepted chains</dt>
-                <dd>{formatValue(submission.payload.acceptedChains)}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt>Amenities</dt>
-                <dd>{formatValue(submission.payload.amenities)}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt>About</dt>
-                <dd>{formatValue(submission.payload.about)}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt>Payment note</dt>
-                <dd>{formatValue(submission.payload.paymentNote)}</dd>
-              </div>
-            </dl>
-          </div>
+          {isReport ? (
+            <div className="rounded-lg border border-gray-100 bg-gray-50 p-4">
+              <h2 className="mb-3 text-sm font-semibold text-gray-800">Submitter</h2>
+              <dl className="space-y-2 text-sm text-gray-700">
+                <div className="flex justify-between">
+                  <dt>Name</dt>
+                  <dd>{formatValue(submitterName)}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt>Email</dt>
+                  <dd>{formatValue(submitterEmail)}</dd>
+                </div>
+              </dl>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-gray-100 bg-gray-50 p-4">
+              <h2 className="mb-3 text-sm font-semibold text-gray-800">Business</h2>
+              <dl className="space-y-2 text-sm text-gray-700">
+                <div className="flex justify-between">
+                  <dt>Category</dt>
+                  <dd>{formatValue(ownerSubmission?.payload.category)}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt>Accepted chains</dt>
+                  <dd>{formatValue(ownerSubmission?.payload.acceptedChains)}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt>Amenities</dt>
+                  <dd>{formatValue(ownerSubmission?.payload.amenities)}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt>About</dt>
+                  <dd>{formatValue(ownerSubmission?.payload.about)}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt>Payment note</dt>
+                  <dd>{formatValue(ownerSubmission?.payload.paymentNote)}</dd>
+                </div>
+              </dl>
+            </div>
+          )}
 
           <div className="rounded-lg border border-gray-100 bg-gray-50 p-4">
-            <h2 className="mb-3 text-sm font-semibold text-gray-800">Contact & links</h2>
+            <h2 className="mb-3 text-sm font-semibold text-gray-800">
+              {isReport ? "Report notes" : "Contact & links"}
+            </h2>
             <dl className="space-y-2 text-sm text-gray-700">
-              <div className="flex justify-between">
-                <dt>Contact email</dt>
-                <dd>{formatValue(submission.payload.contactEmail)}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt>Contact name</dt>
-                <dd>{formatValue(submission.payload.contactName)}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt>Role</dt>
-                <dd>{formatValue(submission.payload.role)}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt>Website</dt>
-                <dd>{formatValue(submission.payload.website)}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt>Twitter</dt>
-                <dd>{formatValue(submission.payload.twitter)}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt>Instagram</dt>
-                <dd>{formatValue(submission.payload.instagram)}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt>Facebook</dt>
-                <dd>{formatValue(submission.payload.facebook)}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt>Notes for admin</dt>
-                <dd>{formatValue(submission.payload.notesForAdmin)}</dd>
-              </div>
+              {isReport ? (
+                <>
+                  <div className="flex justify-between">
+                    <dt>Reason</dt>
+                    <dd>{formatValue(reportReason)}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Details</dt>
+                    <dd>{formatValue(reportDetails)}</dd>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex justify-between">
+                    <dt>Contact email</dt>
+                    <dd>{formatValue(ownerSubmission?.payload.contactEmail)}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Contact name</dt>
+                    <dd>{formatValue(ownerSubmission?.payload.contactName)}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Role</dt>
+                    <dd>{formatValue(ownerSubmission?.payload.role)}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Website</dt>
+                    <dd>{formatValue(ownerSubmission?.payload.website)}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Twitter</dt>
+                    <dd>{formatValue(ownerSubmission?.payload.twitter)}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Instagram</dt>
+                    <dd>{formatValue(ownerSubmission?.payload.instagram)}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Facebook</dt>
+                    <dd>{formatValue(ownerSubmission?.payload.facebook)}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Notes for admin</dt>
+                    <dd>{formatValue(ownerSubmission?.payload.notesForAdmin)}</dd>
+                  </div>
+                </>
+              )}
             </dl>
           </div>
         </div>
