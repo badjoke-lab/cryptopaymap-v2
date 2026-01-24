@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-const baseURL = () => process.env.PW_BASE_URL ?? "http://127.0.0.1:3000";
+const baseURL = () => process.env.PW_BASE_URL ?? "http://127.0.0.1:3201";
 
 async function assertNotUnderLeaflet(page: any, locator: any, label: string) {
   const box = await locator.boundingBox();
@@ -9,7 +9,7 @@ async function assertNotUnderLeaflet(page: any, locator: any, label: string) {
   const x = Math.floor(box.x + Math.min(box.width / 2, Math.max(2, box.width - 2)));
   const y = Math.floor(box.y + Math.min(box.height / 2, Math.max(2, box.height - 2)));
 
-  const top = await page.evaluate(({ x, y }) => {
+  const top = await page.evaluate(({ x, y }: { x: number; y: number }) => {
     const el = document.elementFromPoint(x, y) as HTMLElement | null;
     return { tag: el?.tagName ?? null, id: (el as any)?.id ?? null, cls: el?.className ? String(el.className).slice(0,180) : null };
   }, { x, y });
@@ -21,8 +21,8 @@ async function assertNotUnderLeaflet(page: any, locator: any, label: string) {
 test("UI overlays stay above the map after zoom-in; mobile Filters hidden on desktop", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
 
-  await page.goto(baseURL() + "/map", { waitUntil: "domcontentloaded" }).catch(async () => {
-    await page.goto(baseURL() + "/", { waitUntil: "domcontentloaded" });
+  await page.goto("/map", { waitUntil: "domcontentloaded" }).catch(async () => {
+    await page.goto("/", { waitUntil: "domcontentloaded" });
   });
   await page.waitForTimeout(900);
 
