@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { DbUnavailableError, dbQuery, getDbClient, hasDatabaseUrl } from "@/lib/db";
 import { recordHistoryEntry, resolveActorFromRequest } from "@/lib/history";
 import { ensureSubmissionColumns, hasColumn, tableExists } from "@/lib/internal-submissions";
+import { requireInternalAuth } from "@/lib/internalAuth";
 import type { SubmissionPayload } from "@/lib/submissions";
 
 export const runtime = "nodejs";
@@ -105,6 +106,11 @@ const buildVerificationInsert = async (
 };
 
 export async function POST(request: Request, { params }: { params: { id: string } }) {
+  const auth = requireInternalAuth(request);
+  if (!("ok" in auth)) {
+    return auth;
+  }
+
   if (!hasDatabaseUrl()) {
     return NextResponse.json({ error: "DB_UNAVAILABLE" }, { status: 503 });
   }
