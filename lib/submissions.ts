@@ -3,18 +3,29 @@ import path from "path";
 
 import { DbUnavailableError, dbQuery, hasDatabaseUrl } from "@/lib/db";
 
-export type SubmissionKind = "owner" | "community";
+export type SubmissionKind = "owner" | "community" | "report";
+export type SubmissionLevel = "owner" | "community" | "unverified";
 
-export type SubmissionPayload = {
+type SubmissionPayloadBase = {
+  verificationRequest: SubmissionKind;
+  kind: SubmissionKind;
+  placeId?: string;
+  placeName?: string;
+  notes?: string;
+  contactEmail?: string;
+  contactName?: string;
+  submittedBy?: Record<string, unknown>;
+};
+
+export type OwnerCommunitySubmissionPayload = SubmissionPayloadBase & {
+  verificationRequest: "owner" | "community";
+  kind: "owner" | "community";
   name: string;
   country: string;
   city: string;
   address: string;
   category: string;
   acceptedChains: string[];
-  verificationRequest: SubmissionKind;
-  contactEmail?: string;
-  contactName?: string;
   role?: string;
   about?: string;
   paymentNote?: string;
@@ -28,6 +39,21 @@ export type SubmissionPayload = {
   notesForAdmin?: string;
   termsAccepted?: boolean;
 };
+
+export type ReportSubmissionPayload = SubmissionPayloadBase & {
+  verificationRequest: "report";
+  kind: "report";
+  name: string;
+  country: string;
+  city: string;
+  address: string;
+  category: string;
+  acceptedChains: string[];
+  reportReason: string;
+  reportDetails?: string;
+};
+
+export type SubmissionPayload = OwnerCommunitySubmissionPayload | ReportSubmissionPayload;
 
 type SubmissionErrors = Record<string, string>;
 
@@ -90,6 +116,10 @@ export type StoredSubmission = {
   createdAt: string;
   status: SubmissionStatus;
   suggestedPlaceId: string;
+  kind: SubmissionKind;
+  level: SubmissionLevel;
+  placeId?: string | null;
+  submittedBy: Record<string, unknown>;
   linkedPlaceId?: string;
   promotedAt?: string;
   payload: SubmissionPayload;
@@ -117,6 +147,9 @@ const MAX_LENGTHS = {
   instagram: 200,
   facebook: 200,
   notesForAdmin: 300,
+  placeName: 80,
+  reportReason: 120,
+  reportDetails: 2000,
   chain: 40,
   amenity: 40,
 };
@@ -167,6 +200,12 @@ const generateSubmissionId = () => {
 };
 
 const generateSuggestedPlaceId = (payload: SubmissionPayload) => {
+  if (payload.verificationRequest === "report") {
+    const suffix = generateRandomSuffix();
+    const base = payload.placeId ? slugify(payload.placeId) : slugify(payload.placeName ?? "report");
+    return `cpm:report-${base}-${suffix}`;
+  }
+
   const country = payload.country.toLowerCase();
   const citySlug = slugify(payload.city || "city");
   const nameSlug = slugify(payload.name || "place");
@@ -175,9 +214,39 @@ const generateSuggestedPlaceId = (payload: SubmissionPayload) => {
   return `cpm:${country}-${citySlug}-${payload.verificationRequest}-${categorySlug}-${nameSlug}-${suffix}`;
 };
 
+const resolveSubmissionKind = (obj: Record<string, unknown>): SubmissionKind | undefined => {
+  const kind = ensureString(obj.kind);
+  const verificationRequest = ensureString(obj.verificationRequest);
+  const candidate = kind ?? verificationRequest;
+  if (candidate === "owner" || candidate === "community" || candidate === "report") {
+    return candidate;
+  }
+  return undefined;
+};
+
+const levelForKind = (kind: SubmissionKind): SubmissionLevel => {
+  if (kind === "owner") return "owner";
+  if (kind === "community") return "community";
+  return "unverified";
+};
+
+const buildSubmittedBy = (obj: Record<string, unknown> | SubmissionPayload, kind: SubmissionKind) => {
+  if (obj.submittedBy && typeof obj.submittedBy === "object") {
+    return obj.submittedBy as Record<string, unknown>;
+  }
+
+  const submittedBy: Record<string, unknown> = {};
+  const contactName = ensureString(obj.contactName);
+  const contactEmail = ensureString(obj.contactEmail);
+  if (contactName) submittedBy.name = contactName;
+  if (contactEmail) submittedBy.email = contactEmail;
+  submittedBy.kind = kind;
+  return submittedBy;
+};
+
 const validateLength = (
   errors: SubmissionErrors,
-  field: keyof SubmissionPayload,
+  field: string,
   value: string | undefined,
   max: number,
 ) => {
@@ -191,7 +260,7 @@ const normalizeStringArray = (
   value: unknown,
   maxItemLength: number,
   maxItems: number,
-  field: keyof SubmissionPayload,
+  field: string,
   errors: SubmissionErrors,
 ) => {
   const cleaned = ensureStringArray(value);
@@ -214,13 +283,22 @@ export const normalizeSubmission = (raw: unknown): NormalizationResult => {
 
   const obj = raw as Record<string, unknown>;
   const errors: SubmissionErrors = {};
-  const name = ensureString(obj.name);
+  const kind = resolveSubmissionKind(obj);
+  if (!kind) {
+    errors.verificationRequest = "Must be owner, community, or report";
+  }
+
+  const contactEmail = ensureString(obj.contactEmail);
+  const contactName = ensureString(obj.contactName);
+  const submittedBy = kind ? buildSubmittedBy(obj, kind) : {};
+  const placeId = ensureString(obj.placeId);
+  const placeName = ensureString(obj.placeName);
+
+  const name = ensureString(obj.name) ?? placeName ?? (kind === "report" ? "Report" : undefined);
   const country = ensureString(obj.country);
   const city = ensureString(obj.city);
   const address = ensureString(obj.address);
   const category = ensureString(obj.category);
-  const contactEmail = ensureString(obj.contactEmail);
-  const contactName = ensureString(obj.contactName);
   const role = ensureString(obj.role);
   const about = ensureString(obj.about);
   const paymentNote = ensureString(obj.paymentNote);
@@ -234,31 +312,27 @@ export const normalizeSubmission = (raw: unknown): NormalizationResult => {
   const parsedLat = ensureNumber(rawLat);
   const parsedLng = ensureNumber(rawLng);
 
-  if (!name) errors.name = "Required";
-  if (!country) errors.country = "Required";
-  if (!city) errors.city = "Required";
-  if (!address) errors.address = "Required";
-  if (!category) errors.category = "Required";
-  if (!contactEmail) errors.contactEmail = "Required";
-
-  const verificationRequest =
-    obj.verificationRequest === "owner" || obj.verificationRequest === "community"
-      ? obj.verificationRequest
-      : undefined;
-
-  if (!verificationRequest) {
-    errors.verificationRequest = "Must be owner or community";
+  if (kind !== "report") {
+    if (!name) errors.name = "Required";
+    if (!country) errors.country = "Required";
+    if (!city) errors.city = "Required";
+    if (!address) errors.address = "Required";
+    if (!category) errors.category = "Required";
+    if (!contactEmail) errors.contactEmail = "Required";
   }
 
-  const acceptedChains = normalizeStringArray(
-    obj.acceptedChains,
-    MAX_LENGTHS.chain,
-    MAX_ACCEPTED_CHAINS,
-    "acceptedChains",
-    errors,
-  );
-  if (!acceptedChains?.length) {
-    errors.acceptedChains = "Select at least one";
+  let acceptedChains: string[] | undefined;
+  if (kind !== "report") {
+    acceptedChains = normalizeStringArray(
+      obj.acceptedChains,
+      MAX_LENGTHS.chain,
+      MAX_ACCEPTED_CHAINS,
+      "acceptedChains",
+      errors,
+    );
+    if (!acceptedChains?.length) {
+      errors.acceptedChains = "Select at least one";
+    }
   }
 
   if (contactEmail && (!emailRegex.test(contactEmail) || contactEmail.length > MAX_LENGTHS.contactEmail)) {
@@ -279,36 +353,80 @@ export const normalizeSubmission = (raw: unknown): NormalizationResult => {
   validateLength(errors, "instagram", instagram, MAX_LENGTHS.instagram);
   validateLength(errors, "facebook", facebook, MAX_LENGTHS.facebook);
   validateLength(errors, "notesForAdmin", notesForAdmin, MAX_LENGTHS.notesForAdmin);
+  validateLength(errors, "placeName", placeName, MAX_LENGTHS.placeName);
 
-  const payload: SubmissionPayload = {
-    name: name ?? "",
-    country: country ?? "",
-    city: city ?? "",
-    address: address ?? "",
-    category: category ?? "",
-    verificationRequest: verificationRequest as SubmissionKind,
-    acceptedChains: acceptedChains as string[],
-    contactEmail,
-    contactName,
-    role,
-    about,
-    paymentNote,
-    website,
-    twitter,
-    instagram,
-    facebook,
-    lat: parsedLat,
-    lng: parsedLng,
-    amenities: normalizeStringArray(
-      obj.amenities,
-      MAX_LENGTHS.amenity,
-      MAX_AMENITIES,
-      "amenities",
-      errors,
-    ),
-    notesForAdmin,
-    termsAccepted: typeof obj.termsAccepted === "boolean" ? obj.termsAccepted : undefined,
-  };
+  const reportReason = ensureString(obj.reportReason) ?? ensureString(obj.reason) ?? ensureString(obj.notes);
+  const reportDetails = ensureString(obj.reportDetails) ?? ensureString(obj.details);
+
+  if (kind === "report") {
+    if (!reportReason) {
+      errors.notesForAdmin = "Report reason is required";
+    }
+
+    if (reportReason && reportReason.length > MAX_LENGTHS.reportReason) {
+      errors.notesForAdmin = `Must be ${MAX_LENGTHS.reportReason} characters or fewer`;
+    }
+    if (reportDetails && reportDetails.length > MAX_LENGTHS.reportDetails) {
+      errors.notesForAdmin = `Details must be ${MAX_LENGTHS.reportDetails} characters or fewer`;
+    }
+  }
+
+  let payload: SubmissionPayload;
+  if (kind === "report") {
+    payload = {
+      kind,
+      verificationRequest: kind,
+      name: name ?? "Report",
+      country: country ?? "",
+      city: city ?? "",
+      address: address ?? "",
+      category: category ?? "",
+      acceptedChains: [],
+      contactEmail,
+      contactName,
+      submittedBy,
+      placeId,
+      placeName,
+      notes: reportReason,
+      reportReason: reportReason ?? "",
+      reportDetails,
+    };
+  } else {
+    payload = {
+      kind: kind ?? "community",
+      verificationRequest: (kind ?? "community") as SubmissionKind,
+      name: name ?? "",
+      country: country ?? "",
+      city: city ?? "",
+      address: address ?? "",
+      category: category ?? "",
+      acceptedChains: acceptedChains as string[],
+      contactEmail,
+      contactName,
+      submittedBy,
+      placeId,
+      placeName,
+      notes: notesForAdmin,
+      role,
+      about,
+      paymentNote,
+      website,
+      twitter,
+      instagram,
+      facebook,
+      lat: parsedLat,
+      lng: parsedLng,
+      amenities: normalizeStringArray(
+        obj.amenities,
+        MAX_LENGTHS.amenity,
+        MAX_AMENITIES,
+        "amenities",
+        errors,
+      ),
+      notesForAdmin,
+      termsAccepted: typeof obj.termsAccepted === "boolean" ? obj.termsAccepted : undefined,
+    } as OwnerCommunitySubmissionPayload;
+  }
 
   if (rawLat !== null && rawLat !== undefined && rawLat !== "" && parsedLat === undefined) {
     errors.lat = "Invalid latitude";
@@ -317,20 +435,23 @@ export const normalizeSubmission = (raw: unknown): NormalizationResult => {
     errors.lng = "Invalid longitude";
   }
 
-  if ((payload.lat !== undefined && payload.lng === undefined) || (payload.lat === undefined && payload.lng !== undefined)) {
-    errors.lat = "Lat/Lng must be provided together";
-    errors.lng = "Lat/Lng must be provided together";
-  }
+  if (kind !== "report") {
+    if ((parsedLat !== undefined && parsedLng === undefined) || (parsedLat === undefined && parsedLng !== undefined)) {
+      errors.lat = "Lat/Lng must be provided together";
+      errors.lng = "Lat/Lng must be provided together";
+    }
 
-  if (payload.lat !== undefined && (payload.lat < -90 || payload.lat > 90)) {
-    errors.lat = "Latitude out of range";
-  }
-  if (payload.lng !== undefined && (payload.lng < -180 || payload.lng > 180)) {
-    errors.lng = "Longitude out of range";
-  }
+    if (parsedLat !== undefined && (parsedLat < -90 || parsedLat > 90)) {
+      errors.lat = "Latitude out of range";
+    }
+    if (parsedLng !== undefined && (parsedLng < -180 || parsedLng > 180)) {
+      errors.lng = "Longitude out of range";
+    }
 
-  if (payload.termsAccepted === false) {
-    errors.termsAccepted = "Terms must be accepted";
+    const ownerPayload = payload as OwnerCommunitySubmissionPayload;
+    if (ownerPayload.termsAccepted === false) {
+      errors.termsAccepted = "Terms must be accepted";
+    }
   }
 
   if (Object.keys(errors).length) {
@@ -339,6 +460,23 @@ export const normalizeSubmission = (raw: unknown): NormalizationResult => {
 
   return { ok: true, payload };
 };
+
+const ensureSubmissionCompatColumns = async (route: string) => {
+  await dbQuery(
+    `ALTER TABLE IF EXISTS public.submissions
+      ADD COLUMN IF NOT EXISTS place_id TEXT,
+      ADD COLUMN IF NOT EXISTS submitted_by JSONB,
+      ADD COLUMN IF NOT EXISTS reviewed_by JSONB,
+      ADD COLUMN IF NOT EXISTS review_note TEXT,
+      ADD COLUMN IF NOT EXISTS level TEXT,
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now()`,
+    [],
+    { route },
+  );
+};
+
+const isReportPayload = (payload: SubmissionPayload): payload is ReportSubmissionPayload =>
+  payload.verificationRequest === "report";
 
 const insertSubmissionToDb = async (record: StoredSubmission) => {
   if (!hasDatabaseUrl()) {
@@ -355,13 +493,25 @@ const insertSubmissionToDb = async (record: StoredSubmission) => {
     throw new Error("SUBMISSIONS_TABLE_MISSING");
   }
 
+  await ensureSubmissionCompatColumns(route);
+
   const payload = record.payload;
+  const reportPayload = isReportPayload(payload) ? payload : null;
+  const ownerPayload = reportPayload ? null : (payload as OwnerCommunitySubmissionPayload);
+  const normalizedName = payload.placeName ?? payload.name;
+  const normalizedContactEmail = payload.contactEmail ?? "";
+  const normalizedAcceptedChains = reportPayload ? [] : payload.acceptedChains;
 
   await dbQuery(
     `INSERT INTO submissions (
       id,
+      created_at,
       status,
       kind,
+      level,
+      place_id,
+      submitted_by,
+      updated_at,
       suggested_place_id,
       name,
       country,
@@ -386,34 +536,38 @@ const insertSubmissionToDb = async (record: StoredSubmission) => {
       payload
     )
     VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-      $16, $17, $18, $19, $20, $21, $22, $23, $24, $25
+      $1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9, $10, $11, $12, $13, $14,
+      $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25
     )`,
     [
       record.submissionId,
+      record.createdAt,
       record.status,
-      record.payload.verificationRequest,
+      record.kind,
+      record.level,
+      record.placeId ?? null,
+      record.submittedBy,
       record.suggestedPlaceId,
-      payload.name,
+      normalizedName,
       payload.country,
       payload.city,
       payload.address,
       payload.category,
-      payload.acceptedChains,
-      payload.contactEmail,
+      normalizedAcceptedChains,
+      normalizedContactEmail,
       payload.contactName ?? null,
-      payload.role ?? null,
-      payload.about ?? null,
-      payload.paymentNote ?? null,
-      payload.website ?? null,
-      payload.twitter ?? null,
-      payload.instagram ?? null,
-      payload.facebook ?? null,
-      payload.lat ?? null,
-      payload.lng ?? null,
-      payload.amenities ?? null,
-      payload.notesForAdmin ?? null,
-      payload.termsAccepted ?? null,
+      ownerPayload?.role ?? null,
+      reportPayload ? reportPayload.reportDetails ?? reportPayload.notes ?? null : ownerPayload?.about ?? null,
+      ownerPayload?.paymentNote ?? null,
+      ownerPayload?.website ?? null,
+      ownerPayload?.twitter ?? null,
+      ownerPayload?.instagram ?? null,
+      ownerPayload?.facebook ?? null,
+      ownerPayload?.lat ?? null,
+      ownerPayload?.lng ?? null,
+      ownerPayload?.amenities ?? null,
+      reportPayload ? reportPayload.reportReason : ownerPayload?.notesForAdmin ?? ownerPayload?.notes ?? null,
+      ownerPayload?.termsAccepted ?? null,
       JSON.stringify(payload),
     ],
     { route },
@@ -423,11 +577,18 @@ const insertSubmissionToDb = async (record: StoredSubmission) => {
 export const persistSubmission = async (payload: SubmissionPayload): Promise<StoredSubmission> => {
   const submissionId = generateSubmissionId();
   const suggestedPlaceId = generateSuggestedPlaceId(payload);
+  const kind = payload.verificationRequest;
+  const level = levelForKind(kind);
+  const submittedBy = payload.submittedBy ?? buildSubmittedBy(payload, kind);
   const stored: StoredSubmission = {
     submissionId,
     createdAt: new Date().toISOString(),
     status: "pending",
     suggestedPlaceId,
+    kind,
+    level,
+    placeId: payload.placeId ?? null,
+    submittedBy,
     payload,
   };
 
@@ -478,8 +639,19 @@ export const handleUnifiedSubmission = async (request: Request) => {
     });
   }
 
+  const contentType = request.headers.get("content-type") ?? "";
   try {
-    body = await request.json();
+    if (contentType.includes("multipart/form-data")) {
+      const form = await request.formData();
+      const payloadField = form.get("payload");
+      if (typeof payloadField === "string") {
+        body = JSON.parse(payloadField);
+      } else {
+        body = Object.fromEntries(form.entries());
+      }
+    } else {
+      body = await request.json();
+    }
   } catch {
     console.info(`[submissions] reject ip=${ip} reason=invalid`);
     return new Response(JSON.stringify({ ok: false, error: "invalid_request" }), {
@@ -517,14 +689,12 @@ export const handleUnifiedSubmission = async (request: Request) => {
 
     const record = await persistSubmission(normalized.payload);
 
-    console.info(
-      `[submissions] accept ip=${ip} kind=${record.payload.verificationRequest}`,
-    );
+    console.info(`[submissions] accept ip=${ip} kind=${record.kind}`);
     return new Response(
       JSON.stringify({
-        id: record.submissionId,
+        submissionId: record.submissionId,
         status: record.status,
-        suggestedPlaceId: record.suggestedPlaceId,
+        accepted: true,
       }),
       { status: 201, headers: { "Content-Type": "application/json" } },
     );

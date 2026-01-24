@@ -1,6 +1,6 @@
 import type { Place } from "@/types/places";
 
-import type { StoredSubmission } from "./submissions";
+import type { OwnerCommunitySubmissionPayload, StoredSubmission } from "./submissions";
 
 const slugify = (value: string): string =>
   value
@@ -37,7 +37,12 @@ export const submissionToPlace = (
 ): Place => {
   const { payload } = submission;
 
-  const { lat: rawLat, lng: rawLng } = payload;
+  if (payload.verificationRequest === "report") {
+    throw new Error("Report submissions cannot be converted to places");
+  }
+
+  const ownerPayload = payload as OwnerCommunitySubmissionPayload;
+  const { lat: rawLat, lng: rawLng } = ownerPayload;
   if (
     typeof rawLat !== "number" ||
     typeof rawLng !== "number" ||
@@ -55,32 +60,31 @@ export const submissionToPlace = (
   const id = `${prefix}${suffix}`;
 
   const verification: Place["verification"] =
-    payload.verificationRequest === "owner" ? "owner" : "community";
+    ownerPayload.verificationRequest === "owner" ? "owner" : "community";
 
   return {
     id,
-    name: payload.name,
-    category: payload.category,
+    name: ownerPayload.name,
+    category: ownerPayload.category,
     verification,
     lat,
     lng,
-    country: payload.country,
-    city: payload.city,
-    address_full: payload.address,
-    address: payload.address,
-    supported_crypto: payload.acceptedChains,
-    accepted: payload.acceptedChains,
-    about: payload.about ?? null,
-    paymentNote: payload.paymentNote ?? null,
-    social_website: payload.website ?? null,
-    social_twitter: payload.twitter ?? null,
-    social_instagram: payload.instagram ?? null,
-    website: payload.website ?? null,
-    twitter: payload.twitter ?? null,
-    instagram: payload.instagram ?? null,
-    facebook: payload.facebook ?? null,
-    amenities: payload.amenities ?? null,
-    submitterName: payload.contactName ?? null,
+    country: ownerPayload.country,
+    city: ownerPayload.city,
+    address_full: ownerPayload.address,
+    address: ownerPayload.address,
+    supported_crypto: ownerPayload.acceptedChains,
+    accepted: ownerPayload.acceptedChains,
+    about: ownerPayload.about ?? null,
+    paymentNote: ownerPayload.paymentNote ?? null,
+    social_website: ownerPayload.website ?? null,
+    social_twitter: ownerPayload.twitter ?? null,
+    social_instagram: ownerPayload.instagram ?? null,
+    website: ownerPayload.website ?? null,
+    twitter: ownerPayload.twitter ?? null,
+    instagram: ownerPayload.instagram ?? null,
+    facebook: ownerPayload.facebook ?? null,
+    amenities: ownerPayload.amenities ?? null,
+    submitterName: ownerPayload.contactName ?? null,
   };
 };
-

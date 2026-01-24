@@ -4,9 +4,27 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import type { InternalSubmission } from "@/lib/internal-submissions";
+import type { ReportSubmissionPayload } from "@/lib/submissions";
 
 type SubmissionListResponse = {
   submissions: InternalSubmission[];
+};
+
+const isReportSubmission = (
+  submission: InternalSubmission,
+): submission is InternalSubmission & { kind: "report"; payload: ReportSubmissionPayload } =>
+  submission.kind === "report" || submission.payload.verificationRequest === "report";
+
+const displayName = (submission: InternalSubmission) =>
+  isReportSubmission(submission)
+    ? submission.payload.placeName ?? submission.payload.name ?? submission.name
+    : submission.name;
+
+const reportSummary = (submission: InternalSubmission) => {
+  if (!isReportSubmission(submission)) return null;
+  const notes = submission.payload.reportReason ?? submission.payload.notes;
+  if (!notes) return null;
+  return notes.length > 80 ? `${notes.slice(0, 77)}…` : notes;
 };
 
 const formatDate = (value: string) => {
@@ -85,24 +103,38 @@ export default function PendingSubmissionsClient() {
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100">
-          {submissions.map((submission) => (
-            <tr key={submission.id} className="hover:bg-gray-50">
-              <td className="px-4 py-3 font-medium text-gray-900">{submission.name}</td>
-              <td className="px-4 py-3 text-gray-700">{submission.kind}</td>
-              <td className="px-4 py-3 text-gray-700">
-                {submission.city}, {submission.country}
-              </td>
-              <td className="px-4 py-3 text-gray-600">{formatDate(submission.createdAt)}</td>
-              <td className="px-4 py-3 text-right">
-                <Link
-                  className="inline-flex items-center rounded-md border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
-                  href={`/internal/submissions/${submission.id}`}
-                >
-                  Review
-                </Link>
-              </td>
-            </tr>
-          ))}
+          {submissions.map((submission) => {
+            const summary = reportSummary(submission);
+            const reportSubmission = isReportSubmission(submission) ? submission : null;
+            return (
+              <tr key={submission.id} className="hover:bg-gray-50">
+                <td className="px-4 py-3 text-gray-900">
+                  <div className="font-medium">{displayName(submission)}</div>
+                  {reportSubmission?.placeId && (
+                    <div className="text-xs text-gray-500">place_id: {reportSubmission.placeId}</div>
+                  )}
+                  {reportSubmission && summary && (
+                    <div className="text-xs text-gray-600">{summary}</div>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-gray-700">{submission.kind}</td>
+                <td className="px-4 py-3 text-gray-700">
+                  {reportSubmission
+                    ? reportSubmission.placeId ?? "—"
+                    : `${submission.city}, ${submission.country}`}
+                </td>
+                <td className="px-4 py-3 text-gray-600">{formatDate(submission.createdAt)}</td>
+                <td className="px-4 py-3 text-right">
+                  <Link
+                    className="inline-flex items-center rounded-md border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
+                    href={`/internal/submissions/${submission.id}`}
+                  >
+                    Review
+                  </Link>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
