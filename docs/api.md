@@ -1,63 +1,98 @@
 # API — CryptoPayMap v2 (Authoritative)
 
-## Appendices (legacy sources)
-
-
----
-
-# 📄 **api-v3.0.md — API 最終仕様書（v3.0 / 完全版）**
-
-**Status:** Final
-**Audience:** Codex / Gemini / Owner
-**Scope:**
-CryptoPayMap v2 の **全 API**（REST）を App Router 構成で完全定義。
-DB は Neon（PostgreSQL + PostGIS）既存スキーマを利用。
+**Status:** Final / Implementation-Ready  
+**Audience:** Codex / Owner / Review  
+**Scope:** CryptoPayMap v2 の **全 API（REST / same-origin）** を Route Handlers で定義する。  
+**Includes:** Places / Stats / Filters / Search / History **＋ Submissions（申請）＋ Internal（審査）＋ Media（申請画像配信）**
 
 ---
 
-# 1. API 全体設計方針
+## 0. Global Rules（全API共通）
 
-* Next.js App Router の **Route Handlers** を使用 (`app/api/**/route.ts`)
-* レスポンス形式は **JSON / typed**
-* CORS はデフォルト（同一オリジン）
-* エラーフォーマットはすべて統一：
+### 0.1 Framework / Hosting
+- Next.js App Router の Route Handlers を使用：`app/api/**/route.ts`
+- 同一オリジン前提（CORSはデフォルト）
+- DB: PostgreSQL + PostGIS（Neon等）既存スキーマ利用
 
-```
+### 0.2 Response: JSON + typed
+- すべて JSON を返す
+- 可能な限り typed（TS型で表現し、入力はvalidateする）
+
+### 0.3 Error Format（統一）
+全APIのエラーは統一フォーマット：
+
+```json
 {
   "error": {
     "code": "NOT_FOUND",
-    "message": "Place not found"
+    "message": "Place not found",
+    "details": { "hint": "..." }
   }
 }
-```
+````
 
-* キャッシュ方針
+* `details` は任意（デバッグに必要な最小限）
+* 400/401/403/404/409/429/500 などで返す
 
-  * `/api/places` → `revalidate: 300`（5分）
-  * `/api/stats` → `revalidate: 7200`（2時間）
-  * `/api/filters/meta` → `revalidate: 3600`（1時間）
+### 0.4 Cache Policy（基本）
+
+* `/api/places` → `revalidate: 300`（5分）
+* `/api/stats` → `revalidate: 7200`（2時間）
+* `/api/filters/meta` → `revalidate: 3600`（1時間）
+* `/api/media/**` → galleryは cache可、internalは cache禁止（後述）
+
+### 0.5 Forbidden（禁止）
+
+* DB migration を勝手に生成しない
+* verification 名（owner/community/directory/unverified）を変更しない
+* accepted 正規化ロジックを勝手に変えない
+* v1のコード参照で仕様を改変しない
+
+### 0.6 Required（必須）
+
+* 全APIに input validate
+* エラー形式統一
+* 404/400/500 を必ず正しく返す
+* internal API は認可必須（401/403）
 
 ---
 
-# 2. API Routes 一覧
+## 1. API Routes 一覧
 
-| Route                   | 用途                 |
-| ----------------------- | ------------------ |
-| `GET /api/places`       | 地図用の全店舗取得（軽量版）     |
-| `GET /api/places/[id]`  | 個別店舗詳細（Drawer 用）   |
-| `GET /api/stats`        | v3 コア統計（Stats ページ） |
-| `GET /api/filters/meta` | UI フィルタ用メタデータ      |
-| `GET /api/search`       | v2.1 予定の検索API      |
-| `GET /api/history/[id]` | v4 設計：店舗の推移データ取得   |
+### 1.1 Public
+
+| Route                                                         | 用途                                             |
+| ------------------------------------------------------------- | ---------------------------------------------- |
+| `GET /api/places`                                             | 地図用の全店舗取得（軽量版）                                 |
+| `GET /api/places/[id]`                                        | 個別店舗詳細（Drawer用）                                |
+| `GET /api/stats`                                              | v3 コア統計                                        |
+| `GET /api/filters/meta`                                       | UIフィルタ用メタデータ                                   |
+| `GET /api/search`                                             | v2.1 予定の検索API                                  |
+| `GET /api/history/[id]`                                       | v4 設計：店舗の推移データ取得（将来）                           |
+| `POST /api/submissions`                                       | 申請（owner/community/report）送信（confirm画面でのみ最終送信） |
+| `GET /api/media/submissions/[submissionId]/gallery/[mediaId]` | **公開可能**な申請画像（gallery）配信                       |
+
+### 1.2 Internal（運営審査）
+
+| Route                                                                 | 用途                                 |
+| --------------------------------------------------------------------- | ---------------------------------- |
+| `GET /api/internal/submissions`                                       | 申請一覧（pending/approved/rejected）    |
+| `GET /api/internal/submissions/[id]`                                  | 申請詳細（payload + 添付画像）               |
+| `POST /api/internal/submissions/[id]/approve`                         | 承認（status=approved + review_note等） |
+| `POST /api/internal/submissions/[id]/reject`                          | 却下（status=rejected + reason等）      |
+| `POST /api/internal/submissions/[id]/promote`                         | 掲載反映（owner/communityのみ）            |
+| `GET /api/internal/media/submissions/[submissionId]/[kind]/[mediaId]` | **非公開**画像（proof/evidence）配信（認証必須）  |
+
+> internal は必ず authn/authz を通す（未認証=401、権限なし=403）
 
 ---
 
-# 3. 型定義（完全版）
+## 2. Types（主要型）
 
-## 3.1 Place（軽量版：Map 用）
+### 2.1 Place（Map用：軽量）
 
-```
-{
+```ts
+type PlaceLite = {
   id: string
   name: string
   lat: number
@@ -66,14 +101,14 @@ DB は Neon（PostgreSQL + PostGIS）既存スキーマを利用。
   category: string
   city: string
   country: string
-  accepted: string[]   // BTC / ETH / USDT@Polygon …
+  accepted: string[]   // BTC / BTC@Lightning / ETH / USDT@Polygon …
 }
 ```
 
-## 3.2 PlaceDetail（Drawer 用）
+### 2.2 PlaceDetail（Drawer用）
 
-```
-{
+```ts
+type PlaceDetail = {
   id: string
   name: string
   verification: "owner" | "community" | "directory" | "unverified"
@@ -81,10 +116,11 @@ DB は Neon（PostgreSQL + PostGIS）既存スキーマを利用。
   city: string
   country: string
 
-  about: string
-  about_short: string
+  about: string | null
+  about_short: string | null
 
   hours: string[] | null
+
   payments: {
     assets: string[]
     pages: string[]
@@ -100,8 +136,7 @@ DB は Neon（PostgreSQL + PostGIS）既存スキーマを利用。
 
   amenities: string[] | null
 
-  media: string[]   // photos: owner/community only
-
+  media: string[]        // 公開写真URL（placeに紐づく）
   location: {
     address1: string | null
     address2: string | null
@@ -111,60 +146,87 @@ DB は Neon（PostgreSQL + PostGIS）既存スキーマを利用。
 }
 ```
 
-## 3.3 Stats v3
+### 2.3 Stats v3（コア）
 
-```
-{
+```ts
+type StatsCoreV3 = {
   total_places: number
   countries: number
   cities: number
   categories: number
-  chains: {
-    BTC: number
-    LIGHTNING: number
-    ETH: number
-    USDT: number
-    ...others
-  }
+  chains: Record<string, number> // BTC/LIGHTNING/ETH/USDT...
 }
 ```
 
-## 3.4 Meta filters
+### 2.4 Filters Meta
 
-```
-{
+```ts
+type FiltersMeta = {
   categories: string[]
   chains: string[]
   countries: string[]
-  cities: string[]
+  cities: string[] | Record<string, string[]> // 実装都合でどちらでも可（UI側で吸収）
+}
+```
+
+### 2.5 Submissions（申請）
+
+#### DB `public.submissions`（概念）
+
+```ts
+type SubmissionKind = "owner" | "community" | "report"
+type SubmissionStatus = "pending" | "approved" | "rejected"
+
+type Submission = {
+  id: string
+  kind: SubmissionKind
+  status: SubmissionStatus
+  place_id: string | null
+  payload: Record<string, unknown>  // 正規化済み
+  submitted_by: Record<string, unknown>
+  reviewed_by: Record<string, unknown> | null
+  review_note: string | null
+  created_at: string
+  updated_at: string
+  level: "owner" | "community" | "unverified" // 運用固定（submissions.md参照）
+}
+```
+
+#### `public.submission_media`
+
+```ts
+type SubmissionMediaKind = "gallery" | "proof" | "evidence"
+type SubmissionMedia = {
+  id: number
+  submission_id: string
+  kind: SubmissionMediaKind
+  url: string            // アップロード後の永続URL（署名URL禁止）
+  caption?: string | null
+  source?: string | null
+  created_at: string
 }
 ```
 
 ---
 
-# 4. GET `/api/places`（Map 用）
+## 3. GET `/api/places`（Map用）
 
-## 4.1 Description
+### 3.1 Description
 
-地図描画のための **軽量データのみ** 返す。
-Drawer / Popup の重いデータは返さない。
+地図描画のための **軽量データのみ**返す。Drawer用の重いデータは返さない。
 
-## 4.2 Query Parameters
+### 3.2 Query Parameters（all optional）
 
-| Key            | 説明                                         |
-| -------------- | ------------------------------------------ |
-| `country`      | 国フィルタ                                      |
-| `city`         | 都市                                         |
-| `category`     | カテゴリ                                       |
-| `chain`        | 支払い通貨                                      |
-| `verification` | owner / community / directory / unverified |
+* `country`
+* `city`
+* `category`
+* `chain`（複数可：`?chain=BTC&chain=ETH`）
+* `verification`（複数可：owner/community/directory/unverified）
+* `limit`（サーバ側上限に丸める）
 
-全部 optional。
-複数指定 → `?chain=BTC&chain=ETH`
+### 3.3 Response（example）
 
-## 4.3 Response Example
-
-```
+```json
 [
   {
     "id": "cpm:antarctica:owner-cafe-1",
@@ -182,28 +244,27 @@ Drawer / Popup の重いデータは返さない。
 
 ---
 
-# 5. GET `/api/places/[id]`（Drawer 用）
+## 4. GET `/api/places/[id]`（Drawer用）
 
-## 5.1 Description
+### 4.1 Description
 
-Drawer ページ（右側 / bottom-sheet）の **完全詳細**。
+Drawer（右側/Bottom sheet）の **完全詳細**を返す。
 
-## 5.2 Response
+### 4.2 Response
 
-`PlaceDetail` の完全型。
+* `PlaceDetail` 完全型
 
 ---
 
-# 6. GET `/api/stats`（v3 核心統計）
+## 5. GET `/api/stats`（v3 核心統計）
 
-## 6.1 Description
+### 5.1 Description
 
 Stats v3 で必要な「コア統計」を返す。
-集計ロジックは `stats-core-v3.md` に準拠。
 
-## 6.2 Response Example
+### 5.2 Response（example）
 
-```
+```json
 {
   "total_places": 1290,
   "countries": 84,
@@ -220,454 +281,248 @@ Stats v3 で必要な「コア統計」を返す。
 
 ---
 
-# 7. GET `/api/filters/meta`
+## 6. GET `/api/filters/meta`
 
-## 7.1 Description
+### 6.1 Description
 
-UI のフィルター（ドロップダウンなど）を表示するためのメタ情報。
+UIのフィルタ（ドロップダウン等）表示のためのメタ情報。
 
-## 7.2 Response
+### 6.2 Response
 
-```
+```json
 {
-  "categories": [...],
-  "chains": [...],
-  "countries": [...],
-  "cities": [...]
+  "categories": ["cafe","restaurant"],
+  "chains": ["BTC","Lightning","ETH"],
+  "countries": ["Japan","USA"],
+  "cities": ["Tokyo","Osaka"]
 }
 ```
 
 ---
 
-# 8. GET `/api/search`（v2.1 仕様）
+## 7. GET `/api/search`（v2.1）
 
-## 8.1 Description
+### 7.1 Description
 
-簡易検索（名前・カテゴリ・都市）の全文検索。
+簡易検索（名前/カテゴリ/都市など）の全文検索。
 
-## 8.2 Query
+### 7.2 Query
 
-| Key | Example |
-| --- | ------- |
-| `q` | crypto  |
+* `q`（例：`?q=crypto`）
 
-## 8.3 Response
+### 7.3 Response
 
-```
+```json
 [
-  { id, name, city, country, verification }
+  { "id":"...", "name":"...", "city":"...", "country":"...", "verification":"owner" }
 ]
 ```
 
 ---
 
-# 9. GET `/api/history/[id]`（v4 推移用 API）
+## 8. GET `/api/history/[id]`（v4 推移用 / 将来）
 
-Stats Trends（v4）と連動。
+### 8.1 Response（example）
 
-## Response
-
-```
+```json
 {
-  "id": "...",
+  "id": "cpm:xxx",
   "history": [
     { "date": "2025-01-01", "value": 3 },
-    { "date": "2025-02-01", "value": 4 },
-    ...
+    { "date": "2025-02-01", "value": 4 }
   ]
 }
 ```
 
 ---
 
-# 10. エラー形式（全API共通）
+## 9. POST `/api/submissions`（Submit：confirm画面でのみ最終送信）
 
-```
-{
-  "error": {
-    "code": "NOT_FOUND",
-    "message": "Place not found"
-  }
-}
-```
+### 9.1 Description
 
----
+owner/community/report の申請を受け付ける。
+**UIは入力→確認（Review）→最終送信**の2段。**最終送信は confirm 画面でのみ行う**。
 
-# 11. 実装上のルール（Codex 用）
+### 9.2 Content-Type（固定）
 
-### Forbidden
+* **`multipart/form-data`** を基本とする（画像を含むため）
+* フィールド：
 
-* DB migration の生成
-* verification 名の変更
-* accepted の正規化ロジック変更
-* v1 コード参照
+  * `payload`：JSON文字列（フォーム入力本体）
+  * 画像ファイル（kindに応じて受理）
 
-### Required
+    * owner: `proof`(0..1) + `gallery`(0..8)
+    * community: `gallery`(0..4)
+    * report: `evidence`(0..4)
 
-* すべて typed
-* 全 API に input validate
-* 404 / 400 / 500 のエラー統一
+> 禁止：ユーザーが任意URLを入力して `submission_media.url` に入れる運用。
+> `url` はサーバーがアップロード後に発行する。
 
----
+### 9.3 Validation（必須）
 
-# 12. API 完成条件（チェックリスト）
+共通：
 
-| 項目                  | 条件                    |
-| ------------------- | --------------------- |
-| `/api/places`       | 200 / フィルタ動作 / 軽量返却   |
-| `/api/places/[id]`  | Drawer 全項目が null なく取得 |
-| `/api/stats`        | v3 core の全項目一致        |
-| `/api/filters/meta` | カテゴリ・チェーンの揺れなし        |
-| `/api/search`       | OR / 部分一致対応           |
-| `/api/history/[id]` | v4 では未使用だが API だけ実装   |
+* 画像形式：jpeg/png/webp
+* 画像サイズ：≤ 2MB
+* 枚数上限：kind別
+* 必須項目/文字数上限（フォーム仕様に従う）
+* honeypot（あれば）検知で 400
 
+kind別（運用固定）：
 
+* `kind=owner` → `submissions.level=owner` 固定
+* `kind=community` → `submissions.level=community` 固定
+* `kind=report` → `submissions.level=unverified` 固定
 
----
+### 9.4 Success Responses
 
-# 📄 **filters-v3.0.md — CryptoPayMap v3 フィルタ仕様書（完全版）**
-
-**Status:** Final / Implementation-Ready
-**Scope:** Map ページのフィルタ UI / API / 動作仕様
-**Audience:** Codex / Gemini / Manual Developer
-**Dependencies:**
-
-* ui-map-v3.x
-* api-v3.0
-* db-v3.0
-
----
-
-# 1. Overview — 何を実現するフィルタか
-
-CryptoPayMap のフィルタは **Map 表示・Pin 取得・Stats 同期**をすべて統括する。
-
-**コア目的：**
-
-1. ユーザーが求める店舗だけを素早く抽出
-2. Map の重さを抑え、DB/API 負荷を最小化
-3. PC / Mobile 双方で統一挙動
-4. Stats（統計）との同期が可能な構造
-
----
-
-# 2. フィルタ項目一覧（v3.0 完成版）
-
-| フィルタ              | UI                | クエリパラメータ             | API対応 | 備考                                         |
-| ----------------- | ----------------- | -------------------- | ----- | ------------------------------------------ |
-| カテゴリ              | Select / Dropdown | `category=`          | ✔     | 25カテゴリ固定（v3.0）                             |
-| チェーン（asset/chain） | Multi-checkbox    | `chain=`             | ✔     | (`BTC`, `Lightning`, `ETH`, …)             |
-| 認証ステータス           | Multi-checkbox    | `verification=`      | ✔     | owner / community / directory / unverified |
-| 国                 | Dropdown + 検索     | `country=`           | ✔     | DB の存在値のみ                                  |
-| 都市                | Dropdown（国に連動）    | `city=`              | ✔     | DB の存在値のみ                                  |
-| 表示件数制限（サーバ側）      | hidden            | `limit=`             | ✔     | 初期は1200件                                   |
-| 地域ズーム             | UIなし（内部）          | `lat=`, `lng=`, `z=` | 地図と同期 | url sync                                   |
-
----
-
-# 3. UI 仕様（PC / Mobile 両方）
-
-## 3.1 PC UI（横長バー）
-
-```
-┌──────────────────────────────────────────────┐
-│ Category [▼] | Chain [multi] | Verification [multi] | Country [▼] | City [▼] │
-└──────────────────────────────────────────────┘
-```
-
-**デザイン：**
-
-* 高さ：48px
-* 背景：`#FFFFFF`
-* ボーダー：`#E5E7EB`
-* gap：12px
-* overflow-x：自動（カテゴリ多い場合）
-
----
-
-## 3.2 Mobile UI（折りたたみ・2段）
-
-```
-[ Filters ⚙ ]   ← タップ
-──────────────
-Category [▼]
-Chain [multi]
-Verification [multi]
-Country [▼]
-City [▼]
-──────────────
-```
-
-* トグル式アコーディオン
-* モーダルではなく画面内に挿入
-* 選択中は [ Filters ••• ] と点表示
-
----
-
-# 4. 各フィルタの仕様
-
----
-
-## 4.1 Category
-
-### UI
-
-* Dropdown
-* 最大25項目
-* `Other` は対象外（directory 流入は手動設定されているため）
-
-### クエリ
-
-```
-?category=cafe
-```
-
-### API
-
-`/api/places?category=cafe`
-
-### DB
-
-`category` カラム（string）
-揺れ補正は ETL 側（data-etl-v3）で実施済みとする。
-
----
-
-## 4.2 Chain（asset + chain）
-
-Map では
-**“asset + chain” のセットを簡略表示した一段フィルタ** にする。
-
-例：
-
-* BTC
-* Lightning
-* ETH
-* Polygon
-* Solana
-* Tron
-* BSC
-  など。
-
-### UI
-
-Multi-checkbox＋タグ式
-
-例：
-
-```
-[✔] BTC
-[ ] Lightning
-[✔] ETH
-[ ] Polygon
-```
-
-### クエリ
-
-```
-?chain=BTC&chain=ETH
-```
-
-### API
-
-`/api/places?chain[]=BTC&chain[]=ETH`
-（内部では payment.accepts[].asset / chain と OR マッチ）
-
----
-
-## 4.3 Verification
-
-4段階すべて使用：
-
-* owner
-* community
-* directory
-* unverified
-
-### UI
-
-Multi-checkbox
-
-### クエリ
-
-```
-?verification=owner&verification=community
-```
-
-### API
-
-`/api/places?verification[]=owner&verification[]=community`
-
----
-
-## 4.4 Country
-
-### UI
-
-* Dropdown
-* 上位20件を上に、それ以下はスクロール
-* 文字検索つき
-
-### クエリ
-
-```
-?country=Japan
-```
-
-### Country 選択時の自動挙動
-
-* city フィルタをその国の都市一覧に絞る
-* Map を国中心に自動ズーム（zoom = 4〜5）
-
----
-
-## 4.5 City（Country に連動）
-
-### UI
-
-* Dropdown
-* Country 選択時に動的ロード
-* Country が未選択 → city フィルタは disabled
-
-### クエリ
-
-```
-?city=Tokyo
-```
-
-### API
-
-`/api/places?country=Japan&city=Tokyo`
-
----
-
-# 5. URL / 状態同期（最重要）
-
-CryptoPayMap のフィルタは
-**UI状態 ⇄ URLクエリ ⇄ API** が完全同期する。
-
-例：
-
-```
-/map?category=cafe&chain=BTC&country=Japan&city=Tokyo
-```
-
-これが MapShell の useEffect に流れ、
-APIクエリに変換され、
-ピンが再描画される。
-
----
-
-# 6. API 仕様（filters/meta）
-
-フィルタは DB 実データから得られる選択肢のみ表示するため、
-**初回ロード時にメタデータ API を呼ぶ**。
-
-```
-GET /api/filters/meta
-```
-
-### 6.1 レスポンス例
+#### 200/201（DB保存OK）
 
 ```json
 {
-  "categories": ["cafe","restaurant","bar","bakery", ...],
-  "chains": ["BTC","Lightning","ETH","Polygon","Solana","Tron"],
-  "countries": ["Japan","USA","Germany","Indonesia","Brazil"],
-  "cities": {
-    "Japan": ["Tokyo","Osaka","Fukuoka"],
-    "USA": ["NYC","LA","SF"]
-  }
+  "submissionId": "uuid",
+  "status": "pending",
+  "accepted": true
+}
+```
+
+#### 202（DB障害 / 保留受理）
+
+* `data/submissions-pending.ndjson` に payload を保留し、**受理扱い**で返す
+
+```json
+{
+  "submissionId": "uuid",
+  "status": "pending",
+  "accepted": true,
+  "degraded": true
+}
+```
+
+### 9.5 Error Responses
+
+* 400：INVALID_INPUT / HONEYPOT / UNSUPPORTED_KIND / FILE_TOO_LARGE / FILE_TYPE_NOT_ALLOWED / TOO_MANY_FILES
+* 429：RATE_LIMIT
+* 500：INTERNAL
+
+例：
+
+```json
+{
+  "error": { "code":"INVALID_INPUT", "message":"gallery images exceed limit", "details": { "limit": 4 } }
 }
 ```
 
 ---
 
-# 7. Map とフィルタの動作統合
+## 10. Media APIs（申請添付画像の配信）
 
-## 7.1 フィルタ変更時に行うこと
+### 10.1 Public gallery（公開可）
 
-1. URL のクエリを書き換え
-2. API を再取得
-3. ピンを再描画
-4. country / city が変わった場合、Map を再センタリング
-5. chain / verification は件数変化のみで Map のズームは維持
+#### `GET /api/media/submissions/[submissionId]/gallery/[mediaId]`
 
----
+* 対象：`submission_media.kind=gallery`
+* 認証：不要（公開閲覧）
+* Cache：可（CDNキャッシュ/ブラウザキャッシュOK）
+* 404：存在しない、または gallery ではない
 
-# 8. Stats 連動（v3.0）
+### 10.2 Internal proof/evidence（非公開）
 
-Stats ページでも同じフィルタが使えるようにするため、
-**フィルタの構造を Map と完全共通にする。**
+#### `GET /api/internal/media/submissions/[submissionId]/[kind]/[mediaId]`
 
-Stats のリンク例：
+* 対象：`kind in (proof, evidence)`
+* 認証：必須（運営のみ）
+* Cache：禁止（`Cache-Control: no-store`）
+* 403：権限なし
+* 404：存在しない、または kind 不一致
 
-```
-/stats?country=Japan&chain=BTC
-```
-
----
-
-# 9. エラールール / 境界ケース
-
-* country だけ指定して city が存在しない場合 → city 無視
-* category に存在しない値が入っている場合 → 無視
-* chain が DB に存在しない値 → 無視
-* verification が不正値 → 無視（= default 全選択）
+> `submission_media.url` には署名URLを保存しない。
+> DBには上記の **アプリ配信エンドポイントURL** を永続URLとして保存する。
 
 ---
 
-# 10. 性能最適化
+## 11. Internal Submissions APIs（運営審査）
 
-* フィルタ変更時の API は **debounce 120ms**
-* map ピンは **cluster 化必須**
-* chain / verification の複数指定は OR マッチ
-* DB のインデックス推奨：
+### 11.1 `GET /api/internal/submissions`
 
-  * (category)
-  * (country, city)
-  * (verification)
-  * GIN index on payment.accepts (jsonb)
+* Query：
+
+  * `status=pending|approved|rejected`（省略時 pending）
+  * `kind=owner|community|report`（任意）
+  * `limit`, `cursor`（任意）
+* Response：最小一覧（id, kind, status, created_at, place_id, payload要約）
+* 401/403：認証/権限
+
+### 11.2 `GET /api/internal/submissions/[id]`
+
+* Response：Submission + `submission_media[]`（kind別で並べ替えて良い）
+* 401/403：認証/権限
+
+### 11.3 `POST /api/internal/submissions/[id]/approve`
+
+* Body（JSON）：
+
+  * `review_note`（任意）
+* Side effects：
+
+  * `status=approved`
+  * `approved_at` 等の整合を取る（DB側仕様に従う）
+* Response：更新後の submission
+
+### 11.4 `POST /api/internal/submissions/[id]/reject`
+
+* Body（JSON）：
+
+  * `reject_reason`（推奨）
+  * `review_note`（任意）
+* Side effects：
+
+  * `status=rejected`
+  * `rejected_at` 等の整合を取る
+* Response：更新後の submission
+
+### 11.5 `POST /api/internal/submissions/[id]/promote`（owner/communityのみ）
+
+* Preconditions：
+
+  * submission.kind in (owner, community)
+  * submission.status == approved
+* Side effects（概念）：
+
+  * places を新規作成 or 更新
+  * place の公開mediaへ `gallery` を反映（proof/evidenceは絶対に公開しない）
+  * payment_accepts / socials 等の正規化反映
+* Error：
+
+  * 409：not approved / wrong kind
+  * 400：payload不足
+  * 500：反映失敗
+* Response：
+
+  * `{ placeId, promoted: true }` など
 
 ---
 
-# 11. 将来拡張（v3.1〜v4）
+## 12. Completion Checklist（API完成条件）
 
-### v3.1
+### Core
 
-* 「混雑度」「営業時間内のみ」などの dynamic filter
-* Map の描画最適化（非同期バッチ）
+* [ ] `/api/places` 200 / フィルタ動作 / 軽量返却
+* [ ] `/api/places/[id]` Drawer 全項目が取得できる
+* [ ] `/api/stats` v3 core と一致
+* [ ] `/api/filters/meta` 揺れなし
+* [ ] `/api/search` 部分一致
+* [ ] `/api/history/[id]`（将来）最低限レスポンス
 
-### v3.2
+### Submissions
 
-* Chain の asset/chain 分離フィルタ（高度検索）
-* Category の階層構造化
+* [ ] `/api/submissions` が multipart で受け取れる
+* [ ] kind別枚数上限/2MB/形式チェックが UI+API 両方で効く
+* [ ] 200/201/202 のUI分岐が可能なレスポンスを返す
+* [ ] DB障害でも `submissions-pending.ndjson` に落ちて 202 を返す
+* [ ] `submission_media.url` は永続URL（署名URL禁止）
+* [ ] public gallery と internal proof/evidence の配信が分離されている
+* [ ] internal approve/reject/promote が動作する（reportにpromoteなし）
 
-### v4
-
-* 時系列フィルタ（Stats Trends → Map に反映）
-* 「過去1年で最も増えたカテゴリ」などのトレンド可視化
-
----
-
-# 12. 完全モック（PC / Mobile）
-
-## 12.1 PC（テキストモック）
-
-```
-[Category ▼] [Chain ▢BTC ▢ETH ▼] [Verification ▢owner ▢community ▢directory ▢unverified] [Country ▼] [City ▼]
-```
-
-## 12.2 Mobile（テキストモック）
 
 ```
-[ Filters ⚙ ]
-──────────
-Category [▼]
-Chain [multi]
-Verification [multi]
-Country [▼]
-City [▼]
-──────────
-```
-
