@@ -1,4 +1,4 @@
-import { DeleteObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
 type SubmissionMediaKind = "gallery" | "proof" | "evidence";
 
@@ -77,6 +77,16 @@ export const uploadSubmissionMediaObject = async (params: {
   );
 
   return { key };
+};
+
+export const getSubmissionMediaObject = async (key: string) => {
+  const { client, env } = getR2Client();
+  return client.send(
+    new GetObjectCommand({
+      Bucket: env.bucket,
+      Key: key,
+    }),
+  );
 };
 
 export const deleteSubmissionMediaObject = async (key: string) => {

@@ -16,7 +16,39 @@ type SubmissionMediaRow = {
   url: string;
 };
 
+type SubmissionMediaLookupParams = {
+  submissionId: string;
+  kind: SubmissionMediaKind;
+  mediaId: string;
+  client?: PoolClient;
+  route?: string;
+};
+
 const DEFAULT_ROUTE = "/api/submissions";
+let cachedMediaIdColumn: boolean | null = null;
+
+const hasMediaIdColumn = async (route: string, client?: PoolClient) => {
+  if (cachedMediaIdColumn !== null) {
+    return cachedMediaIdColumn;
+  }
+
+  const result = await dbQuery<{ exists: boolean }>(
+    `
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'submission_media'
+          AND column_name = 'media_id'
+      ) AS exists
+    `,
+    [],
+    { route, client },
+  );
+
+  cachedMediaIdColumn = result.rows[0]?.exists ?? false;
+  return cachedMediaIdColumn;
+};
 
 export const insertSubmissionMedia = async ({
   submissionId,
@@ -41,6 +73,32 @@ export const insertSubmissionMedia = async ({
   }
 
   return row;
+};
+
+export const findSubmissionMediaById = async ({
+  submissionId,
+  kind,
+  mediaId,
+  client,
+  route = DEFAULT_ROUTE,
+}: SubmissionMediaLookupParams): Promise<SubmissionMediaRow | null> => {
+  const useMediaIdColumn = await hasMediaIdColumn(route, client);
+  const likePattern = `%/${kind}/${mediaId}`;
+
+  const { rows } = await dbQuery<SubmissionMediaRow>(
+    `
+      SELECT id, url
+      FROM public.submission_media
+      WHERE submission_id = $1
+        AND kind = $2
+        AND (${useMediaIdColumn ? "media_id = $3 OR url LIKE $4" : "url LIKE $3"})
+      LIMIT 1
+    `,
+    useMediaIdColumn ? [submissionId, kind, mediaId, likePattern] : [submissionId, kind, likePattern],
+    { route, client },
+  );
+
+  return rows[0] ?? null;
 };
 
 export const deleteSubmissionMediaByUrls = async (params: {
