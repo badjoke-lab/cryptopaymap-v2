@@ -8,6 +8,8 @@ import { handleUnifiedSubmission, normalizeSubmission, SubmissionPayload } from 
 
 const pendingSubmissionsPath = path.join(process.cwd(), "data", "submissions-pending.ndjson");
 
+export const runtime = "nodejs";
+
 type PendingSubmissionRecord = {
   submissionId: string;
   receivedAt: string;

@@ -1,9 +1,17 @@
+import { randomUUID } from "crypto";
 import { promises as fs } from "fs";
 import path from "path";
 
 import { DbUnavailableError, dbQuery, hasDatabaseUrl } from "@/lib/db";
+import { insertSubmissionMedia, withSubmissionMediaClient } from "@/lib/db/media";
+import { processImage } from "@/lib/media/processImage";
+import {
+  deleteSubmissionMediaObject,
+  type SubmissionMediaKind,
+  uploadSubmissionMediaObject,
+} from "@/lib/storage/r2";
 
-import { parseMultipartSubmission } from "@/lib/submissions/parseMultipart";
+import { parseMultipartSubmission, type MultipartFilesByField } from "@/lib/submissions/parseMultipart";
 import { emptyAcceptedMediaSummary, validateMultipartSubmission } from "@/lib/submissions/validateMultipart";
 
 export type SubmissionKind = "owner" | "community" | "report";
@@ -637,6 +645,7 @@ type SubmissionErrorCode =
   | "RATE_LIMIT"
   | "DB_UNAVAILABLE"
   | "SUBMISSIONS_TABLE_MISSING"
+  | "UPLOAD_FAILED"
   | "INTERNAL";
 
 type SubmissionError = {
@@ -653,6 +662,81 @@ const errorResponse = (status: number, error: SubmissionError) =>
 
 const invalidPayloadResponse = (message: string, details?: Record<string, unknown>) =>
   errorResponse(400, { code: "INVALID_PAYLOAD", message, details });
+
+const MEDIA_KINDS: SubmissionMediaKind[] = ["gallery", "proof", "evidence"];
+
+const buildSubmissionMediaUrl = (submissionId: string, kind: SubmissionMediaKind, mediaId: string) => {
+  if (kind === "gallery") {
+    return `/api/media/submissions/${submissionId}/gallery/${mediaId}`;
+  }
+  return `/api/internal/media/submissions/${submissionId}/${kind}/${mediaId}`;
+};
+
+const hasAnyMedia = (filesByField: MultipartFilesByField) =>
+  MEDIA_KINDS.some((kind) => filesByField[kind].length > 0);
+
+const processAndStoreSubmissionMedia = async (submissionId: string, filesByField: MultipartFilesByField) => {
+  if (!hasAnyMedia(filesByField)) {
+    return false;
+  }
+
+  const uploadedKeys: string[] = [];
+
+  try {
+    await withSubmissionMediaClient("/api/submissions", async (client) => {
+      await client.query("BEGIN");
+      try {
+        for (const kind of MEDIA_KINDS) {
+          for (const file of filesByField[kind]) {
+            const mediaId = randomUUID();
+            const inputBuffer = Buffer.from(await file.arrayBuffer());
+            const processed = await processImage(inputBuffer);
+            const { key } = await uploadSubmissionMediaObject({
+              submissionId,
+              kind,
+              mediaId,
+              body: processed.buffer,
+              contentType: processed.contentType,
+            });
+            uploadedKeys.push(key);
+
+            const url = buildSubmissionMediaUrl(submissionId, kind, mediaId);
+            await insertSubmissionMedia({
+              submissionId,
+              kind,
+              url,
+              client,
+              route: "/api/submissions",
+            });
+          }
+        }
+
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      }
+    });
+  } catch (error) {
+    await Promise.allSettled(
+      uploadedKeys.map(async (key) => {
+        try {
+          await deleteSubmissionMediaObject(key);
+        } catch {
+          // best-effort cleanup only
+        }
+      }),
+    );
+
+    if (error instanceof DbUnavailableError || (error as Error).message?.includes("DATABASE_URL")) {
+      throw error;
+    }
+
+    throw new Error("UPLOAD_FAILED");
+  }
+
+  return true;
+};
 
 export const handleUnifiedSubmission = async (request: Request) => {
   const ip = getClientIp(request);
@@ -706,16 +790,23 @@ export const handleUnifiedSubmission = async (request: Request) => {
 
     try {
       const record = await persistSubmission(normalized.payload);
+      const mediaSaved = await processAndStoreSubmissionMedia(record.submissionId, parsedMultipart.value.filesByField);
       console.info(`[submissions] accept ip=${ip} kind=${record.kind}`);
       return new Response(
         JSON.stringify({
           submissionId: record.submissionId,
-          kind: record.kind,
           acceptedMediaSummary,
+          ...(mediaSaved ? { mediaSaved: true } : {}),
         }),
         { status: 201, headers: { "Content-Type": "application/json" } },
       );
     } catch (error) {
+      if (error instanceof Error && error.message === "UPLOAD_FAILED") {
+        return errorResponse(500, {
+          code: "UPLOAD_FAILED",
+          message: "Failed to upload submission media",
+        });
+      }
       if (error instanceof DbUnavailableError || (error as Error).message?.includes("DATABASE_URL")) {
         return errorResponse(503, {
           code: "DB_UNAVAILABLE",
@@ -772,7 +863,6 @@ export const handleUnifiedSubmission = async (request: Request) => {
     return new Response(
       JSON.stringify({
         submissionId: record.submissionId,
-        kind: record.kind,
         acceptedMediaSummary,
       }),
       { status: 201, headers: { "Content-Type": "application/json" } },
