@@ -131,8 +131,13 @@ export default function SubmitForm({ kind }: SubmitFormProps) {
   const ownerDraft = draft.kind === "report" ? null : (draft as OwnerCommunityDraft);
   const reportDraft = draft.kind === "report" ? (draft as ReportDraft) : null;
 
-  const handleChange = <T extends keyof SubmissionDraft>(field: T, value: SubmissionDraft[T]) => {
-    setDraft((prev) => ({ ...prev, [field]: value }));
+  type DraftField = keyof OwnerCommunityDraft | keyof ReportDraft;
+  type DraftValue<T extends DraftField> =
+    | OwnerCommunityDraft[T & keyof OwnerCommunityDraft]
+    | ReportDraft[T & keyof ReportDraft];
+
+  const handleChange = <T extends DraftField>(field: T, value: DraftValue<T>) => {
+    setDraft((prev) => ({ ...prev, [field]: value }) as SubmissionDraft);
   };
 
   const handleFileAdd = async (field: keyof SubmissionDraftFiles, fileList: FileList | null) => {

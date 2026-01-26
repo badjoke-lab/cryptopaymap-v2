@@ -9,11 +9,12 @@ export type SubmitResponse = {
 export type SubmitError = {
   code?: string;
   message?: string;
+  details?: unknown;
 };
 
 export type SubmitResult =
   | { ok: true; status: number; data: SubmitResponse }
-  | { ok: false; status: number; error: SubmitError };
+  | { ok: false; status?: number; error: SubmitError };
 
 const parseJsonSafely = async (response: Response) => {
   try {

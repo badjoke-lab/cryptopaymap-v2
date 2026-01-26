@@ -1,7 +1,7 @@
 import type { SubmissionKind } from "@/lib/submissions";
 
 import { ALLOWED_MIME_TYPES, FILE_LIMITS, MAX_FILE_SIZE_BYTES, MAX_LENGTHS } from "./constants";
-import type { SubmissionDraft, SubmissionDraftFiles, StoredFile } from "./types";
+import type { OwnerCommunityDraft, ReportDraft, SubmissionDraft, SubmissionDraftFiles, StoredFile } from "./types";
 
 const emailRegex = /[^@]+@[^.]+\..+/;
 
@@ -33,7 +33,7 @@ export const validateDraft = (
   const errors: ValidationErrors = {};
 
   if (kind === "owner" || kind === "community") {
-    const payload = draft;
+    const payload = draft as OwnerCommunityDraft;
     if (isEmpty(payload.name)) errors.name = "Required";
     if (payload.name.length > MAX_LENGTHS.businessName) errors.name = `Must be ${MAX_LENGTHS.businessName} characters or fewer`;
     if (isEmpty(payload.country)) errors.country = "Required";
@@ -83,7 +83,7 @@ export const validateDraft = (
   }
 
   if (kind === "report") {
-    const payload = draft;
+    const payload = draft as ReportDraft;
     if (isEmpty(payload.placeName)) errors.placeName = "Required";
     if (payload.placeName.length > MAX_LENGTHS.reportPlaceName) {
       errors.placeName = `Must be ${MAX_LENGTHS.reportPlaceName} characters or fewer`;

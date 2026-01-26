@@ -71,8 +71,13 @@ export default function SubmitConfirm({ kind }: { kind: SubmissionKind }) {
         return;
       }
 
-      setSubmissionErrorCode(result.error?.code ?? "UNKNOWN_ERROR");
-      setSubmissionError(result.error?.message ?? "Submission failed.");
+      if (!result.ok) {
+        setSubmissionErrorCode(result.error?.code ?? "UNKNOWN_ERROR");
+        setSubmissionError(result.error?.message ?? "Submission failed.");
+      } else {
+        setSubmissionErrorCode("UNKNOWN_ERROR");
+        setSubmissionError("Submission failed.");
+      }
     } catch (error) {
       setSubmissionErrorCode("NETWORK_ERROR");
       setSubmissionError((error as Error)?.message ?? "Submission failed.");
