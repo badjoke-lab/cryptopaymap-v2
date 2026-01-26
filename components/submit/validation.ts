@@ -35,32 +35,73 @@ export const validateDraft = (
   if (kind === "owner" || kind === "community") {
     const payload = draft as OwnerCommunityDraft;
     if (isEmpty(payload.name)) errors.name = "Required";
-    if (payload.name.length > MAX_LENGTHS.businessName) errors.name = `Must be ${MAX_LENGTHS.businessName} characters or fewer`;
+    if (payload.name.length > MAX_LENGTHS.businessName) {
+      errors.name = `Must be ${MAX_LENGTHS.businessName} characters or fewer`;
+    }
     if (isEmpty(payload.country)) errors.country = "Required";
+    if (payload.country.length > MAX_LENGTHS.country) {
+      errors.country = `Must be ${MAX_LENGTHS.country} characters or fewer`;
+    }
     if (isEmpty(payload.city)) errors.city = "Required";
+    if (payload.city.length > MAX_LENGTHS.city) {
+      errors.city = `Must be ${MAX_LENGTHS.city} characters or fewer`;
+    }
     if (isEmpty(payload.address)) errors.address = "Required";
-    if (payload.address.length > MAX_LENGTHS.address) errors.address = `Must be ${MAX_LENGTHS.address} characters or fewer`;
+    if (payload.address.length > MAX_LENGTHS.address) {
+      errors.address = `Must be ${MAX_LENGTHS.address} characters or fewer`;
+    }
     if (isEmpty(payload.category)) errors.category = "Required";
+    if (payload.category.length > MAX_LENGTHS.category) {
+      errors.category = `Must be ${MAX_LENGTHS.category} characters or fewer`;
+    }
     if (!payload.acceptedChains.length) errors.acceptedChains = "Select at least one";
+    if (payload.acceptedChains.length > MAX_LENGTHS.acceptedChainsMax) {
+      errors.acceptedChains = `Must include ${MAX_LENGTHS.acceptedChainsMax} items or fewer`;
+    }
+    if (payload.acceptedChains.some((chain) => chain.length > MAX_LENGTHS.chain)) {
+      errors.acceptedChains = `Entries must be ${MAX_LENGTHS.chain} characters or fewer`;
+    }
     if (payload.about) {
-      const limit = kind === "owner" ? MAX_LENGTHS.aboutOwner : MAX_LENGTHS.aboutCommunity;
-      if (payload.about.length > limit) errors.about = `Must be ${limit} characters or fewer`;
+      if (payload.about.length > MAX_LENGTHS.about) {
+        errors.about = `Must be ${MAX_LENGTHS.about} characters or fewer`;
+      }
     }
     if (payload.paymentNote && payload.paymentNote.length > MAX_LENGTHS.paymentNote) {
       errors.paymentNote = `Must be ${MAX_LENGTHS.paymentNote} characters or fewer`;
     }
     if (isEmpty(payload.submitterName)) {
       errors.submitterName = "Required";
-    } else if (
-      payload.submitterName.length < MAX_LENGTHS.submitterNameMin ||
-      payload.submitterName.length > MAX_LENGTHS.submitterNameMax
-    ) {
-      errors.submitterName = `Must be between ${MAX_LENGTHS.submitterNameMin} and ${MAX_LENGTHS.submitterNameMax} characters`;
+    } else if (payload.submitterName.length > MAX_LENGTHS.submitterNameMax) {
+      errors.submitterName = `Must be ${MAX_LENGTHS.submitterNameMax} characters or fewer`;
     }
     if (isEmpty(payload.submitterEmail)) {
       errors.submitterEmail = "Required";
-    } else if (!emailRegex.test(payload.submitterEmail)) {
+    } else if (
+      !emailRegex.test(payload.submitterEmail) ||
+      payload.submitterEmail.length > MAX_LENGTHS.contactEmail
+    ) {
       errors.submitterEmail = "Invalid email";
+    }
+    if (payload.role && payload.role.length > MAX_LENGTHS.role) {
+      errors.role = `Must be ${MAX_LENGTHS.role} characters or fewer`;
+    }
+    if (payload.website && payload.website.length > MAX_LENGTHS.website) {
+      errors.website = `Must be ${MAX_LENGTHS.website} characters or fewer`;
+    }
+    if (payload.twitter && payload.twitter.length > MAX_LENGTHS.twitter) {
+      errors.twitter = `Must be ${MAX_LENGTHS.twitter} characters or fewer`;
+    }
+    if (payload.instagram && payload.instagram.length > MAX_LENGTHS.instagram) {
+      errors.instagram = `Must be ${MAX_LENGTHS.instagram} characters or fewer`;
+    }
+    if (payload.facebook && payload.facebook.length > MAX_LENGTHS.facebook) {
+      errors.facebook = `Must be ${MAX_LENGTHS.facebook} characters or fewer`;
+    }
+    if (payload.notesForAdmin && payload.notesForAdmin.length > MAX_LENGTHS.notesForAdmin) {
+      errors.notesForAdmin = `Must be ${MAX_LENGTHS.notesForAdmin} characters or fewer`;
+    }
+    if (payload.placeName && payload.placeName.length > MAX_LENGTHS.placeName) {
+      errors.placeName = `Must be ${MAX_LENGTHS.placeName} characters or fewer`;
     }
     const parsedLat = parseOptionalNumber(payload.lat);
     const parsedLng = parseOptionalNumber(payload.lng);
@@ -95,15 +136,13 @@ export const validateDraft = (
     if (payload.reportDetails && payload.reportDetails.length > MAX_LENGTHS.reportDetails) {
       errors.reportDetails = `Must be ${MAX_LENGTHS.reportDetails} characters or fewer`;
     }
-    if (isEmpty(payload.submitterName)) {
-      errors.submitterName = "Required";
-    } else if (
-      payload.submitterName.length < MAX_LENGTHS.submitterNameMin ||
-      payload.submitterName.length > MAX_LENGTHS.submitterNameMax
-    ) {
-      errors.submitterName = `Must be between ${MAX_LENGTHS.submitterNameMin} and ${MAX_LENGTHS.submitterNameMax} characters`;
+    if (payload.submitterName && payload.submitterName.length > MAX_LENGTHS.submitterNameMax) {
+      errors.submitterName = `Must be ${MAX_LENGTHS.submitterNameMax} characters or fewer`;
     }
-    if (payload.submitterEmail && !emailRegex.test(payload.submitterEmail)) {
+    if (
+      payload.submitterEmail &&
+      (!emailRegex.test(payload.submitterEmail) || payload.submitterEmail.length > MAX_LENGTHS.contactEmail)
+    ) {
       errors.submitterEmail = "Invalid email";
     }
   }

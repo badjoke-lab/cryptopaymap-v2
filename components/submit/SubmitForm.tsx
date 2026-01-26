@@ -254,6 +254,7 @@ export default function SubmitForm({ kind }: SubmitFormProps) {
                     className="w-full rounded-md border px-3 py-2"
                     value={ownerDraft.city}
                     onChange={(e) => handleChange("city", e.target.value)}
+                    maxLength={MAX_LENGTHS.city}
                   />
                 )}
                 {errors.city && <p className="text-red-600 text-sm">{errors.city}</p>}
@@ -340,13 +341,13 @@ export default function SubmitForm({ kind }: SubmitFormProps) {
             </div>
 
             <div className="space-y-1">
-              {fieldLabel(`About (optional, ${kind === "owner" ? "600" : "300"} chars max)`)}
+              {fieldLabel(`About (optional, ${MAX_LENGTHS.about} chars max)`)}
               <textarea
                 className="w-full rounded-md border px-3 py-2"
                 rows={3}
                 value={ownerDraft.about}
                 onChange={(e) => handleChange("about", e.target.value)}
-                maxLength={kind === "owner" ? MAX_LENGTHS.aboutOwner : MAX_LENGTHS.aboutCommunity}
+                maxLength={MAX_LENGTHS.about}
               />
               {errors.about && <p className="text-red-600 text-sm">{errors.about}</p>}
             </div>
@@ -372,6 +373,7 @@ export default function SubmitForm({ kind }: SubmitFormProps) {
                   value={ownerDraft.website}
                   onChange={(e) => handleChange("website", e.target.value)}
                   placeholder="https://..."
+                  maxLength={MAX_LENGTHS.website}
                 />
               </div>
               <div className="space-y-1">
@@ -382,6 +384,7 @@ export default function SubmitForm({ kind }: SubmitFormProps) {
                   value={ownerDraft.twitter}
                   onChange={(e) => handleChange("twitter", e.target.value)}
                   placeholder="@handle"
+                  maxLength={MAX_LENGTHS.twitter}
                 />
               </div>
             </div>
@@ -395,6 +398,7 @@ export default function SubmitForm({ kind }: SubmitFormProps) {
                   value={ownerDraft.instagram}
                   onChange={(e) => handleChange("instagram", e.target.value)}
                   placeholder="@handle"
+                  maxLength={MAX_LENGTHS.instagram}
                 />
               </div>
               <div className="space-y-1">
@@ -405,6 +409,7 @@ export default function SubmitForm({ kind }: SubmitFormProps) {
                   value={ownerDraft.facebook}
                   onChange={(e) => handleChange("facebook", e.target.value)}
                   placeholder="https://facebook.com/..."
+                  maxLength={MAX_LENGTHS.facebook}
                 />
               </div>
             </div>
@@ -495,7 +500,7 @@ export default function SubmitForm({ kind }: SubmitFormProps) {
           <h2 className="text-lg font-semibold text-gray-900">Your info</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1">
-              {fieldLabel("Name (required)")}
+              {fieldLabel(`Name ${kind === "report" ? "(optional)" : "(required)"}`)}
               <input
                 type="text"
                 className="w-full rounded-md border px-3 py-2"
@@ -512,6 +517,7 @@ export default function SubmitForm({ kind }: SubmitFormProps) {
                 className="w-full rounded-md border px-3 py-2"
                 value={draft.submitterEmail}
                 onChange={(e) => handleChange("submitterEmail", e.target.value)}
+                maxLength={MAX_LENGTHS.contactEmail}
               />
               {errors.submitterEmail && <p className="text-red-600 text-sm">{errors.submitterEmail}</p>}
             </div>
@@ -537,7 +543,7 @@ export default function SubmitForm({ kind }: SubmitFormProps) {
                 <textarea
                   className="w-full rounded-md border px-3 py-2"
                   rows={2}
-                  maxLength={300}
+                  maxLength={MAX_LENGTHS.notesForAdmin}
                   value={ownerDraft.notesForAdmin}
                   onChange={(e) => handleChange("notesForAdmin", e.target.value)}
                 />
