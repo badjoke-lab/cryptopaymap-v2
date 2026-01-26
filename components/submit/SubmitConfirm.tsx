@@ -1,0 +1,195 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+
+import type { SubmissionKind } from "@/lib/submissions";
+import { submitMultipartSubmission } from "@/lib/submissions/client";
+
+import { buildSubmissionPayload } from "./payload";
+import { clearDraftBundle, hydrateFiles, loadDraftBundle } from "./draftStorage";
+import type { DraftBundle, SubmissionDraftFiles } from "./types";
+import { validateDraft } from "./validation";
+
+const emptyFileState = { gallery: [], proof: [], evidence: [] } as SubmissionDraftFiles;
+
+const SummaryRow = ({ label, value }: { label: string; value?: string | number }) => (
+  <div className="flex items-start gap-4">
+    <dt className="w-40 text-sm text-gray-500">{label}</dt>
+    <dd className="flex-1 text-sm text-gray-900">{value || "—"}</dd>
+  </div>
+);
+
+export default function SubmitConfirm({ kind }: { kind: SubmissionKind }) {
+  const router = useRouter();
+  const [bundle, setBundle] = useState<DraftBundle | null>(null);
+  const [clientErrors, setClientErrors] = useState<Record<string, string>>({});
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
+  const [submissionErrorCode, setSubmissionErrorCode] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    const loaded = loadDraftBundle(kind);
+    if (loaded) {
+      setBundle(loaded);
+      const errors = validateDraft(kind, loaded.payload, loaded.files ?? emptyFileState);
+      setClientErrors(errors);
+    }
+  }, [kind]);
+
+  const fileCounts = useMemo(() => {
+    if (!bundle?.files) return emptyFileState;
+    return bundle.files;
+  }, [bundle]);
+
+  const handleSubmit = async () => {
+    if (!bundle) return;
+    const errors = validateDraft(kind, bundle.payload, bundle.files ?? emptyFileState);
+    setClientErrors(errors);
+    if (Object.keys(errors).length) return;
+
+    setSubmissionError(null);
+    setSubmissionErrorCode(null);
+    setIsSubmitting(true);
+
+    try {
+      const payload = buildSubmissionPayload(bundle.payload);
+      const hydratedFiles = {
+        gallery: await hydrateFiles(bundle.files.gallery ?? []),
+        proof: await hydrateFiles(bundle.files.proof ?? []),
+        evidence: await hydrateFiles(bundle.files.evidence ?? []),
+      };
+
+      const result = await submitMultipartSubmission(payload, hydratedFiles);
+      if (result.ok && result.data?.submissionId) {
+        clearDraftBundle(kind);
+        if (typeof window !== "undefined") {
+          window.sessionStorage.setItem("submit-response", JSON.stringify(result.data));
+        }
+        const degraded = result.status === 202 ? "1" : "0";
+        router.replace(`/submit/done?submissionId=${result.data.submissionId}&degraded=${degraded}`);
+        return;
+      }
+
+      setSubmissionErrorCode(result.error?.code ?? "UNKNOWN_ERROR");
+      setSubmissionError(result.error?.message ?? "Submission failed.");
+    } catch (error) {
+      setSubmissionErrorCode("NETWORK_ERROR");
+      setSubmissionError((error as Error)?.message ?? "Submission failed.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (!bundle) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <div className="max-w-3xl mx-auto px-4 py-12 space-y-4">
+          <h1 className="text-2xl font-bold text-gray-900">Review your submission</h1>
+          <p className="text-gray-600">We couldn’t find your draft. Please return to the form.</p>
+          <button
+            type="button"
+            className="rounded-md bg-blue-600 text-white px-4 py-2 font-semibold"
+            onClick={() => router.push(`/submit/${kind}`)}
+          >
+            Back to form
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const hasErrors = Object.keys(clientErrors).length > 0;
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <div className="max-w-4xl mx-auto px-4 py-8 space-y-6">
+        <div className="space-y-2">
+          <p className="text-sm uppercase tracking-wide text-gray-500">Submit</p>
+          <h1 className="text-3xl font-bold text-gray-900">Review your details</h1>
+          <p className="text-gray-600">Confirm everything looks right before sending.</p>
+        </div>
+
+        {hasErrors ? (
+          <div className="rounded-md border border-yellow-200 bg-yellow-50 p-3 text-yellow-800">
+            Please fix the highlighted issues before submitting.
+          </div>
+        ) : null}
+
+        {submissionError ? (
+          <div className="rounded-md border border-red-200 bg-red-50 p-3 text-red-800 space-y-1">
+            <p className="font-semibold">{submissionErrorCode}</p>
+            <p>{submissionError}</p>
+          </div>
+        ) : null}
+
+        <div className="rounded-lg bg-white p-4 shadow-sm border border-gray-100 space-y-4">
+          <h2 className="text-lg font-semibold text-gray-900">Submission</h2>
+          <dl className="space-y-2">
+            {bundle.payload.kind === "report" ? (
+              <>
+                <SummaryRow label="Place name" value={bundle.payload.placeName} />
+                <SummaryRow label="Reason" value={bundle.payload.reportReason} />
+                <SummaryRow label="Details" value={bundle.payload.reportDetails} />
+              </>
+            ) : (
+              <>
+                <SummaryRow label="Business name" value={bundle.payload.name} />
+                <SummaryRow label="Country" value={bundle.payload.country} />
+                <SummaryRow label="City" value={bundle.payload.city} />
+                <SummaryRow label="Address" value={bundle.payload.address} />
+                <SummaryRow label="Category" value={bundle.payload.category} />
+                <SummaryRow label="Accepted crypto" value={bundle.payload.acceptedChains.join(", ")} />
+                <SummaryRow label="About" value={bundle.payload.about} />
+                <SummaryRow label="Payment note" value={bundle.payload.paymentNote} />
+              </>
+            )}
+          </dl>
+        </div>
+
+        <div className="rounded-lg bg-white p-4 shadow-sm border border-gray-100 space-y-4">
+          <h2 className="text-lg font-semibold text-gray-900">Attachments</h2>
+          <ul className="text-sm text-gray-700 space-y-1">
+            {fileCounts.proof.length ? (
+              <li>Proof: {fileCounts.proof.map((file) => file.name).join(", ")}</li>
+            ) : null}
+            {fileCounts.gallery.length ? (
+              <li>Gallery: {fileCounts.gallery.map((file) => file.name).join(", ")}</li>
+            ) : null}
+            {fileCounts.evidence.length ? (
+              <li>Evidence: {fileCounts.evidence.map((file) => file.name).join(", ")}</li>
+            ) : (
+              !fileCounts.proof.length && !fileCounts.gallery.length && <li>No attachments</li>
+            )}
+          </ul>
+        </div>
+
+        <div className="rounded-lg bg-white p-4 shadow-sm border border-gray-100 space-y-4">
+          <h2 className="text-lg font-semibold text-gray-900">Submitter</h2>
+          <dl className="space-y-2">
+            <SummaryRow label="Name" value={bundle.payload.submitterName} />
+            <SummaryRow label="Email" value={bundle.payload.submitterEmail} />
+          </dl>
+        </div>
+
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => router.push(`/submit/${kind}`)}
+            className="rounded-md border border-gray-300 px-4 py-2 text-gray-700"
+          >
+            Back to edit
+          </button>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={isSubmitting || hasErrors}
+            className="rounded-md bg-blue-600 text-white px-4 py-2 font-semibold disabled:opacity-60"
+          >
+            {isSubmitting ? "Submitting..." : "Final submit"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
