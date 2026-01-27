@@ -34,7 +34,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
       `SELECT id, actor, action, submission_id, place_id, created_at, meta
        FROM public.history
        WHERE submission_id = $1
-       ORDER BY created_at DESC
+       ORDER BY created_at ASC
        LIMIT 50`,
       [id],
       { route },

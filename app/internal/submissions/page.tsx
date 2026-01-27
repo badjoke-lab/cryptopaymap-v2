@@ -1,5 +1,5 @@
-import PendingSubmissionsClient from "./PendingSubmissionsClient";
 import DbStatusIndicator from "@/components/status/DbStatusIndicator";
+import SubmissionsList from "@/components/internal/SubmissionsList";
 
 export default function SubmissionsPage() {
   return (
@@ -12,7 +12,7 @@ export default function SubmissionsPage() {
         <DbStatusIndicator showBanner />
       </div>
 
-      <PendingSubmissionsClient />
+      <SubmissionsList />
     </main>
   );
 }
