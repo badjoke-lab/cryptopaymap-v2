@@ -25,6 +25,17 @@ const getSubmittedByValue = (submission: SubmissionListItem, key: string) => {
   return (source as Record<string, unknown>)[key];
 };
 
+const toText = (value: unknown): string => {
+  if (typeof value === "string") return value;
+  if (typeof value === "number") return String(value);
+  if (value === null || value === undefined) return "";
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+};
+
 export default function SubmissionsList() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -164,12 +175,16 @@ export default function SubmissionsList() {
                   getSubmittedByValue(submission, "name") ??
                   submission.payload?.contactName ??
                   submission.payload?.submittedByName;
+                const submitterNameText = toText(submitterName ?? "");
                 const submitterEmail =
                   getSubmittedByValue(submission, "email") ??
                   submission.payload?.contactEmail ??
                   submission.payload?.submittedByEmail;
+                const submitterEmailText = toText(submitterEmail ?? "");
                 const placeName = submission.payload?.placeName ?? submission.payload?.name ?? submission.name;
+                const placeNameText = toText(placeName ?? submission.payload?.placeName ?? "");
                 const placeId = submission.placeId ?? submission.payload?.placeId;
+                const placeIdText = toText(placeId ?? "");
                 const acceptedMediaSummary =
                   submission.acceptedMediaSummary ?? submission.payload?.acceptedMediaSummary;
                 const mediaSaved = submission.mediaSaved ?? submission.payload?.mediaSaved;
@@ -177,17 +192,17 @@ export default function SubmissionsList() {
                 return (
                   <tr key={submission.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 text-gray-900">
-                      <div className="font-medium">{placeName}</div>
+                      <div className="font-medium">{placeNameText || "(no place name)"}</div>
                       <div className="text-xs text-gray-500">{submission.id}</div>
                       <div className="text-xs text-gray-500">{submission.kind}</div>
                     </td>
                     <td className="px-4 py-3 text-gray-700">
-                      <div>{submitterName ?? "—"}</div>
-                      <div className="text-xs text-gray-500">{submitterEmail ?? "—"}</div>
+                      <div>{submitterNameText || "—"}</div>
+                      <div className="text-xs text-gray-500">{submitterEmailText || "—"}</div>
                     </td>
                     <td className="px-4 py-3 text-gray-700">
-                      <div>{placeId ?? "—"}</div>
-                      <div className="text-xs text-gray-500">{placeName}</div>
+                      <div>{placeIdText || "—"}</div>
+                      <div className="text-xs text-gray-500">{placeNameText || "(no place name)"}</div>
                     </td>
                     <td className="px-4 py-3">
                       <StatusBadge status={submission.status} />

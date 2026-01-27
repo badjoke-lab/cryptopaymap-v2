@@ -32,6 +32,17 @@ const toStringValue = (value: unknown) => {
   return String(value);
 };
 
+const toText = (value: unknown): string => {
+  if (typeof value === "string") return value;
+  if (typeof value === "number") return String(value);
+  if (value === null || value === undefined) return "";
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+};
+
 const getSubmittedByValue = (submission: SubmissionDetail, key: string) => {
   const source = submission.submittedBy ?? submission.payload?.submittedBy;
   if (!source || typeof source !== "object") return undefined;
@@ -104,6 +115,7 @@ export default function SubmissionDetailCard({ submissionId }: { submissionId: s
     submission.payload?.contactEmail ??
     submission.payload?.submittedByEmail;
   const placeName = submission.payload?.placeName ?? submission.payload?.name ?? submission.name;
+  const placeNameText = toText(placeName ?? submission.payload?.placeName ?? "");
   const placeId = submission.placeId ?? submission.payload?.placeId;
   const acceptedMediaSummary = submission.acceptedMediaSummary ?? submission.payload?.acceptedMediaSummary;
   const mediaSaved = submission.mediaSaved ?? submission.payload?.mediaSaved;
@@ -113,7 +125,7 @@ export default function SubmissionDetailCard({ submissionId }: { submissionId: s
       <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-xl font-semibold text-gray-900">{placeName}</h1>
+            <h1 className="text-xl font-semibold text-gray-900">{placeNameText || "(no place name)"}</h1>
             <p className="text-sm text-gray-500">Submission ID: {submission.id}</p>
           </div>
           <StatusBadge status={submission.status} />
