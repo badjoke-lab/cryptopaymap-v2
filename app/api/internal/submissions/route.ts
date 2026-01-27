@@ -10,10 +10,17 @@ export const runtime = "nodejs";
 const MAX_LIMIT = 200;
 
 const parseLimit = (value: string | null) => {
-  if (!value) return 50;
+  if (!value) return 20;
   const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) return 50;
+  if (!Number.isFinite(parsed) || parsed <= 0) return 20;
   return Math.min(parsed, MAX_LIMIT);
+};
+
+const parsePage = (value: string | null) => {
+  if (!value) return 1;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 1;
+  return parsed;
 };
 
 export async function GET(request: NextRequest) {
@@ -32,7 +39,11 @@ export async function GET(request: NextRequest) {
   const route = "api_internal_submissions_list";
   const { searchParams } = request.nextUrl;
   const status = searchParams.get("status") ?? "pending";
+  const kind = searchParams.get("kind");
+  const q = searchParams.get("q");
   const limit = parseLimit(searchParams.get("limit"));
+  const page = parsePage(searchParams.get("page"));
+  const offset = (page - 1) * limit;
 
   try {
     const submissionsTableExists = await tableExists(route, "submissions");
@@ -47,19 +58,53 @@ export async function GET(request: NextRequest) {
 
     const params: unknown[] = [];
     const where: string[] = [];
+
     if (status) {
       params.push(status);
       where.push(`status = $${params.length}`);
     }
 
+    if (kind) {
+      params.push(kind);
+      where.push(`kind = $${params.length}`);
+    }
+
+    if (q) {
+      params.push(`%${q}%`);
+      const matcher = `$${params.length}`;
+      where.push(
+        `(
+          id ILIKE ${matcher}
+          OR name ILIKE ${matcher}
+          OR place_id ILIKE ${matcher}
+          OR submitted_by->>'name' ILIKE ${matcher}
+          OR submitted_by->>'email' ILIKE ${matcher}
+          OR payload->>'placeName' ILIKE ${matcher}
+          OR payload->>'name' ILIKE ${matcher}
+          OR payload->>'contactName' ILIKE ${matcher}
+          OR payload->>'contactEmail' ILIKE ${matcher}
+        )`,
+      );
+    }
+
+    const whereClause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
+    const totalResult = await dbQuery<{ total: number }>(
+      `SELECT COUNT(*)::int AS total FROM submissions ${whereClause}`,
+      params,
+      { route },
+    );
+    const total = totalResult.rows[0]?.total ?? null;
+
     const query = `SELECT id, status, kind, level, created_at, updated_at, name, country, city, place_id,
       submitted_by, reviewed_by, review_note, payload, published_place_id, approved_at, rejected_at, reject_reason
       FROM submissions
-      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+      ${whereClause}
       ORDER BY created_at DESC
-      LIMIT $${params.length + 1}`;
+      LIMIT $${params.length + 1}
+      OFFSET $${params.length + 2}`;
 
-    params.push(limit);
+    const listParams = [...params, limit, offset];
 
     const { rows } = await dbQuery<{
       id: string;
@@ -80,10 +125,23 @@ export async function GET(request: NextRequest) {
       approved_at: string | null;
       rejected_at: string | null;
       reject_reason: string | null;
-    }>(query, params, { route });
+    }>(query, listParams, { route });
 
     const submissions = rows.map(mapSubmissionRow);
-    return NextResponse.json({ submissions }, { headers: buildDataSourceHeaders("db", false) });
+    const hasMore = total !== null ? page * limit < total : submissions.length === limit;
+
+    return NextResponse.json(
+      {
+        items: submissions,
+        pageInfo: {
+          page,
+          limit,
+          total,
+          hasMore,
+        },
+      },
+      { headers: buildDataSourceHeaders("db", false) },
+    );
   } catch (error) {
     if (error instanceof DbUnavailableError || (error as Error).message?.includes("DATABASE_URL")) {
       return NextResponse.json(

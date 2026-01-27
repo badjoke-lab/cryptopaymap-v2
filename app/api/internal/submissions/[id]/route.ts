@@ -7,6 +7,11 @@ import { requireInternalAuth } from "@/lib/internalAuth";
 
 export const runtime = "nodejs";
 
+const extractMediaId = (url: string) => {
+  const match = url.match(/\/([^/]+)$/);
+  return match ? match[1] : url;
+};
+
 export async function GET(request: Request, { params }: { params: { id: string } }) {
   const auth = requireInternalAuth(request);
   if (!("ok" in auth)) {
@@ -70,8 +75,31 @@ export async function GET(request: Request, { params }: { params: { id: string }
       );
     }
 
+    const mediaTableResult = await dbQuery<{ present: string | null }>(
+      "SELECT to_regclass('public.submission_media') AS present",
+      [],
+      { route },
+    );
+    const hasMediaTable = Boolean(mediaTableResult.rows[0]?.present);
+    const mediaRows = hasMediaTable
+      ? await dbQuery<{ id: number; kind: string; url: string }>(
+          `SELECT id, kind, url
+           FROM submission_media
+           WHERE submission_id = $1
+           ORDER BY id ASC`,
+          [id],
+          { route },
+        )
+      : { rows: [] };
+
+    const media = mediaRows.rows.map((mediaRow) => ({
+      kind: mediaRow.kind,
+      url: mediaRow.url,
+      mediaId: extractMediaId(mediaRow.url),
+    }));
+
     return NextResponse.json(
-      { submission: mapSubmissionRow(row) },
+      { submission: { ...mapSubmissionRow(row), media } },
       { headers: buildDataSourceHeaders("db", false) },
     );
   } catch (error) {
