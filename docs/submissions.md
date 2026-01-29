@@ -1,4 +1,4 @@
-# Submissions — CryptoPayMap v2 (Authoritative)
+# 申請（Submissions）仕様 — CryptoPayMap v2（正本）
 
 この文書は **Submit（申請）と審査・反映（internal）** に関する唯一の正本。  
 （※Submit UI/UX・API・画像保存/URL発行・internal審査フローまで含む）
@@ -13,6 +13,114 @@
 - DBには互換/実装都合で `submissions.level` が存在するが、**これを Place状態と混同しない**（下の「levelの意味」を参照）。
 
 ---
+
+## 0.1 Submit（申請）UI要件（必須・改ざん禁止）
+
+この節は **「Submit UIは何を必須にしなければならないか」** を明文化した固定仕様。  
+（※ここが抜けると実装者が勝手に簡略化しやすく、仕様改ざん・背信の温床になるため、明示して固定する）
+
+### 0.1.1 画面遷移（固定）
+
+- `/submit` → `/submit/{kind}` → `/submit/{kind}/confirm` → `/submit/done`
+- **最終POSTは `confirm` でのみ行う**（`/submit/{kind}` は入力だけ。送信はしない）
+- `kind` は `owner` / `community` / `report` のみ
+
+### 0.1.2 共通必須（全 kind 共通）
+
+- **希望ステータス**（UIに必ず表示）
+  - `owner` → 「Owner Verified」
+  - `community` → 「Community Verified」
+  - `report` → 「Report（Takedown/修正）」  
+  ※ユーザーが変更する必要はないが、**「何として申請しているか」を明示するため必須表示**にする。
+- 申請者情報：`submitterName`（必須）、`submitterEmail`（必須）
+- 店舗基本：`placeName`（必須）、`country/city/address`（任意だが推奨）、`lat/lng`（任意、地図ピン指定時に入る）
+- 画像アップロード（任意/必須は kind で変わる）：アップロードされた画像は `submission_media` に保存し、**R2直URLは表示しない**（下の 0.1.5 参照）
+
+### 0.1.3 Owner Verified（owner）必須入力
+
+**目的**：申請者が「その店舗（事業者）の当事者」であることを示す。
+
+必須（UIで欠落禁止）：
+
+- 希望ステータス：**Owner Verified**（固定表示）
+- 本人確認（いずれか1つ必須：選択式）
+  1) **ドメイン認証**（例：公式ドメインの管理権限を示す）
+     - 入力：`ownerVerification.domain`（必須）
+     - 証拠：`proof` 画像（必須）  
+       ※MVPでは自動DNS検証を必須にしない。代替として「ドメイン管理画面/公式サイト管理画面のスクショ」を提出させ、内部審査で確認する。
+  2) **社用メール（OTP/受信証明）**
+     - 入力：`ownerVerification.workEmail`（必須）
+     - 証拠：`proof` 画像（必須）  
+       ※将来はOTP送信を実装できるが、MVPでは「社用メールの受信箱スクショ等」で代替可。データ項目は将来OTPに置換しても互換を維持する。
+  3) **ダッシュボードSS**（決済/予約/管理画面など）
+     - 証拠：`proof` 画像（必須）
+
+- 決済証拠（いずれか必須）
+  - `ownerPayment.paymentUrl`（URL）**または**
+  - `proof` 画像（決済画面スクショ）  
+  ※決済がない業態は、予約/注文/会員など「実在の取引導線」を示すURL/スクショで代替可（内部審査で判断）。
+
+推奨（任意だがUIに出してよい）：
+
+- `payment_note`（支払いメモ：例「USDT可/Lightning可」など）
+- `amenities[]` / `amenities_notes`（アメニティ・補足）
+- `links[]`（公式サイト/メニュー/予約など）
+
+添付（画像）：
+
+- `gallery`：店舗写真（任意）
+- `proof`：本人確認/決済証拠（**上記で必須**）
+
+### 0.1.4 Community Verified（community）必須入力
+
+**目的**：コミュニティが「その店舗が本当に受け入れている」ことを独立した根拠で示す。
+
+必須（UIで欠落禁止）：
+
+- 希望ステータス：**Community Verified**（固定表示）
+- **独立した証拠URL ×2以上**（必須）
+  - `communityEvidenceUrls[]`（min:2）
+  - UI：入力欄を2つ置き、**「追加」ボタン**で増やせる
+  - ルール：
+    - 同一サイトの同一ページの言い換えは不可（相互依存は不可）
+    - 公式サイトだけに寄せて「偽の根拠」にしない（公式以外も可）
+
+推奨：
+
+- `gallery` 画像（店舗写真：任意）
+- `payment_note` / `amenities[]` / `amenities_notes` / `links[]`
+
+### 0.1.5 Report（report）必須入力
+
+**目的**：既存掲載の誤り・危険を是正する（追加掲載ではない）。
+
+必須（UIで欠落禁止）：
+
+- 希望ステータス：**Report（Takedown/修正）**（固定表示）
+- **何が誤りか**：`reportWrongWhat`（必須・具体的に）
+- **証拠URL**：`reportEvidenceUrls[]`（min:1）
+- **希望アクション**：`reportAction`（必須）
+  - `hide`（非表示希望）
+  - `fix`（修正希望）
+
+添付（任意）：
+
+- `evidence` 画像（任意だが推奨：現地写真/スクショ等）
+
+### 0.1.6 画像（evidence/gallery/proof）の保存と使い方（必須）
+
+画像は **Submissionにのみ紐づく**（Placeの画像とは別）。保存/参照/公開範囲は固定：
+
+- `gallery`：公開可（地図詳細で表示してよい）
+- `proof`：**internal専用**（公開禁止）
+- `evidence`：**internal専用**（公開禁止）
+
+保存方式・署名URL発行・internal認証の詳細は **`docs/media-storage.md` を正本**とする。  
+UI/DB/APIでは **R2直URLを表示しない**。表示は必ず次のエンドポイント経由で行う：
+
+- 公開ギャラリー：`/api/media/submissions/{submissionId}/gallery/{mediaId}`
+- internal（proof/evidence）：`/api/internal/media/submissions/{submissionId}/{kind}/{mediaId}`（認証必須）
+
 
 ## 1. 目的
 
@@ -136,13 +244,13 @@
 - amenities_notes: **≤150**
 - CategoryOther: **≤100**
 - Gallery: **最大 8枚**
-- ProofImage: **単独 1枚**（`kind=proof` として保存する）
+- ProofImage: **1〜4枚**（`kind=proof` として保存する。本人確認＋決済証拠を含む）
 
 **保存ポリシー**
 - `submissions.kind=owner`
 - `submissions.level=owner`
 - `submission_media`:
-  - `proof` : 0..1
+  - `proof` : 1..4  （必須：本人確認/決済証拠のため）
   - `gallery`: 0..8
 
 ---
@@ -155,7 +263,7 @@
 - Address: max 200（UI制限）
 - BusinessName: max 80（UI制限）
 - Gallery: **最大 4枚**
-- **ProofImageは存在しない**（galleryのみ）
+- **ProofImageは存在しない**（proofは使わない）。ただし **証拠URL（2本以上）** が必須。
 
 **保存ポリシー**
 - `submissions.kind=community`
@@ -187,10 +295,49 @@
 - 互換：`POST /api/submissions/owner`, `/community` は legacy（内部で統合に流す）
 
 ### 6.2 リクエスト形式（確認画面導入により固定）
+
+#### payload（JSON）スキーマ（kind別）
+
+`payload` は JSON文字列。最小は以下。  
+（※既存の place フィールドは維持しつつ、**不足していた「希望ステータス」「証拠URL」「本人確認」「希望アクション」**を追加する）
+
+共通（全 kind）：
+- `kind`: `"owner" | "community" | "report"`（必須）
+- `desiredStatusLabel`: 画面表示用の固定文字列（必須）
+  - owner: `"Owner Verified"`
+  - community: `"Community Verified"`
+  - report: `"Report（Takedown/修正）"`
+- `submitterName`（必須）
+- `submitterEmail`（必須）
+- `placeName`（必須）
+- `country` / `city` / `address`（任意）
+- `lat` / `lng`（任意）
+- `category` / `categoryOther`（任意）
+- `about`（任意）
+- `paymentNote`（任意）
+- `amenities[]`（任意だが **UIに項目を用意する**）
+- `amenitiesNotes`（任意）
+- `links[]`（任意）
+
+Owner（kind=owner）追加必須：
+- `ownerVerification.method`: `"domain" | "work_email" | "dashboard_ss"`（必須）
+- `ownerVerification.domain`（method=domain の場合 必須）
+- `ownerVerification.workEmail`（method=work_email の場合 必須）
+- `ownerPayment.paymentUrl`（任意）  
+  ただし **決済証拠は必須**なので、`paymentUrl` が無い場合は `proof` 画像で提出すること。
+
+Community（kind=community）追加必須：
+- `communityEvidenceUrls[]`: **min 2**（必須）
+
+Report（kind=report）追加必須：
+- `reportWrongWhat`（必須）
+- `reportEvidenceUrls[]`: **min 1**（必須）
+- `reportAction`: `"hide" | "fix"`（必須）
+
 - **content-type は `multipart/form-data` を基本とする**
   - `payload`：フォーム入力本体（JSON文字列）
   - 画像ファイル：kind別に受け取る
-    - owner: `proof`(0..1) + `gallery`(0..8)
+    - owner: `proof`(1..4) + `gallery`(0..8)
     - community: `gallery`(0..4)
     - report: `evidence`(0..4)
 - **禁止**：ユーザー入力で任意URLを `submission_media.url` として送らせる運用（URLはサーバーが発行する）

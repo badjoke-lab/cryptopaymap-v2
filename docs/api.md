@@ -10,17 +10,16 @@
 ## 0. Global Rules（全API共通）
 
 ### 0.1 Framework / Hosting
-- Next.js App Router の Route Handlers を使用：`app/api/**/route.ts`
-- 同一オリジン前提（CORSはデフォルト）
-- DB: PostgreSQL + PostGIS（Neon等）既存スキーマ利用
+- Next.js App Router の Route Handlers：`app/api/**/route.ts`
+- same-origin 前提（CORSはデフォルト）
+- DB: PostgreSQL + PostGIS（既存スキーマ利用）
 
 ### 0.2 Response: JSON + typed
-- すべて JSON を返す
-- 可能な限り typed（TS型で表現し、入力はvalidateする）
+- 原則 JSON
+- 入力は必ず validate（Zod等）
+- 返却型はTSで表現（UIが受け取るshapeを固定）
 
 ### 0.3 Error Format（統一）
-全APIのエラーは統一フォーマット：
-
 ```json
 {
   "error": {
@@ -32,28 +31,48 @@
 ````
 
 * `details` は任意（デバッグに必要な最小限）
-* 400/401/403/404/409/429/500 などで返す
+* 400/401/403/404/409/429/500 で返す
 
 ### 0.4 Cache Policy（基本）
 
 * `/api/places` → `revalidate: 300`（5分）
 * `/api/stats` → `revalidate: 7200`（2時間）
 * `/api/filters/meta` → `revalidate: 3600`（1時間）
-* `/api/media/**` → galleryは cache可、internalは cache禁止（後述）
+* `/api/media/**` → **galleryは cache可**、**internalは no-store**（後述）
 
 ### 0.5 Forbidden（禁止）
 
 * DB migration を勝手に生成しない
-* verification 名（owner/community/directory/unverified）を変更しない
+* verification（owner/community/directory/unverified）を変更しない
 * accepted 正規化ロジックを勝手に変えない
-* v1のコード参照で仕様を改変しない
+* v1参照で仕様改変しない
 
 ### 0.6 Required（必須）
 
-* 全APIに input validate
+* 全APIで input validate
 * エラー形式統一
-* 404/400/500 を必ず正しく返す
+* 404/400/500 を正しく返す
 * internal API は認可必須（401/403）
+* **Mediaは public / internal を必ず分離**（gallery公開、proof/evidence非公開）
+
+---
+
+## 0.7 AuthN/AuthZ（Internal API）
+
+internal 系は **運営のみ**が触れる。
+
+### 0.7.1 認証方式（実装自由・仕様固定）
+
+* 方式は実装都合で良い（例：Basic / Bearer / Cookie session）
+* ただし挙動は固定：
+
+  * 未認証 → 401
+  * 認可失敗 → 403
+
+### 0.7.2 Required Headers（例）
+
+* `Authorization: Bearer <token>` または `Cookie: ...` 等
+* **トークンや秘密値の“例”は docs に書かない**
 
 ---
 
@@ -68,22 +87,20 @@
 | `GET /api/stats`                                              | v3 コア統計                                        |
 | `GET /api/filters/meta`                                       | UIフィルタ用メタデータ                                   |
 | `GET /api/search`                                             | v2.1 予定の検索API                                  |
-| `GET /api/history/[id]`                                       | v4 設計：店舗の推移データ取得（将来）                           |
+| `GET /api/history/[id]`                                       | v4 設計：店舗の推移データ（将来）                             |
 | `POST /api/submissions`                                       | 申請（owner/community/report）送信（confirm画面でのみ最終送信） |
-| `GET /api/media/submissions/[submissionId]/gallery/[mediaId]` | **公開可能**な申請画像（gallery）配信                       |
+| `GET /api/media/submissions/[submissionId]/gallery/[mediaId]` | 公開可能な申請画像（gallery）配信                           |
 
 ### 1.2 Internal（運営審査）
 
-| Route                                                                 | 用途                                 |
-| --------------------------------------------------------------------- | ---------------------------------- |
-| `GET /api/internal/submissions`                                       | 申請一覧（pending/approved/rejected）    |
-| `GET /api/internal/submissions/[id]`                                  | 申請詳細（payload + 添付画像）               |
-| `POST /api/internal/submissions/[id]/approve`                         | 承認（status=approved + review_note等） |
-| `POST /api/internal/submissions/[id]/reject`                          | 却下（status=rejected + reason等）      |
-| `POST /api/internal/submissions/[id]/promote`                         | 掲載反映（owner/communityのみ）            |
-| `GET /api/internal/media/submissions/[submissionId]/[kind]/[mediaId]` | **非公開**画像（proof/evidence）配信（認証必須）  |
-
-> internal は必ず authn/authz を通す（未認証=401、権限なし=403）
+| Route                                                                 | 用途                                     |
+| --------------------------------------------------------------------- | -------------------------------------- |
+| `GET /api/internal/submissions`                                       | 申請一覧（pending/approved/rejected）        |
+| `GET /api/internal/submissions/[id]`                                  | 申請詳細（payload + 添付画像）                   |
+| `POST /api/internal/submissions/[id]/approve`                         | 承認（status=approved + review_note等）     |
+| `POST /api/internal/submissions/[id]/reject`                          | 却下（status=rejected + reason等）          |
+| `POST /api/internal/submissions/[id]/promote`                         | 掲載反映（owner/communityのみ）                |
+| `GET /api/internal/media/submissions/[submissionId]/[kind]/[mediaId]` | 非公開画像（proof/evidence）配信（認証必須・no-store） |
 
 ---
 
@@ -154,7 +171,7 @@ type StatsCoreV3 = {
   countries: number
   cities: number
   categories: number
-  chains: Record<string, number> // BTC/LIGHTNING/ETH/USDT...
+  chains: Record<string, number>
 }
 ```
 
@@ -165,13 +182,11 @@ type FiltersMeta = {
   categories: string[]
   chains: string[]
   countries: string[]
-  cities: string[] | Record<string, string[]> // 実装都合でどちらでも可（UI側で吸収）
+  cities: string[] | Record<string, string[]>
 }
 ```
 
 ### 2.5 Submissions（申請）
-
-#### DB `public.submissions`（概念）
 
 ```ts
 type SubmissionKind = "owner" | "community" | "report"
@@ -182,17 +197,21 @@ type Submission = {
   kind: SubmissionKind
   status: SubmissionStatus
   place_id: string | null
-  payload: Record<string, unknown>  // 正規化済み
+
+  payload: Record<string, unknown>       // 正規化済み
   submitted_by: Record<string, unknown>
+
   reviewed_by: Record<string, unknown> | null
   review_note: string | null
+
   created_at: string
   updated_at: string
-  level: "owner" | "community" | "unverified" // 運用固定（submissions.md参照）
+
+  level: "owner" | "community" | "unverified" // 運用固定
 }
 ```
 
-#### `public.submission_media`
+#### submission_media
 
 ```ts
 type SubmissionMediaKind = "gallery" | "proof" | "evidence"
@@ -200,7 +219,7 @@ type SubmissionMedia = {
   id: number
   submission_id: string
   kind: SubmissionMediaKind
-  url: string            // アップロード後の永続URL（署名URL禁止）
+  url: string            // 永続URL（署名URL禁止）
   caption?: string | null
   source?: string | null
   created_at: string
@@ -213,231 +232,146 @@ type SubmissionMedia = {
 
 ### 3.1 Description
 
-地図描画のための **軽量データのみ**返す。Drawer用の重いデータは返さない。
+地図描画の **軽量データのみ**返す（Drawer用の重いデータは返さない）
 
-### 3.2 Query Parameters（all optional）
+### 3.2 Query（all optional）
 
 * `country`
 * `city`
 * `category`
 * `chain`（複数可：`?chain=BTC&chain=ETH`）
-* `verification`（複数可：owner/community/directory/unverified）
-* `limit`（サーバ側上限に丸める）
+* `verification`（複数可）
+* `limit`（上限はサーバで丸める）
 
-### 3.3 Response（example）
+### 3.3 Response
 
-```json
-[
-  {
-    "id": "cpm:antarctica:owner-cafe-1",
-    "name": "Antarctica Owner Café",
-    "lat": -77.845,
-    "lng": 166.667,
-    "verification": "owner",
-    "category": "cafe",
-    "city": "McMurdo Station",
-    "country": "AQ",
-    "accepted": ["BTC", "BTC@Lightning", "ETH"]
-  }
-]
-```
+`PlaceLite[]`
 
 ---
 
 ## 4. GET `/api/places/[id]`（Drawer用）
 
-### 4.1 Description
-
-Drawer（右側/Bottom sheet）の **完全詳細**を返す。
-
-### 4.2 Response
-
-* `PlaceDetail` 完全型
+* Response：`PlaceDetail`
 
 ---
 
 ## 5. GET `/api/stats`（v3 核心統計）
 
-### 5.1 Description
-
-Stats v3 で必要な「コア統計」を返す。
-
-### 5.2 Response（example）
-
-```json
-{
-  "total_places": 1290,
-  "countries": 84,
-  "cities": 310,
-  "categories": 22,
-  "chains": {
-    "BTC": 540,
-    "LIGHTNING": 430,
-    "ETH": 300,
-    "USDT": 120
-  }
-}
-```
+* Response：`StatsCoreV3`
 
 ---
 
 ## 6. GET `/api/filters/meta`
 
-### 6.1 Description
-
-UIのフィルタ（ドロップダウン等）表示のためのメタ情報。
-
-### 6.2 Response
-
-```json
-{
-  "categories": ["cafe","restaurant"],
-  "chains": ["BTC","Lightning","ETH"],
-  "countries": ["Japan","USA"],
-  "cities": ["Tokyo","Osaka"]
-}
-```
+* Response：`FiltersMeta`
 
 ---
 
 ## 7. GET `/api/search`（v2.1）
 
-### 7.1 Description
+### 7.1 Query
 
-簡易検索（名前/カテゴリ/都市など）の全文検索。
+* `q`（必須）
+* optional: `country`, `city`, `category`（将来）
 
-### 7.2 Query
+### 7.2 Response（最低限）
 
-* `q`（例：`?q=crypto`）
-
-### 7.3 Response
-
-```json
-[
-  { "id":"...", "name":"...", "city":"...", "country":"...", "verification":"owner" }
-]
+```ts
+type SearchHit = { id: string; name: string; city: string; country: string; verification: string }
 ```
+
+### 7.3 Notes（挙動固定）
+
+* 部分一致（prefix/contains）は実装都合で良いが、**UIが期待する並び順を固定**：
+
+  1. name match
+  2. city match
+  3. category match
 
 ---
 
-## 8. GET `/api/history/[id]`（v4 推移用 / 将来）
+## 8. GET `/api/history/[id]`（v4 将来）
 
-### 8.1 Response（example）
-
-```json
-{
-  "id": "cpm:xxx",
-  "history": [
-    { "date": "2025-01-01", "value": 3 },
-    { "date": "2025-02-01", "value": 4 }
-  ]
-}
-```
+* Response：最低限の形だけ固定（実装は将来）
 
 ---
 
-## 9. POST `/api/submissions`（Submit：confirm画面でのみ最終送信）
+## 9. POST `/api/submissions`（confirm画面でのみ最終送信）
 
-### 9.1 Description
+**UIは入力→確認（Review）→最終送信**の2段。**最終送信は confirm 画面のみ**。
 
-owner/community/report の申請を受け付ける。
-**UIは入力→確認（Review）→最終送信**の2段。**最終送信は confirm 画面でのみ行う**。
+### 9.1 Content-Type（固定）
 
-### 9.2 Content-Type（固定）
+* `multipart/form-data`
+* fields:
 
-* **`multipart/form-data`** を基本とする（画像を含むため）
-* フィールド：
-
-  * `payload`：JSON文字列（フォーム入力本体）
-  * 画像ファイル（kindに応じて受理）
+  * `payload`: JSON文字列（フォーム入力本体）
+  * files（kindに応じて）
 
     * owner: `proof`(0..1) + `gallery`(0..8)
     * community: `gallery`(0..4)
     * report: `evidence`(0..4)
 
-> 禁止：ユーザーが任意URLを入力して `submission_media.url` に入れる運用。
-> `url` はサーバーがアップロード後に発行する。
+### 9.2 File validation（必須）
 
-### 9.3 Validation（必須）
-
-共通：
-
-* 画像形式：jpeg/png/webp
-* 画像サイズ：≤ 2MB
-* 枚数上限：kind別
-* 必須項目/文字数上限（フォーム仕様に従う）
+* mime: jpeg/png/webp
+* size: ≤ 2MB
+* count: kind別上限
 * honeypot（あれば）検知で 400
 
-kind別（運用固定）：
+### 9.3 Storage policy（必須）
 
-* `kind=owner` → `submissions.level=owner` 固定
-* `kind=community` → `submissions.level=community` 固定
-* `kind=report` → `submissions.level=unverified` 固定
+* 申請画像の保存先は **Cloudflare R2 をデフォルト採用**（無料枠運用）
+* DBにバイナリ保存しない
+* `submission_media.url` は **永続URL**（署名URL禁止）
+* **gallery は public配信**、**proof/evidence は internalのみ**
 
-### 9.4 Success Responses
+### 9.4 Success
 
-#### 200/201（DB保存OK）
-
-```json
-{
-  "submissionId": "uuid",
-  "status": "pending",
-  "accepted": true
-}
-```
-
-#### 202（DB障害 / 保留受理）
-
-* `data/submissions-pending.ndjson` に payload を保留し、**受理扱い**で返す
+#### 200/201
 
 ```json
-{
-  "submissionId": "uuid",
-  "status": "pending",
-  "accepted": true,
-  "degraded": true
-}
+{ "submissionId": "uuid", "status": "pending", "accepted": true }
 ```
 
-### 9.5 Error Responses
+#### 202（Degraded）
 
-* 400：INVALID_INPUT / HONEYPOT / UNSUPPORTED_KIND / FILE_TOO_LARGE / FILE_TYPE_NOT_ALLOWED / TOO_MANY_FILES
-* 429：RATE_LIMIT
-* 500：INTERNAL
-
-例：
+DB障害等で `data/submissions-pending.ndjson` に保留し **受理扱い**。
 
 ```json
-{
-  "error": { "code":"INVALID_INPUT", "message":"gallery images exceed limit", "details": { "limit": 4 } }
-}
+{ "submissionId": "uuid", "status": "pending", "accepted": true, "degraded": true }
 ```
+
+### 9.5 Errors
+
+* 400: INVALID_INPUT / HONEYPOT / UNSUPPORTED_KIND / FILE_TOO_LARGE / FILE_TYPE_NOT_ALLOWED / TOO_MANY_FILES
+* 429: RATE_LIMIT
+* 500: INTERNAL
 
 ---
 
 ## 10. Media APIs（申請添付画像の配信）
 
-### 10.1 Public gallery（公開可）
+### 10.1 Public gallery
 
-#### `GET /api/media/submissions/[submissionId]/gallery/[mediaId]`
+`GET /api/media/submissions/[submissionId]/gallery/[mediaId]`
 
-* 対象：`submission_media.kind=gallery`
-* 認証：不要（公開閲覧）
-* Cache：可（CDNキャッシュ/ブラウザキャッシュOK）
-* 404：存在しない、または gallery ではない
+* 対象：`kind=gallery`
+* 認証：不要
+* Cache：可
+* Response：画像バイナリ（`Content-Type: image/webp` 等）
+* 404：存在しない / kind不一致
 
 ### 10.2 Internal proof/evidence（非公開）
 
-#### `GET /api/internal/media/submissions/[submissionId]/[kind]/[mediaId]`
+`GET /api/internal/media/submissions/[submissionId]/[kind]/[mediaId]`
 
-* 対象：`kind in (proof, evidence)`
+* kind: `proof | evidence`
 * 認証：必須（運営のみ）
 * Cache：禁止（`Cache-Control: no-store`）
+* Response：画像バイナリ
 * 403：権限なし
-* 404：存在しない、または kind 不一致
-
-> `submission_media.url` には署名URLを保存しない。
-> DBには上記の **アプリ配信エンドポイントURL** を永続URLとして保存する。
+* 404：存在しない / kind不一致
 
 ---
 
@@ -445,61 +379,87 @@ kind別（運用固定）：
 
 ### 11.1 `GET /api/internal/submissions`
 
-* Query：
+Query:
 
-  * `status=pending|approved|rejected`（省略時 pending）
-  * `kind=owner|community|report`（任意）
-  * `limit`, `cursor`（任意）
-* Response：最小一覧（id, kind, status, created_at, place_id, payload要約）
-* 401/403：認証/権限
+* `status=pending|approved|rejected`（default pending）
+* `kind=owner|community|report`（任意）
+* `limit`（任意）
+* `cursor`（任意：keyset or opaque、実装都合で良い）
+
+Response（最小）:
+
+```ts
+type SubmissionListItem = {
+  id: string
+  kind: "owner" | "community" | "report"
+  status: "pending" | "approved" | "rejected"
+  created_at: string
+  place_id: string | null
+  summary: { name?: string; country?: string; city?: string } // UI用の要約
+}
+```
 
 ### 11.2 `GET /api/internal/submissions/[id]`
 
-* Response：Submission + `submission_media[]`（kind別で並べ替えて良い）
-* 401/403：認証/権限
+Response:
+
+* `Submission` + `submission_media[]`（kind別に並べ替え可）
 
 ### 11.3 `POST /api/internal/submissions/[id]/approve`
 
-* Body（JSON）：
+Body（JSON）:
 
-  * `review_note`（任意）
-* Side effects：
+* `review_note?: string`
 
-  * `status=approved`
-  * `approved_at` 等の整合を取る（DB側仕様に従う）
-* Response：更新後の submission
+Side effects:
+
+* `status=approved`
+* reviewed_by / approved_at 等の整合を取る
+* **approve は “反映(promote)” をしない（分離）**（promoteでplacesへ反映）
+
+Response:
+
+* 更新後 `Submission`
 
 ### 11.4 `POST /api/internal/submissions/[id]/reject`
 
-* Body（JSON）：
+Body:
 
-  * `reject_reason`（推奨）
-  * `review_note`（任意）
-* Side effects：
+* `reject_reason?: string`（推奨）
+* `review_note?: string`
 
-  * `status=rejected`
-  * `rejected_at` 等の整合を取る
-* Response：更新後の submission
+Side effects:
+
+* `status=rejected`
+
+Response:
+
+* 更新後 `Submission`
 
 ### 11.5 `POST /api/internal/submissions/[id]/promote`（owner/communityのみ）
 
-* Preconditions：
+Preconditions:
 
-  * submission.kind in (owner, community)
-  * submission.status == approved
-* Side effects（概念）：
+* kind in (owner, community)
+* status == approved
 
-  * places を新規作成 or 更新
-  * place の公開mediaへ `gallery` を反映（proof/evidenceは絶対に公開しない）
-  * payment_accepts / socials 等の正規化反映
-* Error：
+Side effects（概念）:
 
-  * 409：not approved / wrong kind
-  * 400：payload不足
-  * 500：反映失敗
-* Response：
+* places を新規作成 or 更新
+* place 公開mediaへ `gallery` を反映（proof/evidenceは公開禁止）
+* payment_accepts / socials 等の正規化反映
 
-  * `{ placeId, promoted: true }` など
+Errors:
+
+* 409：not approved / wrong kind
+* 400：payload不足
+* 500：反映失敗
+
+Response（例）:
+
+```json
+{ "placeId": "cpm:...", "promoted": true }
+```
 
 ---
 
@@ -508,21 +468,20 @@ kind別（運用固定）：
 ### Core
 
 * [ ] `/api/places` 200 / フィルタ動作 / 軽量返却
-* [ ] `/api/places/[id]` Drawer 全項目が取得できる
+* [ ] `/api/places/[id]` Drawer 全項目取得
 * [ ] `/api/stats` v3 core と一致
 * [ ] `/api/filters/meta` 揺れなし
-* [ ] `/api/search` 部分一致
+* [ ] `/api/search` 部分一致 + 並び順妥当
 * [ ] `/api/history/[id]`（将来）最低限レスポンス
 
-### Submissions
+### Submissions / Media / Internal
 
-* [ ] `/api/submissions` が multipart で受け取れる
-* [ ] kind別枚数上限/2MB/形式チェックが UI+API 両方で効く
-* [ ] 200/201/202 のUI分岐が可能なレスポンスを返す
-* [ ] DB障害でも `submissions-pending.ndjson` に落ちて 202 を返す
+* [ ] `/api/submissions` multipart受理（confirmのみPOST）
+* [ ] kind別上限/2MB/形式チェックが UI+API 両方で効く
+* [ ] 200/201/202 のUI分岐が可能なレスポンス
+* [ ] DB障害でも 202 + ndjson 保留
 * [ ] `submission_media.url` は永続URL（署名URL禁止）
-* [ ] public gallery と internal proof/evidence の配信が分離されている
-* [ ] internal approve/reject/promote が動作する（reportにpromoteなし）
+* [ ] public gallery / internal proof,evidence の配信分離＋no-store
+* [ ] internal approve/reject/promote が動作（reportにpromoteなし）
 
 
-```
