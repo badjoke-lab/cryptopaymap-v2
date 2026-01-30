@@ -1,4 +1,24 @@
+import type { Metadata } from 'next';
 import CopyButton from '@/components/CopyButton';
+
+export const metadata: Metadata = {
+  title: 'Donate',
+  description: 'Support CryptoPayMap with cryptocurrency donations to keep the directory growing.',
+  alternates: {
+    canonical: '/donate',
+  },
+  openGraph: {
+    title: 'Donate to CryptoPayMap',
+    description: 'Support CryptoPayMap with cryptocurrency donations to keep the directory growing.',
+    url: '/donate',
+    images: ['/og.png'],
+  },
+  twitter: {
+    title: 'Donate to CryptoPayMap',
+    description: 'Support CryptoPayMap with cryptocurrency donations to keep the directory growing.',
+    images: ['/og.png'],
+  },
+};
 
 const DONATION_ADDRESSES = [
   {

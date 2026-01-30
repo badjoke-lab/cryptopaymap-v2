@@ -1,4 +1,24 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
+
+export const metadata: Metadata = {
+  title: 'About',
+  description: 'Learn about CryptoPayMap, our data sources, and community-driven accuracy practices.',
+  alternates: {
+    canonical: '/about',
+  },
+  openGraph: {
+    title: 'About CryptoPayMap',
+    description: 'Learn about CryptoPayMap, our data sources, and community-driven accuracy practices.',
+    url: '/about',
+    images: ['/og.png'],
+  },
+  twitter: {
+    title: 'About CryptoPayMap',
+    description: 'Learn about CryptoPayMap, our data sources, and community-driven accuracy practices.',
+    images: ['/og.png'],
+  },
+};
 
 export default function AboutPage() {
   return (

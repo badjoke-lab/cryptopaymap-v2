@@ -1,4 +1,24 @@
+import type { Metadata } from "next";
 import Link from "next/link";
+
+export const metadata: Metadata = {
+  title: "Submit",
+  description: "Submit a crypto-friendly place or request updates for CryptoPayMap listings.",
+  alternates: {
+    canonical: "/submit",
+  },
+  openGraph: {
+    title: "Submit to CryptoPayMap",
+    description: "Submit a crypto-friendly place or request updates for CryptoPayMap listings.",
+    url: "/submit",
+    images: ["/og.png"],
+  },
+  twitter: {
+    title: "Submit to CryptoPayMap",
+    description: "Submit a crypto-friendly place or request updates for CryptoPayMap listings.",
+    images: ["/og.png"],
+  },
+};
 
 const SubmitCard = ({
   title,

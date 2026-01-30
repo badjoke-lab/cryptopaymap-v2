@@ -1,4 +1,24 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
+
+export const metadata: Metadata = {
+  title: 'Discover',
+  description: 'Browse curated crypto-friendly destinations, guides, and upcoming directory highlights.',
+  alternates: {
+    canonical: '/discover',
+  },
+  openGraph: {
+    title: 'Discover CryptoPayMap',
+    description: 'Browse curated crypto-friendly destinations, guides, and upcoming directory highlights.',
+    url: '/discover',
+    images: ['/og.png'],
+  },
+  twitter: {
+    title: 'Discover CryptoPayMap',
+    description: 'Browse curated crypto-friendly destinations, guides, and upcoming directory highlights.',
+    images: ['/og.png'],
+  },
+};
 
 export default function DiscoverPage() {
   return (

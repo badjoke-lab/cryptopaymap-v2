@@ -1,12 +1,11 @@
 import './globals.css';
 import type { Metadata } from 'next';
+import Script from 'next/script';
 import { ReactNode } from 'react';
 import GlobalHeader from '@/components/GlobalHeader';
 
 const description = 'CryptoPayMap — discover places that accept cryptocurrency payments.';
-const siteUrl =
-  process.env.NEXT_PUBLIC_SITE_URL ??
-  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+const siteUrl = 'https://www.cryptopaymap.com';
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
@@ -15,22 +14,42 @@ export const metadata: Metadata = {
     template: '%s | CryptoPayMap',
   },
   description,
+  alternates: {
+    canonical: '/',
+  },
   icons: {
-    icon: '/favicon.svg',
+    icon: [
+      { url: '/favicon.ico' },
+      { url: '/favicon-16x16.png', sizes: '16x16', type: 'image/png' },
+      { url: '/favicon-32x32.png', sizes: '32x32', type: 'image/png' },
+    ],
+    apple: [{ url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }],
+  },
+  manifest: '/site.webmanifest',
+  robots: {
+    index: true,
+    follow: true,
   },
   openGraph: {
     title: 'CryptoPayMap',
     description,
-    url: siteUrl,
+    url: '/',
     siteName: 'CryptoPayMap',
-    images: ['/og.svg'],
+    images: [
+      {
+        url: '/og.png',
+        width: 1200,
+        height: 630,
+        alt: 'CryptoPayMap',
+      },
+    ],
     type: 'website',
   },
   twitter: {
     card: 'summary_large_image',
     title: 'CryptoPayMap',
     description,
-    images: ['/og.svg'],
+    images: ['/og.png'],
   },
 };
 
@@ -38,6 +57,35 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <body className="min-h-screen bg-white text-gray-900">
+        <Script
+          async
+          src="https://www.googletagmanager.com/gtag/js?id=G-0D84H0D66W"
+          strategy="afterInteractive"
+        />
+        <Script id="ga4-init" strategy="afterInteractive">
+          {`window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-0D84H0D66W');`}
+        </Script>
+        <Script id="cpm-ld-json" type="application/ld+json" strategy="beforeInteractive">
+          {JSON.stringify({
+            '@context': 'https://schema.org',
+            '@graph': [
+              {
+                '@type': 'WebSite',
+                name: 'CryptoPayMap',
+                url: siteUrl,
+              },
+              {
+                '@type': 'Organization',
+                name: 'CryptoPayMap',
+                url: siteUrl,
+                logo: `${siteUrl}/brand/cryptopaymap-logo.png`,
+              },
+            ],
+          })}
+        </Script>
         <div className="flex min-h-screen flex-col">
           <GlobalHeader />
           <main className="flex-1">{children}</main>

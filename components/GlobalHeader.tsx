@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef } from 'react';
@@ -51,10 +52,13 @@ export default function GlobalHeader() {
     >
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
         <Link href="/" className="flex items-center gap-3 font-semibold text-gray-900">
-          <img
-            src="/logo.svg"
-            alt="CryptoPayMap logo"
+          <Image
+            src="/brand/cryptopaymap-logo.png"
+            alt="CryptoPayMap"
+            width={36}
+            height={36}
             className="h-9 w-9"
+            priority
           />
           <span className="text-base sm:text-lg">CryptoPayMap</span>
         </Link>
