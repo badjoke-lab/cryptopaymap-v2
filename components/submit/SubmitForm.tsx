@@ -52,7 +52,10 @@ const buildDefaultDraft = (kind: SubmissionKind): SubmissionDraft => {
     notesForAdmin: "",
     placeId: "",
     placeName: "",
+    desiredStatus: kind === "owner" ? "Owner Verified" : "",
     ownerVerification: "",
+    ownerVerificationDomain: "",
+    ownerVerificationWorkEmail: "",
     communityEvidenceUrls: [],
     amenities: [],
     amenitiesNotes: "",
@@ -328,6 +331,19 @@ export default function SubmitForm({ kind }: SubmitFormProps) {
               </div>
             </div>
 
+            {kind === "owner" ? (
+              <div className="space-y-1">
+                {fieldLabel("Desired status (required)")}
+                <input
+                  type="text"
+                  className="w-full rounded-md border px-3 py-2 bg-gray-50"
+                  value={ownerDraft.desiredStatus}
+                  readOnly
+                />
+                {errors.desiredStatus && <p className="text-red-600 text-sm">{errors.desiredStatus}</p>}
+              </div>
+            ) : null}
+
             <div className="space-y-1">
               {fieldLabel("Verification method (required)")}
               <select
@@ -337,11 +353,51 @@ export default function SubmitForm({ kind }: SubmitFormProps) {
               >
                 <option value="">Select</option>
                 <option value="domain">Domain verification</option>
-                <option value="otp">OTP verification</option>
+                <option value="otp">Work email OTP</option>
                 <option value="dashboard_ss">Dashboard screenshot</option>
               </select>
               {errors.ownerVerification && <p className="text-red-600 text-sm">{errors.ownerVerification}</p>}
             </div>
+
+            {ownerDraft.ownerVerification === "domain" ? (
+              <div className="space-y-1">
+                {fieldLabel("Domain to verify (required)")}
+                <input
+                  type="text"
+                  className="w-full rounded-md border px-3 py-2"
+                  value={ownerDraft.ownerVerificationDomain}
+                  onChange={(e) => handleChange("ownerVerificationDomain", e.target.value)}
+                  placeholder="example.com"
+                  maxLength={MAX_LENGTHS.ownerVerificationDomain}
+                />
+                {errors.ownerVerificationDomain && (
+                  <p className="text-red-600 text-sm">{errors.ownerVerificationDomain}</p>
+                )}
+              </div>
+            ) : null}
+
+            {ownerDraft.ownerVerification === "otp" ? (
+              <div className="space-y-1">
+                {fieldLabel("Work email for OTP (required)")}
+                <input
+                  type="email"
+                  className="w-full rounded-md border px-3 py-2"
+                  value={ownerDraft.ownerVerificationWorkEmail}
+                  onChange={(e) => handleChange("ownerVerificationWorkEmail", e.target.value)}
+                  placeholder="name@company.com"
+                  maxLength={MAX_LENGTHS.ownerVerificationWorkEmail}
+                />
+                {errors.ownerVerificationWorkEmail && (
+                  <p className="text-red-600 text-sm">{errors.ownerVerificationWorkEmail}</p>
+                )}
+              </div>
+            ) : null}
+
+            {ownerDraft.ownerVerification === "dashboard_ss" ? (
+              <p className="text-sm text-gray-600">
+                Upload a proof image of the dashboard in the attachments section.
+              </p>
+            ) : null}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1">

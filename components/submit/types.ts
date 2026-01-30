@@ -22,7 +22,10 @@ export type OwnerCommunityDraft = {
   notesForAdmin: string;
   placeId: string;
   placeName: string;
+  desiredStatus: string;
   ownerVerification: string;
+  ownerVerificationDomain: string;
+  ownerVerificationWorkEmail: string;
   communityEvidenceUrls: string[];
   amenities: string[];
   amenitiesNotes: string;

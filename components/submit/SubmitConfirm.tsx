@@ -47,6 +47,26 @@ export default function SubmitConfirm({ kind }: { kind: SubmissionKind }) {
     return buildSubmissionPayload(bundle.payload);
   }, [bundle]);
 
+  const verificationSummary = useMemo(() => {
+    if (!bundle || bundle.payload.kind === "report") return null;
+    const method = bundle.payload.ownerVerification;
+    const methodLabel =
+      method === "domain"
+        ? "Domain verification"
+        : method === "otp"
+          ? "Work email OTP"
+          : method === "dashboard_ss"
+            ? "Dashboard screenshot"
+            : "—";
+    const inputValue =
+      method === "domain"
+        ? bundle.payload.ownerVerificationDomain
+        : method === "otp"
+          ? bundle.payload.ownerVerificationWorkEmail
+          : "—";
+    return { methodLabel, inputValue };
+  }, [bundle]);
+
   const handleSubmit = async () => {
     if (!bundle) return;
     const errors = validateDraft(kind, bundle.payload, bundle.files ?? emptyFileState);
@@ -160,7 +180,12 @@ export default function SubmitConfirm({ kind }: { kind: SubmissionKind }) {
                 <SummaryRow label="Address" value={bundle.payload.address} />
                 <SummaryRow label="Category" value={bundle.payload.category} />
                 <SummaryRow label="Accepted crypto" value={bundle.payload.acceptedChains.join(", ")} />
-                <SummaryRow label="Verification method" value={bundle.payload.ownerVerification} />
+                {bundle.payload.kind === "owner" ? (
+                  <SummaryRow label="Desired status" value={bundle.payload.desiredStatus} />
+                ) : null}
+                <SummaryRow label="Verification method" value={verificationSummary?.methodLabel} />
+                <SummaryRow label="Verification input" value={verificationSummary?.inputValue} />
+                <SummaryRow label="Proof attached" value={fileCounts.proof.length ? "Yes" : "No"} />
                 <SummaryRow label="Latitude" value={bundle.payload.lat} />
                 <SummaryRow label="Longitude" value={bundle.payload.lng} />
                 <SummaryRow label="About" value={bundle.payload.about} />
