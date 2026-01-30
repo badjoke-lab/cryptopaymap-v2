@@ -25,6 +25,9 @@ type SubmissionPayloadBase = {
   notes?: string;
   contactEmail?: string;
   contactName?: string;
+  submitterName?: string;
+  communityEvidenceUrls?: string[];
+  amenitiesNotes?: string;
   submittedBy?: Record<string, unknown>;
 };
 
@@ -37,6 +40,7 @@ export type OwnerCommunitySubmissionPayload = SubmissionPayloadBase & {
   address: string;
   category: string;
   acceptedChains: string[];
+  ownerVerification: string;
   role?: string;
   about?: string;
   paymentNote?: string;
@@ -47,6 +51,7 @@ export type OwnerCommunitySubmissionPayload = SubmissionPayloadBase & {
   lat?: number;
   lng?: number;
   amenities?: string[];
+  amenitiesNotes?: string;
   notesForAdmin?: string;
   termsAccepted?: boolean;
 };
@@ -60,6 +65,7 @@ export type ReportSubmissionPayload = SubmissionPayloadBase & {
   address: string;
   category: string;
   acceptedChains: string[];
+  reportAction: string;
   reportReason: string;
   reportDetails?: string;
 };
@@ -157,16 +163,21 @@ const MAX_LENGTHS = {
   twitter: 200,
   instagram: 200,
   facebook: 200,
+  ownerVerification: 40,
+  reportAction: 40,
   notesForAdmin: 300,
   placeName: 80,
   reportReason: 120,
   reportDetails: 2000,
   chain: 40,
   amenity: 40,
+  amenitiesNotes: 300,
+  communityEvidenceUrl: 500,
 };
 
 const MAX_ACCEPTED_CHAINS = 12;
 const MAX_AMENITIES = 20;
+const MAX_COMMUNITY_EVIDENCE_URLS = 10;
 
 const emailRegex = /[^@]+@[^.]+\..+/;
 
@@ -248,8 +259,9 @@ const buildSubmittedBy = (obj: Record<string, unknown> | SubmissionPayload, kind
 
   const submittedBy: Record<string, unknown> = {};
   const contactName = ensureString(obj.contactName);
+  const submitterName = ensureString(obj.submitterName);
   const contactEmail = ensureString(obj.contactEmail);
-  if (contactName) submittedBy.name = contactName;
+  if (contactName || submitterName) submittedBy.name = contactName ?? submitterName;
   if (contactEmail) submittedBy.email = contactEmail;
   submittedBy.kind = kind;
   return submittedBy;
@@ -301,6 +313,7 @@ export const normalizeSubmission = (raw: unknown): NormalizationResult => {
 
   const contactEmail = ensureString(obj.contactEmail);
   const contactName = ensureString(obj.contactName);
+  const submitterName = ensureString(obj.submitterName);
   const submittedBy = kind ? buildSubmittedBy(obj, kind) : {};
   const placeId = ensureString(obj.placeId);
   const placeName = ensureString(obj.placeName);
@@ -313,6 +326,9 @@ export const normalizeSubmission = (raw: unknown): NormalizationResult => {
   const role = ensureString(obj.role);
   const about = ensureString(obj.about);
   const paymentNote = ensureString(obj.paymentNote);
+  const ownerVerification = ensureString(obj.ownerVerification);
+  const reportAction = ensureString(obj.reportAction);
+  const amenitiesNotes = ensureString(obj.amenitiesNotes);
   const website = ensureString(obj.website);
   const twitter = ensureString(obj.twitter);
   const instagram = ensureString(obj.instagram);
@@ -330,6 +346,10 @@ export const normalizeSubmission = (raw: unknown): NormalizationResult => {
     if (!address) errors.address = "Required";
     if (!category) errors.category = "Required";
     if (!contactEmail) errors.contactEmail = "Required";
+    if (!ownerVerification) errors.ownerVerification = "Required";
+    if (ownerVerification && !["domain", "otp", "dashboard_ss"].includes(ownerVerification)) {
+      errors.ownerVerification = "Invalid owner verification";
+    }
   }
 
   let acceptedChains: string[] | undefined;
@@ -346,6 +366,17 @@ export const normalizeSubmission = (raw: unknown): NormalizationResult => {
     }
   }
 
+  const communityEvidenceUrls = normalizeStringArray(
+    obj.communityEvidenceUrls,
+    MAX_LENGTHS.communityEvidenceUrl,
+    MAX_COMMUNITY_EVIDENCE_URLS,
+    "communityEvidenceUrls",
+    errors,
+  );
+  if (kind === "community" && (!communityEvidenceUrls || communityEvidenceUrls.length === 0)) {
+    errors.communityEvidenceUrls = "Provide at least one URL";
+  }
+
   if (contactEmail && (!emailRegex.test(contactEmail) || contactEmail.length > MAX_LENGTHS.contactEmail)) {
     errors.contactEmail = "Invalid email";
   }
@@ -356,15 +387,19 @@ export const normalizeSubmission = (raw: unknown): NormalizationResult => {
   validateLength(errors, "address", address, MAX_LENGTHS.address);
   validateLength(errors, "category", category, MAX_LENGTHS.category);
   validateLength(errors, "contactName", contactName, MAX_LENGTHS.contactName);
+  validateLength(errors, "submitterName", submitterName, MAX_LENGTHS.contactName);
   validateLength(errors, "role", role, MAX_LENGTHS.role);
   validateLength(errors, "about", about, MAX_LENGTHS.about);
   validateLength(errors, "paymentNote", paymentNote, MAX_LENGTHS.paymentNote);
+  validateLength(errors, "ownerVerification", ownerVerification, MAX_LENGTHS.ownerVerification);
+  validateLength(errors, "reportAction", reportAction, MAX_LENGTHS.reportAction);
   validateLength(errors, "website", website, MAX_LENGTHS.website);
   validateLength(errors, "twitter", twitter, MAX_LENGTHS.twitter);
   validateLength(errors, "instagram", instagram, MAX_LENGTHS.instagram);
   validateLength(errors, "facebook", facebook, MAX_LENGTHS.facebook);
   validateLength(errors, "notesForAdmin", notesForAdmin, MAX_LENGTHS.notesForAdmin);
   validateLength(errors, "placeName", placeName, MAX_LENGTHS.placeName);
+  validateLength(errors, "amenitiesNotes", amenitiesNotes, MAX_LENGTHS.amenitiesNotes);
 
   const reportReason = ensureString(obj.reportReason) ?? ensureString(obj.reason) ?? ensureString(obj.notes);
   const reportDetails = ensureString(obj.reportDetails) ?? ensureString(obj.details);
@@ -372,6 +407,11 @@ export const normalizeSubmission = (raw: unknown): NormalizationResult => {
   if (kind === "report") {
     if (!reportReason) {
       errors.notesForAdmin = "Report reason is required";
+    }
+    if (!reportAction) {
+      errors.reportAction = "Report action is required";
+    } else if (!["hide", "edit"].includes(reportAction)) {
+      errors.reportAction = "Invalid report action";
     }
 
     if (reportReason && reportReason.length > MAX_LENGTHS.reportReason) {
@@ -395,12 +435,15 @@ export const normalizeSubmission = (raw: unknown): NormalizationResult => {
       acceptedChains: [],
       contactEmail,
       contactName,
+      submitterName,
       submittedBy,
       placeId,
       placeName,
       notes: reportReason,
       reportReason: reportReason ?? "",
       reportDetails,
+      reportAction: reportAction ?? "",
+      communityEvidenceUrls,
     };
   } else {
     payload = {
@@ -414,6 +457,7 @@ export const normalizeSubmission = (raw: unknown): NormalizationResult => {
       acceptedChains: acceptedChains as string[],
       contactEmail,
       contactName,
+      submitterName,
       submittedBy,
       placeId,
       placeName,
@@ -421,6 +465,8 @@ export const normalizeSubmission = (raw: unknown): NormalizationResult => {
       role,
       about,
       paymentNote,
+      ownerVerification: ownerVerification ?? "",
+      communityEvidenceUrls,
       website,
       twitter,
       instagram,
@@ -434,6 +480,7 @@ export const normalizeSubmission = (raw: unknown): NormalizationResult => {
         "amenities",
         errors,
       ),
+      amenitiesNotes,
       notesForAdmin,
       termsAccepted: typeof obj.termsAccepted === "boolean" ? obj.termsAccepted : undefined,
     } as OwnerCommunitySubmissionPayload;

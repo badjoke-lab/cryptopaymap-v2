@@ -42,6 +42,11 @@ export default function SubmitConfirm({ kind }: { kind: SubmissionKind }) {
     return bundle.files;
   }, [bundle]);
 
+  const submissionPayload = useMemo(() => {
+    if (!bundle) return null;
+    return buildSubmissionPayload(bundle.payload);
+  }, [bundle]);
+
   const handleSubmit = async () => {
     if (!bundle) return;
     const errors = validateDraft(kind, bundle.payload, bundle.files ?? emptyFileState);
@@ -136,7 +141,16 @@ export default function SubmitConfirm({ kind }: { kind: SubmissionKind }) {
                 <SummaryRow label="Place ID" value={bundle.payload.placeId} />
                 <SummaryRow label="Place name" value={bundle.payload.placeName} />
                 <SummaryRow label="Reason" value={bundle.payload.reportReason} />
+                <SummaryRow label="Requested action" value={bundle.payload.reportAction} />
                 <SummaryRow label="Details" value={bundle.payload.reportDetails} />
+                <SummaryRow
+                  label="Evidence URLs"
+                  value={
+                    (bundle.payload.communityEvidenceUrls ?? []).length
+                      ? (bundle.payload.communityEvidenceUrls ?? []).join(", ")
+                      : "—"
+                  }
+                />
               </>
             ) : (
               <>
@@ -146,10 +160,24 @@ export default function SubmitConfirm({ kind }: { kind: SubmissionKind }) {
                 <SummaryRow label="Address" value={bundle.payload.address} />
                 <SummaryRow label="Category" value={bundle.payload.category} />
                 <SummaryRow label="Accepted crypto" value={bundle.payload.acceptedChains.join(", ")} />
+                <SummaryRow label="Verification method" value={bundle.payload.ownerVerification} />
                 <SummaryRow label="Latitude" value={bundle.payload.lat} />
                 <SummaryRow label="Longitude" value={bundle.payload.lng} />
                 <SummaryRow label="About" value={bundle.payload.about} />
+                <SummaryRow
+                  label="Amenities"
+                  value={(bundle.payload.amenities ?? []).length ? (bundle.payload.amenities ?? []).join(", ") : "—"}
+                />
+                <SummaryRow label="Amenities notes" value={bundle.payload.amenitiesNotes} />
                 <SummaryRow label="Payment note" value={bundle.payload.paymentNote} />
+                <SummaryRow
+                  label="Evidence URLs"
+                  value={
+                    (bundle.payload.communityEvidenceUrls ?? []).length
+                      ? (bundle.payload.communityEvidenceUrls ?? []).join(", ")
+                      : "—"
+                  }
+                />
                 <SummaryRow label="Website" value={bundle.payload.website} />
                 <SummaryRow label="Twitter / X" value={bundle.payload.twitter} />
                 <SummaryRow label="Instagram" value={bundle.payload.instagram} />
@@ -161,6 +189,14 @@ export default function SubmitConfirm({ kind }: { kind: SubmissionKind }) {
               </>
             )}
           </dl>
+        </div>
+
+        <div className="rounded-lg bg-white p-4 shadow-sm border border-gray-100 space-y-3">
+          <h2 className="text-lg font-semibold text-gray-900">Payload preview</h2>
+          <p className="text-sm text-gray-600">This is the payload that will be sent to the API.</p>
+          <pre className="whitespace-pre-wrap break-words rounded-md bg-gray-50 p-3 text-xs text-gray-800">
+            {submissionPayload ? JSON.stringify(submissionPayload, null, 2) : "—"}
+          </pre>
         </div>
 
         <div className="rounded-lg bg-white p-4 shadow-sm border border-gray-100 space-y-4">
