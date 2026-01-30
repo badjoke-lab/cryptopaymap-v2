@@ -51,7 +51,12 @@ export async function GET(
       return new Response(null, { status: 404 });
     }
 
-    const key = record.r2Key ?? buildSubmissionMediaKey(submissionId, "gallery", mediaId);
+    const expectedKey = buildSubmissionMediaKey(submissionId, "gallery", mediaId);
+    if (record.r2Key && record.r2Key !== expectedKey) {
+      return new Response(null, { status: 403 });
+    }
+
+    const key = expectedKey;
     const result = await getSubmissionMediaObject(key);
     const stream = toReadableStream(result.Body);
 
@@ -59,9 +64,12 @@ export async function GET(
       return new Response(null, { status: 404 });
     }
 
+    const contentType =
+      record.mime ?? (typeof result.ContentType === "string" ? result.ContentType : null) ?? "image/webp";
+
     return new Response(stream, {
       headers: {
-        "Content-Type": "image/webp",
+        "Content-Type": contentType,
         "Cache-Control": "public, max-age=31536000, immutable",
       },
     });
