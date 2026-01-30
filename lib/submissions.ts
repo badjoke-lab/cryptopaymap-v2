@@ -4,7 +4,7 @@ import path from "path";
 
 import { DbUnavailableError, dbQuery, hasDatabaseUrl } from "@/lib/db";
 import { insertSubmissionMedia, withSubmissionMediaClient } from "@/lib/db/media";
-import { processImage } from "@/lib/media/processImage";
+import { MediaProcessingError, processImage } from "@/lib/media/processImage";
 import {
   deleteSubmissionMediaObject,
   type SubmissionMediaKind,
@@ -690,6 +690,7 @@ type SubmissionErrorCode =
   | "TOO_MANY_FILES"
   | "REQUIRED_FILE_MISSING"
   | "UNKNOWN_FORM_FIELD"
+  | "MEDIA_PROCESSING_FAILED"
   | "RATE_LIMIT"
   | "DB_UNAVAILABLE"
   | "SUBMISSIONS_TABLE_MISSING"
@@ -776,6 +777,10 @@ const processAndStoreSubmissionMedia = async (submissionId: string, filesByField
       }),
     );
 
+    if (error instanceof MediaProcessingError) {
+      throw error;
+    }
+
     if (error instanceof DbUnavailableError || (error as Error).message?.includes("DATABASE_URL")) {
       throw error;
     }
@@ -849,6 +854,12 @@ export const handleUnifiedSubmission = async (request: Request) => {
         { status: 201, headers: { "Content-Type": "application/json" } },
       );
     } catch (error) {
+      if (error instanceof MediaProcessingError) {
+        return errorResponse(400, {
+          code: "MEDIA_PROCESSING_FAILED",
+          message: "Invalid image data",
+        });
+      }
       if (error instanceof Error && error.message === "UPLOAD_FAILED") {
         return errorResponse(500, {
           code: "UPLOAD_FAILED",
