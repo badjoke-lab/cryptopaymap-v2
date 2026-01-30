@@ -8,6 +8,7 @@ type MultipartValidationErrorCode =
   | "INVALID_MEDIA_TYPE"
   | "FILE_TOO_LARGE"
   | "TOO_MANY_FILES"
+  | "REQUIRED_FILE_MISSING"
   | "UNKNOWN_FORM_FIELD";
 
 type MultipartValidationError = {
@@ -23,10 +24,27 @@ type MultipartValidationResult =
 const ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
 const MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024;
 
-const KIND_LIMITS: Record<SubmissionKind, Record<MediaField, number>> = {
-  owner: { proof: 1, gallery: 8, evidence: 0 },
-  community: { proof: 0, gallery: 4, evidence: 0 },
-  report: { proof: 0, gallery: 0, evidence: 4 },
+type FileCountRequirement = {
+  min: number;
+  max: number;
+};
+
+const KIND_REQUIREMENTS: Record<SubmissionKind, Record<MediaField, FileCountRequirement>> = {
+  owner: {
+    proof: { min: 1, max: 4 },
+    gallery: { min: 0, max: 8 },
+    evidence: { min: 0, max: 0 },
+  },
+  community: {
+    proof: { min: 0, max: 0 },
+    gallery: { min: 0, max: 4 },
+    evidence: { min: 0, max: 0 },
+  },
+  report: {
+    proof: { min: 0, max: 0 },
+    gallery: { min: 0, max: 0 },
+    evidence: { min: 0, max: 4 },
+  },
 };
 
 const KIND_ALLOWED_FIELDS: Record<SubmissionKind, MediaField[]> = {
@@ -47,12 +65,12 @@ const buildAcceptedMediaSummary = (
 };
 
 const validateCounts = (kind: SubmissionKind, filesByField: MultipartFilesByField): MultipartValidationError | null => {
-  const limits = KIND_LIMITS[kind];
+  const requirements = KIND_REQUIREMENTS[kind];
   const allowedFields = new Set(KIND_ALLOWED_FIELDS[kind]);
 
   for (const field of Object.keys(filesByField) as MediaField[]) {
     const count = filesByField[field].length;
-    const limit = limits[field];
+    const requirement = requirements[field];
 
     if (!allowedFields.has(field) && count > 0) {
       return {
@@ -62,11 +80,19 @@ const validateCounts = (kind: SubmissionKind, filesByField: MultipartFilesByFiel
       };
     }
 
-    if (count > limit) {
+    if (count < requirement.min) {
+      return {
+        code: "REQUIRED_FILE_MISSING",
+        message: `${field} requires at least ${requirement.min} file(s)`,
+        details: { field, count, min: requirement.min },
+      };
+    }
+
+    if (count > requirement.max) {
       return {
         code: "TOO_MANY_FILES",
         message: `${field} exceeds the allowed file count`,
-        details: { field, count, limit },
+        details: { field, count, limit: requirement.max },
       };
     }
   }
