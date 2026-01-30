@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import ErrorBox from "@/components/internal/ErrorBox";
 import MediaPreviewGrid from "@/components/internal/MediaPreviewGrid";
+import SubmissionPayloadSummary from "@/components/internal/SubmissionPayloadSummary";
 import StatusBadge from "@/components/internal/StatusBadge";
 import SubmissionActions from "@/components/internal/SubmissionActions";
 import {
@@ -227,8 +228,11 @@ export default function SubmissionDetailCard({ submissionId }: { submissionId: s
       </div>
 
       <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-        <h2 className="text-sm font-semibold text-gray-800">Normalized payload</h2>
-        <details className="mt-3 rounded-md border border-gray-100 bg-gray-50 p-3">
+        <h2 className="text-sm font-semibold text-gray-800">Payload summary</h2>
+        <div className="mt-4">
+          <SubmissionPayloadSummary payload={submission.payload} />
+        </div>
+        <details className="mt-4 rounded-md border border-gray-100 bg-gray-50 p-3">
           <summary className="cursor-pointer text-sm font-semibold text-gray-700">View payload JSON</summary>
           <pre className="mt-3 max-h-96 overflow-auto text-xs text-gray-700">
             {JSON.stringify(submission.payload, null, 2)}
