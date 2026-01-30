@@ -628,7 +628,7 @@ export default function SubmitForm({ kind }: SubmitFormProps) {
               {errors.reportAction && <p className="text-red-600 text-sm">{errors.reportAction}</p>}
             </div>
             <div className="space-y-1">
-              {fieldLabel("Details (optional)")}
+              {fieldLabel("What is incorrect? (required)")}
               <textarea
                 className="w-full rounded-md border px-3 py-2"
                 rows={3}
@@ -639,7 +639,7 @@ export default function SubmitForm({ kind }: SubmitFormProps) {
               {errors.reportDetails && <p className="text-red-600 text-sm">{errors.reportDetails}</p>}
             </div>
             <div className="space-y-1">
-              {fieldLabel("Evidence URLs (optional, one per line)")}
+              {fieldLabel("Evidence URLs (required, one per line)")}
               <textarea
                 className="w-full rounded-md border px-3 py-2"
                 rows={3}
