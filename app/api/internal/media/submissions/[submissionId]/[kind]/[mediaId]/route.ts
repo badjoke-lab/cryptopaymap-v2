@@ -64,7 +64,7 @@ export async function GET(
       return new Response(null, { status: 404 });
     }
 
-    const key = buildSubmissionMediaKey(submissionId, kind, mediaId);
+    const key = record.r2Key ?? buildSubmissionMediaKey(submissionId, kind, mediaId);
     const result = await getSubmissionMediaObject(key);
     const stream = toReadableStream(result.Body);
 

@@ -2,12 +2,21 @@ import { NextResponse } from "next/server";
 
 import { DbUnavailableError, dbQuery, hasDatabaseUrl } from "@/lib/db";
 import { buildDataSourceHeaders } from "@/lib/dataSource";
+import { buildSubmissionMediaUrl } from "@/lib/media/submissionMedia";
 import { ensureSubmissionColumns, mapSubmissionRow, tableExists } from "@/lib/internal-submissions";
+import type { SubmissionMediaKind } from "@/lib/storage/r2";
 import { requireInternalAuth } from "@/lib/internalAuth";
 
 export const runtime = "nodejs";
 
-const extractMediaId = (url: string) => {
+const extractMediaIdFromKey = (key?: string | null) => {
+  if (!key) return null;
+  const match = key.match(/\/([^/]+)\.webp$/);
+  return match ? match[1] : key;
+};
+
+const extractMediaIdFromUrl = (url?: string | null) => {
+  if (!url) return null;
   const match = url.match(/\/([^/]+)$/);
   return match ? match[1] : url;
 };
@@ -82,8 +91,41 @@ export async function GET(request: Request, { params }: { params: { id: string }
     );
     const hasMediaTable = Boolean(mediaTableResult.rows[0]?.present);
     const mediaRows = hasMediaTable
-      ? await dbQuery<{ id: number; kind: string; url: string }>(
-          `SELECT id, kind, url
+      ? await dbQuery<{ column_name: string }>(
+          `
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'submission_media'
+          `,
+          [],
+          { route },
+        )
+      : { rows: [] };
+
+    const mediaColumns = new Set(mediaRows.rows.map((row) => row.column_name));
+
+    const mediaRecords = hasMediaTable
+      ? await dbQuery<{
+          id: number;
+          kind: SubmissionMediaKind;
+          media_id: string | null;
+          r2_key: string | null;
+          mime: string | null;
+          width: number | null;
+          height: number | null;
+          created_at: string | null;
+          url: string | null;
+        }>(
+          `SELECT id,
+              kind,
+              ${mediaColumns.has("media_id") ? "media_id" : "NULL::text AS media_id"},
+              ${mediaColumns.has("r2_key") ? "r2_key" : "NULL::text AS r2_key"},
+              ${mediaColumns.has("mime") ? "mime" : "NULL::text AS mime"},
+              ${mediaColumns.has("width") ? "width" : "NULL::int AS width"},
+              ${mediaColumns.has("height") ? "height" : "NULL::int AS height"},
+              ${mediaColumns.has("created_at") ? "created_at" : "NULL::timestamptz AS created_at"},
+              ${mediaColumns.has("url") ? "url" : "NULL::text AS url"}
            FROM submission_media
            WHERE submission_id = $1
            ORDER BY id ASC`,
@@ -92,11 +134,27 @@ export async function GET(request: Request, { params }: { params: { id: string }
         )
       : { rows: [] };
 
-    const media = mediaRows.rows.map((mediaRow) => ({
-      kind: mediaRow.kind,
-      url: mediaRow.url,
-      mediaId: extractMediaId(mediaRow.url),
-    }));
+    const media = mediaRecords.rows
+      .map((mediaRow) => {
+        const mediaId =
+          mediaRow.media_id ??
+          extractMediaIdFromKey(mediaRow.r2_key) ??
+          extractMediaIdFromUrl(mediaRow.url);
+        if (!mediaId) {
+          return null;
+        }
+
+        return {
+          kind: mediaRow.kind,
+          mediaId,
+          url: buildSubmissionMediaUrl(id, mediaRow.kind, mediaId),
+          mime: mediaRow.mime,
+          width: mediaRow.width,
+          height: mediaRow.height,
+          createdAt: mediaRow.created_at,
+        };
+      })
+      .filter(Boolean);
 
     return NextResponse.json(
       { submission: { ...mapSubmissionRow(row), media } },

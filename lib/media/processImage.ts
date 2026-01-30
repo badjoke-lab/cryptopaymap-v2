@@ -16,6 +16,8 @@ export class MediaProcessingError extends Error {
 type ProcessImageResult = {
   buffer: Buffer;
   contentType: "image/webp";
+  width: number | null;
+  height: number | null;
 };
 
 export const processImage = async (input: Buffer): Promise<ProcessImageResult> => {
@@ -30,11 +32,13 @@ export const processImage = async (input: Buffer): Promise<ProcessImageResult> =
       })
       .webp({ quality: WEBP_QUALITY });
 
-    const buffer = await pipeline.toBuffer();
+    const { data, info } = await pipeline.toBuffer({ resolveWithObject: true });
 
     return {
-      buffer,
+      buffer: data,
       contentType: "image/webp",
+      width: info.width ?? null,
+      height: info.height ?? null,
     };
   } catch (error) {
     throw new MediaProcessingError("Failed to process image", { cause: error });
