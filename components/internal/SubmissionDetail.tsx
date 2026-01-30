@@ -57,6 +57,7 @@ export default function SubmissionDetailCard({ submissionId }: { submissionId: s
   const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
   const [historyStatus, setHistoryStatus] = useState<"loading" | "loaded" | "error">("loading");
   const [error, setError] = useState<{ code?: string; message?: string } | null>(null);
+  const [selectedGalleryMediaIds, setSelectedGalleryMediaIds] = useState<string[]>([]);
   const [toast, setToast] = useState<{ type: "success" | "error"; text: string; placeId?: string | null } | null>(
     null,
   );
@@ -89,6 +90,14 @@ export default function SubmissionDetailCard({ submissionId }: { submissionId: s
     void refreshHistory();
   }, [refresh, refreshHistory]);
 
+  useEffect(() => {
+    if (!submission) return;
+    const galleryMediaIds = (submission.media ?? [])
+      .filter((item) => item.kind === "gallery")
+      .map((item) => item.mediaId);
+    setSelectedGalleryMediaIds(galleryMediaIds);
+  }, [submission]);
+
   const reviewInfo = useMemo(() => {
     if (!submission) return null;
     return {
@@ -120,6 +129,15 @@ export default function SubmissionDetailCard({ submissionId }: { submissionId: s
   const placeId = submission.placeId ?? submission.payload?.placeId;
   const acceptedMediaSummary = submission.acceptedMediaSummary ?? submission.payload?.acceptedMediaSummary;
   const mediaSaved = submission.mediaSaved ?? submission.payload?.mediaSaved;
+  const galleryMedia = useMemo(
+    () => (submission.media ?? []).filter((item) => item.kind === "gallery"),
+    [submission.media],
+  );
+  const toggleGalleryMedia = useCallback((mediaId: string) => {
+    setSelectedGalleryMediaIds((prev) =>
+      prev.includes(mediaId) ? prev.filter((id) => id !== mediaId) : [...prev, mediaId],
+    );
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -223,7 +241,28 @@ export default function SubmissionDetailCard({ submissionId }: { submissionId: s
       <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
         <h2 className="text-sm font-semibold text-gray-800">Media preview</h2>
         <div className="mt-4">
-          <MediaPreviewGrid submissionId={submission.id} media={submission.media ?? []} />
+          <div className="space-y-4">
+            {galleryMedia.length ? (
+              <div className="rounded-md border border-emerald-100 bg-emerald-50 p-3 text-sm text-emerald-900">
+                <p className="font-semibold">Promote gallery selection</p>
+                <p className="text-xs text-emerald-800">
+                  Selected {selectedGalleryMediaIds.length} of {galleryMedia.length} gallery items for public place
+                  media. Proof/evidence stay internal.
+                </p>
+              </div>
+            ) : (
+              <div className="rounded-md border border-gray-100 bg-gray-50 p-3 text-sm text-gray-600">
+                No gallery media available for promotion.
+              </div>
+            )}
+            <MediaPreviewGrid
+              submissionId={submission.id}
+              media={submission.media ?? []}
+              selectableKind="gallery"
+              selectedMediaIds={selectedGalleryMediaIds}
+              onToggleSelection={galleryMedia.length ? toggleGalleryMedia : undefined}
+            />
+          </div>
         </div>
       </div>
 
@@ -285,6 +324,7 @@ export default function SubmissionDetailCard({ submissionId }: { submissionId: s
         <div className="mt-4 space-y-4">
           <SubmissionActions
             submission={submission}
+            selectedGalleryMediaIds={selectedGalleryMediaIds}
             onActionComplete={(message) => setToast(message)}
             onRefresh={() => {
               void refresh();

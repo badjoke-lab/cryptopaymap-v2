@@ -7,11 +7,17 @@ import { approveSubmission, promoteSubmission, rejectSubmission } from "@/lib/in
 
 type SubmissionActionsProps = {
   submission: SubmissionDetail;
+  selectedGalleryMediaIds: string[];
   onActionComplete: (message: { type: "success" | "error"; text: string; placeId?: string | null }) => void;
   onRefresh: () => void;
 };
 
-export default function SubmissionActions({ submission, onActionComplete, onRefresh }: SubmissionActionsProps) {
+export default function SubmissionActions({
+  submission,
+  selectedGalleryMediaIds,
+  onActionComplete,
+  onRefresh,
+}: SubmissionActionsProps) {
   const [reviewNote, setReviewNote] = useState("");
   const [rejectReason, setRejectReason] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -79,7 +85,7 @@ export default function SubmissionActions({ submission, onActionComplete, onRefr
     if (isSubmitting) return;
     setIsSubmitting(true);
     try {
-      const result = await promoteSubmission(submission.id);
+      const result = await promoteSubmission(submission.id, selectedGalleryMediaIds);
       if (result.ok) {
         onActionComplete({
           type: "success",

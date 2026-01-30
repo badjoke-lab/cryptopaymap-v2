@@ -20,12 +20,24 @@ export async function POST(request: Request, { params }: { params: { id: string 
   const { id } = params;
   const route = "api_internal_submissions_promote";
   const actor = resolveActorFromRequest(request, "internal");
+  let galleryMediaIds: string[] | undefined;
+
+  try {
+    const payload = await request.json();
+    if (payload && typeof payload === "object" && Array.isArray(payload.galleryMediaIds)) {
+      galleryMediaIds = payload.galleryMediaIds.filter((item: unknown) => typeof item === "string");
+    }
+  } catch {
+    galleryMediaIds = undefined;
+  }
 
   let client: Awaited<ReturnType<typeof getDbClient>> | null = null;
 
   try {
     client = await getDbClient(route);
-    const result = await promoteSubmission(route, client, actor, id);
+    const result = await promoteSubmission(route, client, actor, id, {
+      galleryMediaIds,
+    });
 
     if (!result.ok) {
       return NextResponse.json(result.body, { status: result.status });
