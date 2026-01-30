@@ -33,13 +33,17 @@ export async function GET(
   request: Request,
   { params }: { params: { submissionId: string; kind: string; mediaId: string } },
 ) {
-  if (!isAllowedKind(params.kind)) {
-    return new Response(null, { status: 404 });
-  }
-
   const auth = requireInternalAuth(request);
   if (!("ok" in auth)) {
     return auth;
+  }
+
+  if (params.kind === "gallery") {
+    return new Response(null, { status: 403 });
+  }
+
+  if (!isAllowedKind(params.kind)) {
+    return new Response(null, { status: 404 });
   }
 
   if (!hasDatabaseUrl()) {
@@ -72,9 +76,12 @@ export async function GET(
       return new Response(null, { status: 404 });
     }
 
+    const contentType =
+      record.mime ?? (typeof result.ContentType === "string" ? result.ContentType : null) ?? "image/webp";
+
     return new Response(stream, {
       headers: {
-        "Content-Type": "image/webp",
+        "Content-Type": contentType,
         "Cache-Control": "no-store",
       },
     });
