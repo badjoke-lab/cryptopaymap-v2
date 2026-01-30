@@ -85,6 +85,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
     const hasReviewedBy = await hasColumn(route, "submissions", "reviewed_by", client);
     const hasReviewNote = await hasColumn(route, "submissions", "review_note", client);
 
+    // Approve only updates submission status metadata and must not touch places.
     const updates = ["status = 'approved'", "approved_at = NOW()"];
     const paramsList: unknown[] = [id];
 

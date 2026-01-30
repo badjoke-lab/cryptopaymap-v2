@@ -229,6 +229,32 @@ const buildVerificationInsert = async (
 
 const promoteKindAllowed = (kind: string) => kind === "owner" || kind === "community";
 
+const collectMissingFields = (submission: SubmissionRow) => {
+  const missing: string[] = [];
+
+  const requireString = (value: string | null | undefined, field: string) => {
+    if (typeof value !== "string" || value.trim().length === 0) {
+      missing.push(field);
+    }
+  };
+
+  const requireNumber = (value: number | null | undefined, field: string) => {
+    if (typeof value !== "number" || Number.isNaN(value)) {
+      missing.push(field);
+    }
+  };
+
+  requireString(submission.name, "name");
+  requireString(submission.country, "country");
+  requireString(submission.city, "city");
+  requireString(submission.category, "category");
+  requireString(submission.address, "address");
+  requireNumber(submission.lat, "lat");
+  requireNumber(submission.lng, "lng");
+
+  return missing;
+};
+
 export const promoteSubmission = async (
   route: string,
   client: PoolClient,
@@ -305,6 +331,16 @@ export const promoteSubmission = async (
         ok: false,
         status: 409,
         body: { error: "Submission must be approved before promote", status: submission.status },
+      };
+    }
+
+    const missingFields = collectMissingFields(submission);
+    if (missingFields.length) {
+      await dbQuery("ROLLBACK", [], { route, client, retry: false });
+      return {
+        ok: false,
+        status: 400,
+        body: { error: "Submission missing required fields", missingFields },
       };
     }
 
