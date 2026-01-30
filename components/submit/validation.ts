@@ -136,8 +136,8 @@ export const validateDraft = (
       errors.amenities = `Entries must be ${MAX_LENGTHS.amenity} characters or fewer`;
     }
     const evidenceUrls = normalizeList(payload.communityEvidenceUrls);
-    if (kind === "community" && !evidenceUrls.length) {
-      errors.communityEvidenceUrls = "Provide at least one URL";
+    if (kind === "community" && evidenceUrls.length < 2) {
+      errors.communityEvidenceUrls = "Provide at least two URLs";
     }
     if (evidenceUrls.length > MAX_LENGTHS.communityEvidenceUrlsMax) {
       errors.communityEvidenceUrls = `Must include ${MAX_LENGTHS.communityEvidenceUrlsMax} items or fewer`;

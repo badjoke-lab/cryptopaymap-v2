@@ -70,6 +70,8 @@ const parseListField = (value: string) =>
     .map((entry) => entry.trim())
     .filter(Boolean);
 const formatListField = (entries: string[]) => entries.join("\n");
+const ensureMinimumEntries = (entries: string[], minCount: number) =>
+  entries.length >= minCount ? entries : [...entries, ...Array.from({ length: minCount - entries.length }, () => "")];
 
 type SubmitFormProps = {
   kind: SubmissionKind;
@@ -197,6 +199,23 @@ export default function SubmitForm({ kind }: SubmitFormProps) {
     if (Object.keys(validationErrors).length) return;
     saveDraftBundle(kind, draft, files);
     router.push(`/submit/${kind}/confirm`);
+  };
+
+  const communityEvidenceEntries =
+    kind === "community" && ownerDraft
+      ? ensureMinimumEntries(ownerDraft.communityEvidenceUrls ?? [], 2)
+      : ownerDraft?.communityEvidenceUrls ?? [];
+
+  const handleCommunityEvidenceChange = (index: number, value: string) => {
+    if (!ownerDraft) return;
+    const next = [...communityEvidenceEntries];
+    next[index] = value;
+    handleChange("communityEvidenceUrls", next);
+  };
+
+  const handleCommunityEvidenceAdd = () => {
+    if (!ownerDraft) return;
+    handleChange("communityEvidenceUrls", [...communityEvidenceEntries, ""]);
   };
 
   return (
@@ -491,14 +510,27 @@ export default function SubmitForm({ kind }: SubmitFormProps) {
             ) : null}
 
             {kind === "community" ? (
-              <div className="space-y-1">
-                {fieldLabel("Community evidence URLs (required, one per line)")}
-                <textarea
-                  className="w-full rounded-md border px-3 py-2"
-                  rows={3}
-                  value={formatListField(ownerDraft.communityEvidenceUrls)}
-                  onChange={(e) => handleChange("communityEvidenceUrls", parseListField(e.target.value))}
-                />
+              <div className="space-y-2">
+                {fieldLabel("Community evidence URLs (required, at least 2)")}
+                <div className="space-y-2">
+                  {communityEvidenceEntries.map((entry, index) => (
+                    <input
+                      key={`community-evidence-${index}`}
+                      type="url"
+                      className="w-full rounded-md border px-3 py-2"
+                      value={entry}
+                      onChange={(e) => handleCommunityEvidenceChange(index, e.target.value)}
+                      placeholder={`https://example.com/evidence-${index + 1}`}
+                    />
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCommunityEvidenceAdd}
+                  className="text-sm font-medium text-blue-600"
+                >
+                  + Add another URL
+                </button>
                 {errors.communityEvidenceUrls && (
                   <p className="text-red-600 text-sm">{errors.communityEvidenceUrls}</p>
                 )}
