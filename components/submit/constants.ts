@@ -36,4 +36,7 @@ export const MAX_LENGTHS = {
   amenitiesNotes: 300,
   communityEvidenceUrl: 500,
   communityEvidenceUrlsMax: 10,
+  desiredStatus: 80,
+  ownerVerificationDomain: 200,
+  ownerVerificationWorkEmail: 200,
 };

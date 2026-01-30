@@ -70,10 +70,38 @@ export const validateDraft = (
     if (payload.paymentNote && payload.paymentNote.length > MAX_LENGTHS.paymentNote) {
       errors.paymentNote = `Must be ${MAX_LENGTHS.paymentNote} characters or fewer`;
     }
+    if (kind === "owner") {
+      if (isEmpty(payload.desiredStatus)) {
+        errors.desiredStatus = "Required";
+      }
+    }
+    if (payload.desiredStatus && payload.desiredStatus.length > MAX_LENGTHS.desiredStatus) {
+      errors.desiredStatus = `Must be ${MAX_LENGTHS.desiredStatus} characters or fewer`;
+    }
     if (isEmpty(payload.ownerVerification)) {
       errors.ownerVerification = "Required";
     } else if (!["domain", "otp", "dashboard_ss"].includes(payload.ownerVerification)) {
       errors.ownerVerification = "Select a valid option";
+    }
+    if (payload.ownerVerification === "domain") {
+      if (isEmpty(payload.ownerVerificationDomain)) {
+        errors.ownerVerificationDomain = "Required";
+      } else if (payload.ownerVerificationDomain.length > MAX_LENGTHS.ownerVerificationDomain) {
+        errors.ownerVerificationDomain = `Must be ${MAX_LENGTHS.ownerVerificationDomain} characters or fewer`;
+      }
+    }
+    if (payload.ownerVerification === "otp") {
+      if (isEmpty(payload.ownerVerificationWorkEmail)) {
+        errors.ownerVerificationWorkEmail = "Required";
+      } else if (
+        !emailRegex.test(payload.ownerVerificationWorkEmail) ||
+        payload.ownerVerificationWorkEmail.length > MAX_LENGTHS.ownerVerificationWorkEmail
+      ) {
+        errors.ownerVerificationWorkEmail = "Invalid email";
+      }
+    }
+    if (payload.ownerVerification === "dashboard_ss" && !files.proof.length) {
+      errors.proof = "Proof image required for dashboard verification";
     }
     if (payload.amenitiesNotes && payload.amenitiesNotes.length > MAX_LENGTHS.amenitiesNotes) {
       errors.amenitiesNotes = `Must be ${MAX_LENGTHS.amenitiesNotes} characters or fewer`;
