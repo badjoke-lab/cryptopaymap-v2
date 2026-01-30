@@ -5,6 +5,7 @@ import type { PoolClient } from "pg";
 import { dbQuery } from "@/lib/db";
 import { recordHistoryEntry } from "@/lib/history";
 import { hasColumn, tableExists } from "@/lib/internal-submissions";
+import { buildSubmissionMediaUrl } from "@/lib/media/submissionMedia";
 import type { SubmissionPayload } from "@/lib/submissions";
 
 type PromoteActor = Parameters<typeof recordHistoryEntry>[0]["actor"];
@@ -31,6 +32,134 @@ type SubmissionRow = {
 type PromoteResult =
   | { ok: true; placeId: string; promoted: boolean }
   | { ok: false; status: number; body: Record<string, unknown> };
+
+type PromoteOptions = {
+  galleryMediaIds?: string[];
+};
+
+type SubmissionMediaRow = {
+  media_id: string | null;
+  r2_key: string | null;
+  url: string | null;
+};
+
+type PlaceMedia = {
+  mediaId: string;
+  url: string;
+};
+
+const extractMediaIdFromKey = (key?: string | null) => {
+  if (!key) return null;
+  const match = key.match(/\/([^/]+)\.webp$/);
+  return match ? match[1] : key;
+};
+
+const extractMediaIdFromUrl = (url?: string | null) => {
+  if (!url) return null;
+  const match = url.match(/\/([^/]+)$/);
+  return match ? match[1] : url;
+};
+
+const loadSubmissionGalleryMedia = async (route: string, client: PoolClient, submissionId: string) => {
+  const submissionsMediaExists = await tableExists(route, "submission_media", client);
+  if (!submissionsMediaExists) {
+    return [] as PlaceMedia[];
+  }
+
+  const columnRows = await dbQuery<{ column_name: string }>(
+    `
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'submission_media'
+        AND column_name IN ('media_id', 'r2_key', 'url')
+    `,
+    [],
+    { route, client, retry: false },
+  );
+
+  const columns = new Set(columnRows.rows.map((row) => row.column_name));
+  const { rows } = await dbQuery<SubmissionMediaRow>(
+    `SELECT
+        ${columns.has("media_id") ? "media_id" : "NULL::text AS media_id"},
+        ${columns.has("r2_key") ? "r2_key" : "NULL::text AS r2_key"},
+        ${columns.has("url") ? "url" : "NULL::text AS url"}
+     FROM submission_media
+     WHERE submission_id = $1
+       AND kind = 'gallery'
+     ORDER BY id ASC`,
+    [submissionId],
+    { route, client, retry: false },
+  );
+
+  return rows
+    .map((row) => {
+      const mediaId = row.media_id ?? extractMediaIdFromKey(row.r2_key) ?? extractMediaIdFromUrl(row.url);
+      if (!mediaId) return null;
+      return {
+        mediaId,
+        url: buildSubmissionMediaUrl(submissionId, "gallery", mediaId),
+      };
+    })
+    .filter((item): item is PlaceMedia => Boolean(item));
+};
+
+const syncPlaceMedia = async (route: string, client: PoolClient, placeId: string, media: PlaceMedia[]) => {
+  const mediaTableExists = await tableExists(route, "media", client);
+  if (!mediaTableExists) return;
+
+  const columnRows = await dbQuery<{ column_name: string }>(
+    `
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'media'
+    `,
+    [],
+    { route, client, retry: false },
+  );
+
+  const columns = new Set(columnRows.rows.map((row) => row.column_name));
+  if (!columns.has("place_id") || !columns.has("url")) {
+    return;
+  }
+
+  await dbQuery(
+    `DELETE FROM media
+     WHERE place_id = $1`,
+    [placeId],
+    { route, client, retry: false },
+  );
+
+  if (!media.length) return;
+
+  const hasKind = columns.has("kind");
+  const hasType = columns.has("type");
+  const deduped = Array.from(new Map(media.map((item) => [item.mediaId, item])).values());
+
+  for (const item of deduped) {
+    const insertColumns = ["place_id", "url"];
+    const params: string[] = [placeId, item.url];
+
+    if (hasKind) {
+      insertColumns.push("kind");
+      params.push("gallery");
+    }
+
+    if (hasType) {
+      insertColumns.push("type");
+      params.push("gallery");
+    }
+
+    const values = params.map((_, index) => `$${index + 1}`).join(", ");
+    await dbQuery(
+      `INSERT INTO media (${insertColumns.join(", ")})
+       VALUES (${values})`,
+      params,
+      { route, client, retry: false },
+    );
+  }
+};
 
 const buildVerificationInsert = async (
   route: string,
@@ -105,6 +234,7 @@ export const promoteSubmission = async (
   client: PoolClient,
   actor: PromoteActor,
   submissionId: string,
+  options: PromoteOptions = {},
 ): Promise<PromoteResult> => {
   const submissionsTableExists = await tableExists(route, "submissions", client);
   if (!submissionsTableExists) {
@@ -191,6 +321,24 @@ export const promoteSubmission = async (
     }
 
     const placeId = linkedPlaceId ?? randomUUID();
+    const availableGalleryMedia = await loadSubmissionGalleryMedia(route, client, submissionId);
+    const requestedGalleryMediaIds = options.galleryMediaIds
+      ? Array.from(
+          new Set(options.galleryMediaIds.map((item) => item.trim()).filter((item) => item.length > 0)),
+        )
+      : null;
+    if (requestedGalleryMediaIds) {
+      const availableIds = new Set(availableGalleryMedia.map((item) => item.mediaId));
+      const invalidIds = requestedGalleryMediaIds.filter((item) => !availableIds.has(item));
+      if (invalidIds.length) {
+        await dbQuery("ROLLBACK", [], { route, client, retry: false });
+        return {
+          ok: false,
+          status: 400,
+          body: { error: "Invalid gallery media selection", invalidMediaIds: invalidIds },
+        };
+      }
+    }
 
     if (linkedPlaceId) {
       await dbQuery(
@@ -263,6 +411,11 @@ export const promoteSubmission = async (
         }
       }
     }
+
+    const mediaToPublish = requestedGalleryMediaIds
+      ? availableGalleryMedia.filter((item) => requestedGalleryMediaIds.includes(item.mediaId))
+      : availableGalleryMedia;
+    await syncPlaceMedia(route, client, placeId, mediaToPublish);
 
     const submissionUpdates: string[] = [];
     const submissionParams: unknown[] = [submissionId];

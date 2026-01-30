@@ -169,7 +169,9 @@ export const rejectSubmission = async (
     body: JSON.stringify({ reject_reason: reason, ...(reviewNote ? { review_note: reviewNote } : {}) }),
   });
 
-export const promoteSubmission = async (submissionId: string) =>
+export const promoteSubmission = async (submissionId: string, galleryMediaIds: string[]) =>
   fetchJson<SubmissionActionResponse>(`/api/internal/submissions/${submissionId}/promote`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ galleryMediaIds }),
   });
