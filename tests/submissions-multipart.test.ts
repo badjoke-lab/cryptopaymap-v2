@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { parseMultipartSubmission } from "@/lib/submissions/parseMultipart";
+import { parseMultipartSubmission } from "../lib/submissions/parseMultipart";
 import { emptyAcceptedMediaSummary, validateMultipartSubmission } from "@/lib/submissions/validateMultipart";
 
 const buildMultipartRequest = (form: FormData) =>
