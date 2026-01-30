@@ -1,20 +1,15 @@
 import { promises as fs } from "fs";
 import path from "path";
 
-export type AuditCheckStatus = "OK" | "NG" | "WARN" | "INFO";
+export type AuditCheckStatus = "OK" | "NG" | "UNKNOWN";
 
 export type AuditCheckItem = {
   id: string;
   title: string;
   status: AuditCheckStatus;
-  details?: string[];
-  evidence?: string[];
-};
-
-export type AuditCheckGroup = {
-  id: string;
-  title: string;
-  items: AuditCheckItem[];
+  layer: string;
+  detail: string;
+  paths: string[];
 };
 
 export type PlaywrightSummary = {
@@ -25,8 +20,7 @@ export type PlaywrightSummary = {
 export type AuditSummary = {
   ok: number;
   ng: number;
-  warn: number;
-  info: number;
+  unknown: number;
   total: number;
 };
 
@@ -38,19 +32,16 @@ export type AuditReport = {
   durationMs: number;
   playwright: PlaywrightSummary;
   summary: AuditSummary;
-  groups: AuditCheckGroup[];
+  checks: AuditCheckItem[];
 };
 
-const toStatusCounts = (groups: AuditCheckGroup[]): AuditSummary => {
-  const summary = { ok: 0, ng: 0, warn: 0, info: 0, total: 0 };
-  for (const group of groups) {
-    for (const item of group.items) {
-      summary.total += 1;
-      if (item.status === "OK") summary.ok += 1;
-      if (item.status === "NG") summary.ng += 1;
-      if (item.status === "WARN") summary.warn += 1;
-      if (item.status === "INFO") summary.info += 1;
-    }
+const toStatusCounts = (checks: AuditCheckItem[]): AuditSummary => {
+  const summary = { ok: 0, ng: 0, unknown: 0, total: 0 };
+  for (const item of checks) {
+    summary.total += 1;
+    if (item.status === "OK") summary.ok += 1;
+    if (item.status === "NG") summary.ng += 1;
+    if (item.status === "UNKNOWN") summary.unknown += 1;
   }
   return summary;
 };
@@ -75,7 +66,28 @@ const checkPaths = async (rootDir: string, targets: string[]) => {
   return missing;
 };
 
-export const collectSubmitAuditChecks = async (rootDir: string): Promise<AuditCheckGroup[]> => {
+const readSubmissionIds = async (rootDir: string) => {
+  const outputPath = path.join(rootDir, "scripts", "audit", "out", "submission-ids.json");
+  if (!(await fileExists(outputPath))) {
+    return { path: outputPath, exists: false, data: null };
+  }
+  const raw = await fs.readFile(outputPath, "utf8");
+  try {
+    const data = JSON.parse(raw) as Record<string, string>;
+    return { path: outputPath, exists: true, data };
+  } catch {
+    return { path: outputPath, exists: true, data: null };
+  }
+};
+
+type CollectOptions = {
+  playwright: PlaywrightSummary;
+};
+
+export const collectSubmitAuditChecks = async (
+  rootDir: string,
+  options: CollectOptions,
+): Promise<AuditCheckItem[]> => {
   const submitRoutes = [
     "app/submit/page.tsx",
     "app/submit/done/page.tsx",
@@ -101,72 +113,110 @@ export const collectSubmitAuditChecks = async (rootDir: string): Promise<AuditCh
   ];
   const missingMappingDocs = await checkPaths(rootDir, mappingDocs);
 
+  const submissionIds = await readSubmissionIds(rootDir);
+  const submissionValues = submissionIds.data ?? {};
+  const missingSubmissionIds = ["owner", "community", "report"].filter(
+    (kind) => !submissionValues[kind],
+  );
+
+  const playwrightStatus: AuditCheckStatus =
+    options.playwright.exitCode === 0
+      ? "OK"
+      : submissionIds.exists
+        ? "NG"
+        : "UNKNOWN";
+  const playwrightDetail =
+    options.playwright.exitCode === 0
+      ? "Playwright submit audit completed successfully."
+      : submissionIds.exists
+        ? `Playwright exited with ${options.playwright.exitCode ?? "n/a"}. Review test output.`
+        : `Playwright exited with ${options.playwright.exitCode ?? "n/a"} and no submission id output was found. This can happen when required environment access (e.g. internal auth) is missing.`;
+
+  const submissionIdsStatus: AuditCheckStatus =
+    !submissionIds.exists && options.playwright.exitCode !== 0
+      ? "UNKNOWN"
+      : missingSubmissionIds.length
+        ? "NG"
+        : "OK";
+  const submissionIdsDetail = !submissionIds.exists
+    ? "Submission id artifact is missing."
+    : missingSubmissionIds.length
+      ? `Missing submission ids: ${missingSubmissionIds.join(", ")}.`
+      : "Submission ids are recorded for owner, community, and report flows.";
+
   return [
     {
       id: "CHK-01",
-      title: "submit/DB/map checklist baseline",
-      items: [
-        {
-          id: "CHK-01-A",
-          title: "Submit route pages exist",
-          status: missingSubmitRoutes.length ? "NG" : "OK",
-          details: missingSubmitRoutes.length
-            ? ["Missing submit pages:", ...missingSubmitRoutes]
-            : ["All submit route pages are present."],
-        },
-      ],
+      title: "Submit route pages exist",
+      status: missingSubmitRoutes.length ? "NG" : "OK",
+      layer: "repo",
+      detail: missingSubmitRoutes.length
+        ? `Missing submit pages: ${missingSubmitRoutes.join(", ")}.`
+        : "All submit route pages are present.",
+      paths: missingSubmitRoutes.length ? missingSubmitRoutes : submitRoutes,
     },
     {
       id: "CHK-02",
-      title: "submit/db/map gap audit",
-      items: [
-        {
-          id: "CHK-02-A",
-          title: "Submission media delivery routes exist",
-          status: missingMediaRoutes.length ? "NG" : "OK",
-          details: missingMediaRoutes.length
-            ? ["Missing media routes:", ...missingMediaRoutes]
-            : ["All submission media routes are present."],
-        },
-      ],
+      title: "Submission media delivery routes exist",
+      status: missingMediaRoutes.length ? "NG" : "OK",
+      layer: "repo",
+      detail: missingMediaRoutes.length
+        ? `Missing media routes: ${missingMediaRoutes.join(", ")}.`
+        : "All submission media routes are present.",
+      paths: missingMediaRoutes.length ? missingMediaRoutes : mediaRoutes,
     },
     {
       id: "CHK-03",
-      title: "Submit field mapping coverage",
-      items: [
-        {
-          id: "CHK-03-A",
-          title: "Mapping documents are available",
-          status: missingMappingDocs.length ? "NG" : "OK",
-          details: missingMappingDocs.length
-            ? ["Missing mapping docs:", ...missingMappingDocs]
-            : ["All mapping documents are present."],
-        },
-      ],
+      title: "Mapping documents are available",
+      status: missingMappingDocs.length ? "NG" : "OK",
+      layer: "docs",
+      detail: missingMappingDocs.length
+        ? `Missing mapping docs: ${missingMappingDocs.join(", ")}.`
+        : "All mapping documents are present.",
+      paths: missingMappingDocs.length ? missingMappingDocs : mappingDocs,
+    },
+    {
+      id: "CHK-04",
+      title: "Playwright submit audit run",
+      status: playwrightStatus,
+      layer: "playwright",
+      detail: playwrightDetail,
+      paths: ["tests/audit/submit-audit.spec.ts"],
+    },
+    {
+      id: "CHK-05",
+      title: "Submission ids recorded",
+      status: submissionIdsStatus,
+      layer: "artifact",
+      detail: submissionIdsDetail,
+      paths: submissionIds.exists ? ["scripts/audit/out/submission-ids.json"] : [],
     },
   ];
 };
 
-const formatGroupMarkdown = (group: AuditCheckGroup) => {
+const formatCheckMarkdown = (check: AuditCheckItem) => {
   const lines: string[] = [];
-  lines.push(`## ${group.id}: ${group.title}`);
-  lines.push("");
-  for (const item of group.items) {
-    lines.push(`- **${item.id}** ${item.title} — ${item.status}`);
-    if (item.details?.length) {
-      for (const detail of item.details) {
-        lines.push(`  - ${detail}`);
-      }
-    }
-    if (item.evidence?.length) {
-      lines.push("  - Evidence:");
-      for (const evidence of item.evidence) {
-        lines.push(`    - ${evidence}`);
-      }
+  lines.push(`- **${check.id}** ${check.title} — ${check.status}`);
+  lines.push(`  - Layer: ${check.layer}`);
+  lines.push(`  - Detail: ${check.detail}`);
+  if (check.paths.length) {
+    lines.push("  - Paths:");
+    for (const item of check.paths) {
+      lines.push(`    - ${item}`);
     }
   }
-  lines.push("");
   return lines.join("\n");
+};
+
+const formatRunId = (date: Date) => {
+  const pad = (value: number) => value.toString().padStart(2, "0");
+  const year = date.getUTCFullYear();
+  const month = pad(date.getUTCMonth() + 1);
+  const day = pad(date.getUTCDate());
+  const hours = pad(date.getUTCHours());
+  const minutes = pad(date.getUTCMinutes());
+  const seconds = pad(date.getUTCSeconds());
+  return `${year}${month}${day}-${hours}${minutes}${seconds}`;
 };
 
 export const buildSubmitAuditReport = (
@@ -174,10 +224,10 @@ export const buildSubmitAuditReport = (
   startedAt: Date,
   finishedAt: Date,
   playwright: PlaywrightSummary,
-  groups: AuditCheckGroup[],
+  checks: AuditCheckItem[],
 ): AuditReport => {
-  const runId = startedAt.toISOString().replace(/[:.]/g, "-");
-  const summary = toStatusCounts(groups);
+  const runId = formatRunId(startedAt);
+  const summary = toStatusCounts(checks);
   return {
     runId,
     baseUrl,
@@ -186,7 +236,7 @@ export const buildSubmitAuditReport = (
     durationMs: finishedAt.getTime() - startedAt.getTime(),
     playwright,
     summary,
-    groups,
+    checks,
   };
 };
 
@@ -200,11 +250,13 @@ export const renderSubmitAuditMarkdown = (report: AuditReport): string => {
   lines.push(`- Duration: ${report.durationMs} ms`);
   lines.push(`- Playwright: ${report.playwright.status} (exit ${report.playwright.exitCode ?? "n/a"})`);
   lines.push(
-    `- Summary: OK=${report.summary.ok} / NG=${report.summary.ng} / WARN=${report.summary.warn} / INFO=${report.summary.info} (total ${report.summary.total})`,
+    `- Summary: OK=${report.summary.ok} / NG=${report.summary.ng} / UNKNOWN=${report.summary.unknown} (total ${report.summary.total})`,
   );
   lines.push("");
-  for (const group of report.groups) {
-    lines.push(formatGroupMarkdown(group));
+  lines.push("## Checks");
+  lines.push("");
+  for (const check of report.checks) {
+    lines.push(formatCheckMarkdown(check));
   }
   return lines.join("\n");
 };
