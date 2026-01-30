@@ -17,6 +17,7 @@ export const MAX_LENGTHS = {
   category: 60,
   about: 600,
   paymentNote: 150,
+  paymentUrl: 500,
   website: 200,
   twitter: 200,
   instagram: 200,

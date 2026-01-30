@@ -67,6 +67,20 @@ export default function SubmitConfirm({ kind }: { kind: SubmissionKind }) {
     return { methodLabel, inputValue };
   }, [bundle]);
 
+  const paymentRequirementSummary = useMemo(() => {
+    if (!bundle || bundle.payload.kind !== "owner") return null;
+    const hasUrl = Boolean(bundle.payload.paymentUrl?.trim());
+    const hasScreenshot = fileCounts.proof.length > 0;
+    const status = hasUrl && hasScreenshot
+      ? "URL・SSで満たした"
+      : hasUrl
+        ? "URLで満たした"
+        : hasScreenshot
+          ? "SSで満たした"
+          : "未達";
+    return { hasUrl, status };
+  }, [bundle, fileCounts.proof.length]);
+
   const handleSubmit = async () => {
     if (!bundle) return;
     const errors = validateDraft(kind, bundle.payload, bundle.files ?? emptyFileState);
@@ -185,6 +199,12 @@ export default function SubmitConfirm({ kind }: { kind: SubmissionKind }) {
                 ) : null}
                 <SummaryRow label="Verification method" value={verificationSummary?.methodLabel} />
                 <SummaryRow label="Verification input" value={verificationSummary?.inputValue} />
+                {bundle.payload.kind === "owner" ? (
+                  <>
+                    <SummaryRow label="Payment URL" value={bundle.payload.paymentUrl} />
+                    <SummaryRow label="Payment requirement" value={paymentRequirementSummary?.status} />
+                  </>
+                ) : null}
                 <SummaryRow label="Proof attached" value={fileCounts.proof.length ? "Yes" : "No"} />
                 <SummaryRow label="Latitude" value={bundle.payload.lat} />
                 <SummaryRow label="Longitude" value={bundle.payload.lng} />

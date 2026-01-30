@@ -4,6 +4,7 @@ import { ALLOWED_MIME_TYPES, FILE_LIMITS, MAX_FILE_SIZE_BYTES, MAX_LENGTHS } fro
 import type { OwnerCommunityDraft, ReportDraft, SubmissionDraft, SubmissionDraftFiles, StoredFile } from "./types";
 
 const emailRegex = /[^@]+@[^.]+\..+/;
+const urlRegex = /^https?:\/\//i;
 
 const isEmpty = (value: string) => !value.trim();
 const normalizeList = (value?: string[]) => (value ?? []).map((entry) => entry.trim()).filter(Boolean);
@@ -12,6 +13,16 @@ const parseOptionalNumber = (value: string) => {
   if (!value.trim()) return undefined;
   const num = Number(value);
   return Number.isFinite(num) ? num : NaN;
+};
+
+const isValidUrl = (value: string) => {
+  if (!urlRegex.test(value)) return false;
+  try {
+    const parsed = new URL(value);
+    return ["http:", "https:"].includes(parsed.protocol);
+  } catch {
+    return false;
+  }
 };
 
 const validateFile = (file: StoredFile) => {
@@ -69,6 +80,17 @@ export const validateDraft = (
     }
     if (payload.paymentNote && payload.paymentNote.length > MAX_LENGTHS.paymentNote) {
       errors.paymentNote = `Must be ${MAX_LENGTHS.paymentNote} characters or fewer`;
+    }
+    const hasPaymentUrl = !isEmpty(payload.paymentUrl);
+    const hasPaymentProof = files.proof.length > 0;
+    if (payload.paymentUrl && payload.paymentUrl.length > MAX_LENGTHS.paymentUrl) {
+      errors.paymentUrl = `Must be ${MAX_LENGTHS.paymentUrl} characters or fewer`;
+    }
+    if (hasPaymentUrl && !isValidUrl(payload.paymentUrl.trim())) {
+      errors.paymentUrl = "Enter a valid URL";
+    }
+    if (kind === "owner" && !hasPaymentUrl && !hasPaymentProof) {
+      errors.paymentRequirement = "Provide a payment URL or screenshot";
     }
     if (kind === "owner") {
       if (isEmpty(payload.desiredStatus)) {

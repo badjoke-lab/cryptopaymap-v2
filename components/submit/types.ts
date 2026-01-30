@@ -10,6 +10,7 @@ export type OwnerCommunityDraft = {
   acceptedChains: string[];
   about: string;
   paymentNote: string;
+  paymentUrl: string;
   website: string;
   twitter: string;
   instagram: string;
