@@ -107,6 +107,15 @@ export default function SubmissionDetailCard({ submissionId }: { submissionId: s
       rejectedAt: submission.rejectedAt,
     };
   }, [submission]);
+  const galleryMedia = useMemo(
+    () => (submission?.media ?? []).filter((item) => item.kind === "gallery"),
+    [submission?.media],
+  );
+  const toggleGalleryMedia = useCallback((mediaId: string) => {
+    setSelectedGalleryMediaIds((prev) =>
+      prev.includes(mediaId) ? prev.filter((id) => id !== mediaId) : [...prev, mediaId],
+    );
+  }, []);
 
   if (status === "loading") {
     return <div className="rounded-lg border bg-white p-6 text-sm text-gray-500">Loading submission…</div>;
@@ -129,15 +138,6 @@ export default function SubmissionDetailCard({ submissionId }: { submissionId: s
   const placeId = submission.placeId ?? submission.payload?.placeId;
   const acceptedMediaSummary = submission.acceptedMediaSummary ?? submission.payload?.acceptedMediaSummary;
   const mediaSaved = submission.mediaSaved ?? submission.payload?.mediaSaved;
-  const galleryMedia = useMemo(
-    () => (submission.media ?? []).filter((item) => item.kind === "gallery"),
-    [submission.media],
-  );
-  const toggleGalleryMedia = useCallback((mediaId: string) => {
-    setSelectedGalleryMediaIds((prev) =>
-      prev.includes(mediaId) ? prev.filter((id) => id !== mediaId) : [...prev, mediaId],
-    );
-  }, []);
 
   return (
     <div className="space-y-6">
