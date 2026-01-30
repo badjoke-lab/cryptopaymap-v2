@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 
 import type { SubmissionKind } from "@/lib/submissions";
@@ -13,12 +14,26 @@ import { validateDraft } from "./validation";
 
 const emptyFileState = { gallery: [], proof: [], evidence: [] } as SubmissionDraftFiles;
 
-const SummaryRow = ({ label, value }: { label: string; value?: string | number }) => (
+const SummaryRow = ({ label, value }: { label: string; value?: ReactNode }) => (
   <div className="flex items-start gap-4">
     <dt className="w-40 text-sm text-gray-500">{label}</dt>
     <dd className="flex-1 text-sm text-gray-900">{value || "—"}</dd>
   </div>
 );
+
+const renderEvidenceList = (entries?: string[]) => {
+  const normalized = (entries ?? []).map((entry) => entry.trim()).filter(Boolean);
+  if (!normalized.length) return "—";
+  return (
+    <ol className="list-decimal pl-4 space-y-1">
+      {normalized.map((url, index) => (
+        <li key={`${url}-${index}`} className="break-all">
+          {url}
+        </li>
+      ))}
+    </ol>
+  );
+};
 
 export default function SubmitConfirm({ kind }: { kind: SubmissionKind }) {
   const router = useRouter();
@@ -177,14 +192,7 @@ export default function SubmitConfirm({ kind }: { kind: SubmissionKind }) {
                 <SummaryRow label="Reason" value={bundle.payload.reportReason} />
                 <SummaryRow label="Requested action" value={bundle.payload.reportAction} />
                 <SummaryRow label="Details" value={bundle.payload.reportDetails} />
-                <SummaryRow
-                  label="Evidence URLs"
-                  value={
-                    (bundle.payload.communityEvidenceUrls ?? []).length
-                      ? (bundle.payload.communityEvidenceUrls ?? []).join(", ")
-                      : "—"
-                  }
-                />
+                <SummaryRow label="Evidence URLs" value={renderEvidenceList(bundle.payload.communityEvidenceUrls)} />
               </>
             ) : (
               <>
@@ -215,14 +223,7 @@ export default function SubmitConfirm({ kind }: { kind: SubmissionKind }) {
                 />
                 <SummaryRow label="Amenities notes" value={bundle.payload.amenitiesNotes} />
                 <SummaryRow label="Payment note" value={bundle.payload.paymentNote} />
-                <SummaryRow
-                  label="Evidence URLs"
-                  value={
-                    (bundle.payload.communityEvidenceUrls ?? []).length
-                      ? (bundle.payload.communityEvidenceUrls ?? []).join(", ")
-                      : "—"
-                  }
-                />
+                <SummaryRow label="Evidence URLs" value={renderEvidenceList(bundle.payload.communityEvidenceUrls)} />
                 <SummaryRow label="Website" value={bundle.payload.website} />
                 <SummaryRow label="Twitter / X" value={bundle.payload.twitter} />
                 <SummaryRow label="Instagram" value={bundle.payload.instagram} />

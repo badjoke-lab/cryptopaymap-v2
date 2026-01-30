@@ -8,7 +8,10 @@ const parseNumber = (value: string): number | undefined => {
   return Number.isFinite(num) ? num : undefined;
 };
 
+const normalizeList = (value?: string[]) => (value ?? []).map((entry) => entry.trim()).filter(Boolean);
+
 export const buildSubmissionPayload = (draft: SubmissionDraft) => {
+  const communityEvidenceUrls = normalizeList(draft.communityEvidenceUrls);
   if (draft.kind === "report") {
     const payload: Record<string, unknown> = {
       verificationRequest: "report" satisfies SubmissionKind,
@@ -19,7 +22,7 @@ export const buildSubmissionPayload = (draft: SubmissionDraft) => {
       reportReason: draft.reportReason,
       reportDetails: draft.reportDetails || undefined,
       reportAction: draft.reportAction || undefined,
-      communityEvidenceUrls: draft.communityEvidenceUrls ?? [],
+      communityEvidenceUrls,
       submitterName: draft.submitterName || undefined,
       contactName: draft.submitterName,
       contactEmail: draft.submitterEmail || undefined,
@@ -44,7 +47,7 @@ export const buildSubmissionPayload = (draft: SubmissionDraft) => {
     ownerVerification: draftPayload.ownerVerification || undefined,
     ownerVerificationDomain: draftPayload.ownerVerificationDomain || undefined,
     ownerVerificationWorkEmail: draftPayload.ownerVerificationWorkEmail || undefined,
-    communityEvidenceUrls: draftPayload.communityEvidenceUrls ?? [],
+    communityEvidenceUrls,
     amenities: draftPayload.amenities ?? [],
     amenitiesNotes: draftPayload.amenitiesNotes || undefined,
     website: draftPayload.website || undefined,
