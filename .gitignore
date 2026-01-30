@@ -143,3 +143,5 @@ artifacts/
 db-schema-*/
 docs.zip
 .DS_Store
+docs/audit/runs/*
+!docs/audit/runs/.gitkeep

@@ -15,7 +15,8 @@
     "db:check": "node scripts/db-check.mjs",
     "validate:data": "node --import tsx scripts/validate_data.ts",
     "test:map-smoke": "playwright test tests/map-smoke.spec.ts",
-    "test:map-smoke:headed": "playwright test tests/map-smoke.spec.ts --headed"
+    "test:map-smoke:headed": "playwright test tests/map-smoke.spec.ts --headed",
+    "audit:submit": "tsx scripts/audit/run-submit-audit.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.862.0",
