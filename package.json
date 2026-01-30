@@ -9,7 +9,7 @@
     "lint": "next lint",
     "smoke": "node --import tsx scripts/smoke.mjs",
     "test": "npm run test:stats",
-    "test:stats": "tsc --project tsconfig.test.json && node --test .tmp-tests/tests/*.js && rm -rf .tmp-tests",
+    "test:stats": "tsc --project tsconfig.test.json && node --test .tmp-tests/tests/*.test.js && rm -rf .tmp-tests",
     "db:compat-check": "tsx scripts/db_compat_check.ts",
     "db:migrate:compat": "tsx scripts/db_apply_sql.ts migrations/compat_v3_min.sql",
     "db:check": "node scripts/db-check.mjs",
