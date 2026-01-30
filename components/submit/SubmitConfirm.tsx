@@ -35,6 +35,12 @@ const renderEvidenceList = (entries?: string[]) => {
   );
 };
 
+const reportActionLabel = (value?: string) => {
+  if (value === "hide") return "Hide listing";
+  if (value === "edit") return "Request correction";
+  return value || "—";
+};
+
 export default function SubmitConfirm({ kind }: { kind: SubmissionKind }) {
   const router = useRouter();
   const [bundle, setBundle] = useState<DraftBundle | null>(null);
@@ -190,8 +196,8 @@ export default function SubmitConfirm({ kind }: { kind: SubmissionKind }) {
                 <SummaryRow label="Place ID" value={bundle.payload.placeId} />
                 <SummaryRow label="Place name" value={bundle.payload.placeName} />
                 <SummaryRow label="Reason" value={bundle.payload.reportReason} />
-                <SummaryRow label="Requested action" value={bundle.payload.reportAction} />
-                <SummaryRow label="Details" value={bundle.payload.reportDetails} />
+                <SummaryRow label="Requested action" value={reportActionLabel(bundle.payload.reportAction)} />
+                <SummaryRow label="What is incorrect?" value={bundle.payload.reportDetails} />
                 <SummaryRow label="Evidence URLs" value={renderEvidenceList(bundle.payload.communityEvidenceUrls)} />
               </>
             ) : (

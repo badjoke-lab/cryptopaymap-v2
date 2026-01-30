@@ -209,7 +209,9 @@ export const validateDraft = (
     if (payload.reportReason.length > MAX_LENGTHS.reportReason) {
       errors.reportReason = `Must be ${MAX_LENGTHS.reportReason} characters or fewer`;
     }
-    if (payload.reportDetails && payload.reportDetails.length > MAX_LENGTHS.reportDetails) {
+    if (isEmpty(payload.reportDetails)) {
+      errors.reportDetails = "Required";
+    } else if (payload.reportDetails.length > MAX_LENGTHS.reportDetails) {
       errors.reportDetails = `Must be ${MAX_LENGTHS.reportDetails} characters or fewer`;
     }
     if (isEmpty(payload.reportAction)) {
@@ -218,6 +220,9 @@ export const validateDraft = (
       errors.reportAction = "Select a valid option";
     }
     const evidenceUrls = normalizeList(payload.communityEvidenceUrls);
+    if (evidenceUrls.length < 1) {
+      errors.communityEvidenceUrls = "Provide at least one URL";
+    }
     if (evidenceUrls.length > MAX_LENGTHS.communityEvidenceUrlsMax) {
       errors.communityEvidenceUrls = `Must include ${MAX_LENGTHS.communityEvidenceUrlsMax} items or fewer`;
     }
