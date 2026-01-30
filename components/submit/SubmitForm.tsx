@@ -40,6 +40,7 @@ const buildDefaultDraft = (kind: SubmissionKind): SubmissionDraft => {
     acceptedChains: [],
     about: "",
     paymentNote: "",
+    paymentUrl: "",
     website: "",
     twitter: "",
     instagram: "",
@@ -471,6 +472,24 @@ export default function SubmitForm({ kind }: SubmitFormProps) {
               {errors.paymentNote && <p className="text-red-600 text-sm">{errors.paymentNote}</p>}
             </div>
 
+            {kind === "owner" ? (
+              <div className="space-y-1">
+                {fieldLabel("Payment URL (required: URL or screenshot)")}
+                <input
+                  type="url"
+                  className="w-full rounded-md border px-3 py-2"
+                  value={ownerDraft.paymentUrl}
+                  onChange={(e) => handleChange("paymentUrl", e.target.value)}
+                  placeholder="https://example.com/pay"
+                  maxLength={MAX_LENGTHS.paymentUrl}
+                />
+                {errors.paymentUrl && <p className="text-red-600 text-sm">{errors.paymentUrl}</p>}
+                {errors.paymentRequirement && (
+                  <p className="text-red-600 text-sm">{errors.paymentRequirement}</p>
+                )}
+              </div>
+            ) : null}
+
             {kind === "community" ? (
               <div className="space-y-1">
                 {fieldLabel("Community evidence URLs (required, one per line)")}
@@ -609,9 +628,12 @@ export default function SubmitForm({ kind }: SubmitFormProps) {
           </p>
           {kind === "owner" && (
             <div className="space-y-2">
-              {fieldLabel("Proof image (1 max)")}
+              {fieldLabel("Payment screen screenshot (1 max)")}
               <input type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => handleFileAdd("proof", e.target.files)} />
               {errors.proof && <p className="text-red-600 text-sm">{errors.proof}</p>}
+              {errors.paymentRequirement && (
+                <p className="text-red-600 text-sm">{errors.paymentRequirement}</p>
+              )}
               <FileList files={files.proof} onRemove={(index) => handleFileRemove("proof", index)} />
             </div>
           )}

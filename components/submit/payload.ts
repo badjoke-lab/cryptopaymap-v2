@@ -39,6 +39,7 @@ export const buildSubmissionPayload = (draft: SubmissionDraft) => {
     acceptedChains: draftPayload.acceptedChains,
     about: draftPayload.about || undefined,
     paymentNote: draftPayload.paymentNote || undefined,
+    paymentUrl: draftPayload.paymentUrl || undefined,
     desiredStatus: draftPayload.desiredStatus || undefined,
     ownerVerification: draftPayload.ownerVerification || undefined,
     ownerVerificationDomain: draftPayload.ownerVerificationDomain || undefined,
