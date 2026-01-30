@@ -714,13 +714,6 @@ const invalidPayloadResponse = (message: string, details?: Record<string, unknow
 
 const MEDIA_KINDS: SubmissionMediaKind[] = ["gallery", "proof", "evidence"];
 
-const buildSubmissionMediaUrl = (submissionId: string, kind: SubmissionMediaKind, mediaId: string) => {
-  if (kind === "gallery") {
-    return `/api/media/submissions/${submissionId}/gallery/${mediaId}`;
-  }
-  return `/api/internal/media/submissions/${submissionId}/${kind}/${mediaId}`;
-};
-
 const hasAnyMedia = (filesByField: MultipartFilesByField) =>
   MEDIA_KINDS.some((kind) => filesByField[kind].length > 0);
 
@@ -749,11 +742,14 @@ const processAndStoreSubmissionMedia = async (submissionId: string, filesByField
             });
             uploadedKeys.push(key);
 
-            const url = buildSubmissionMediaUrl(submissionId, kind, mediaId);
             await insertSubmissionMedia({
               submissionId,
               kind,
-              url,
+              mediaId,
+              r2Key: key,
+              mime: processed.contentType,
+              width: processed.width,
+              height: processed.height,
               client,
               route: "/api/submissions",
             });
