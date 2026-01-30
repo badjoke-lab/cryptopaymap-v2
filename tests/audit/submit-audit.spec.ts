@@ -1,5 +1,7 @@
 import { test, expect } from "@playwright/test";
 
+import { updateSubmissionIds } from "./submit-helpers";
+
 const BASE_URL = (process.env.BASE_URL || process.env.PW_BASE_URL || "http://localhost:3000").replace(
   /\/$/,
   "",
@@ -56,6 +58,12 @@ const submitPayload = async (request: any, payload: Record<string, unknown>) => 
   const response = await request.post(`${BASE_URL}/api/submissions`, { data: payload });
   expect(response.status(), `Unexpected status for payload kind ${payload.kind}`).toBeGreaterThanOrEqual(200);
   expect(response.status(), `Unexpected status for payload kind ${payload.kind}`).toBeLessThan(500);
+  const json = await response.json().catch(() => ({}));
+  const submissionId = (json as { submissionId?: string }).submissionId;
+  if (submissionId && typeof payload.kind === "string") {
+    const kind = payload.kind as "owner" | "community" | "report";
+    await updateSubmissionIds(kind, submissionId);
+  }
 };
 
 test.describe("Submit audit harness", () => {
