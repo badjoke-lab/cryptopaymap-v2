@@ -23,18 +23,27 @@ export default function SubmissionActions({ submission, onActionComplete, onRefr
   const isAlreadyPromoted = Boolean(submission.publishedPlaceId);
 
   const handleApprove = async () => {
+    if (isSubmitting) return;
     setIsSubmitting(true);
-    const result = await approveSubmission(submission.id, reviewNote.trim() || undefined);
-    if (result.ok) {
-      onActionComplete({ type: "success", text: "Submission approved." });
-      onRefresh();
-    } else {
+    try {
+      const result = await approveSubmission(submission.id, reviewNote.trim() || undefined);
+      if (result.ok) {
+        onActionComplete({ type: "success", text: "Submission approved." });
+        onRefresh();
+      } else {
+        onActionComplete({
+          type: "error",
+          text: `${result.error.code ?? "ERROR"}: ${result.error.message ?? "Failed to approve."}`,
+        });
+      }
+    } catch (error) {
       onActionComplete({
         type: "error",
-        text: `${result.error.code ?? "ERROR"}: ${result.error.message ?? "Failed to approve."}`,
+        text: error instanceof Error ? error.message : "Failed to approve.",
       });
+    } finally {
+      setIsSubmitting(false);
     }
-    setIsSubmitting(false);
   };
 
   const handleReject = async () => {
@@ -43,37 +52,55 @@ export default function SubmissionActions({ submission, onActionComplete, onRefr
       onActionComplete({ type: "error", text: "Reject reason is required." });
       return;
     }
+    if (isSubmitting) return;
     setIsSubmitting(true);
-    const result = await rejectSubmission(submission.id, reason, reviewNote.trim() || undefined);
-    if (result.ok) {
-      onActionComplete({ type: "success", text: "Submission rejected." });
-      onRefresh();
-    } else {
+    try {
+      const result = await rejectSubmission(submission.id, reason, reviewNote.trim() || undefined);
+      if (result.ok) {
+        onActionComplete({ type: "success", text: "Submission rejected." });
+        onRefresh();
+      } else {
+        onActionComplete({
+          type: "error",
+          text: `${result.error.code ?? "ERROR"}: ${result.error.message ?? "Failed to reject."}`,
+        });
+      }
+    } catch (error) {
       onActionComplete({
         type: "error",
-        text: `${result.error.code ?? "ERROR"}: ${result.error.message ?? "Failed to reject."}`,
+        text: error instanceof Error ? error.message : "Failed to reject.",
       });
+    } finally {
+      setIsSubmitting(false);
     }
-    setIsSubmitting(false);
   };
 
   const handlePromote = async () => {
+    if (isSubmitting) return;
     setIsSubmitting(true);
-    const result = await promoteSubmission(submission.id);
-    if (result.ok) {
-      onActionComplete({
-        type: "success",
-        text: "Submission promoted to a place.",
-        placeId: result.data.placeId ?? null,
-      });
-      onRefresh();
-    } else {
+    try {
+      const result = await promoteSubmission(submission.id);
+      if (result.ok) {
+        onActionComplete({
+          type: "success",
+          text: "Submission promoted to a place.",
+          placeId: result.data.placeId ?? null,
+        });
+        onRefresh();
+      } else {
+        onActionComplete({
+          type: "error",
+          text: `${result.error.code ?? "ERROR"}: ${result.error.message ?? "Failed to promote."}`,
+        });
+      }
+    } catch (error) {
       onActionComplete({
         type: "error",
-        text: `${result.error.code ?? "ERROR"}: ${result.error.message ?? "Failed to promote."}`,
+        text: error instanceof Error ? error.message : "Failed to promote.",
       });
+    } finally {
+      setIsSubmitting(false);
     }
-    setIsSubmitting(false);
   };
 
   return (
