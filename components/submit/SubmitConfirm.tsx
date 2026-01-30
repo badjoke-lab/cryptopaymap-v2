@@ -133,6 +133,7 @@ export default function SubmitConfirm({ kind }: { kind: SubmissionKind }) {
           <dl className="space-y-2">
             {bundle.payload.kind === "report" ? (
               <>
+                <SummaryRow label="Place ID" value={bundle.payload.placeId} />
                 <SummaryRow label="Place name" value={bundle.payload.placeName} />
                 <SummaryRow label="Reason" value={bundle.payload.reportReason} />
                 <SummaryRow label="Details" value={bundle.payload.reportDetails} />
@@ -145,8 +146,18 @@ export default function SubmitConfirm({ kind }: { kind: SubmissionKind }) {
                 <SummaryRow label="Address" value={bundle.payload.address} />
                 <SummaryRow label="Category" value={bundle.payload.category} />
                 <SummaryRow label="Accepted crypto" value={bundle.payload.acceptedChains.join(", ")} />
+                <SummaryRow label="Latitude" value={bundle.payload.lat} />
+                <SummaryRow label="Longitude" value={bundle.payload.lng} />
                 <SummaryRow label="About" value={bundle.payload.about} />
                 <SummaryRow label="Payment note" value={bundle.payload.paymentNote} />
+                <SummaryRow label="Website" value={bundle.payload.website} />
+                <SummaryRow label="Twitter / X" value={bundle.payload.twitter} />
+                <SummaryRow label="Instagram" value={bundle.payload.instagram} />
+                <SummaryRow label="Facebook" value={bundle.payload.facebook} />
+                <SummaryRow label="Role" value={bundle.payload.role} />
+                <SummaryRow label="Notes for admin" value={bundle.payload.notesForAdmin} />
+                <SummaryRow label="Related place ID" value={bundle.payload.placeId} />
+                <SummaryRow label="Related place name" value={bundle.payload.placeName} />
               </>
             )}
           </dl>
