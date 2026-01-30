@@ -22,6 +22,10 @@ export type OwnerCommunityDraft = {
   notesForAdmin: string;
   placeId: string;
   placeName: string;
+  ownerVerification: string;
+  communityEvidenceUrls: string[];
+  amenities: string[];
+  amenitiesNotes: string;
 };
 
 export type ReportDraft = {
@@ -30,6 +34,8 @@ export type ReportDraft = {
   placeName: string;
   reportReason: string;
   reportDetails: string;
+  reportAction: string;
+  communityEvidenceUrls: string[];
   submitterName: string;
   submitterEmail: string;
 };

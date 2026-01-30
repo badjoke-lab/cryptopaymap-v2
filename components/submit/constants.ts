@@ -31,4 +31,9 @@ export const MAX_LENGTHS = {
   placeName: 80,
   chain: 40,
   acceptedChainsMax: 12,
+  amenity: 40,
+  amenitiesMax: 20,
+  amenitiesNotes: 300,
+  communityEvidenceUrl: 500,
+  communityEvidenceUrlsMax: 10,
 };

@@ -6,6 +6,7 @@ import type { OwnerCommunityDraft, ReportDraft, SubmissionDraft, SubmissionDraft
 const emailRegex = /[^@]+@[^.]+\..+/;
 
 const isEmpty = (value: string) => !value.trim();
+const normalizeList = (value?: string[]) => (value ?? []).map((entry) => entry.trim()).filter(Boolean);
 
 const parseOptionalNumber = (value: string) => {
   if (!value.trim()) return undefined;
@@ -68,6 +69,31 @@ export const validateDraft = (
     }
     if (payload.paymentNote && payload.paymentNote.length > MAX_LENGTHS.paymentNote) {
       errors.paymentNote = `Must be ${MAX_LENGTHS.paymentNote} characters or fewer`;
+    }
+    if (isEmpty(payload.ownerVerification)) {
+      errors.ownerVerification = "Required";
+    } else if (!["domain", "otp", "dashboard_ss"].includes(payload.ownerVerification)) {
+      errors.ownerVerification = "Select a valid option";
+    }
+    if (payload.amenitiesNotes && payload.amenitiesNotes.length > MAX_LENGTHS.amenitiesNotes) {
+      errors.amenitiesNotes = `Must be ${MAX_LENGTHS.amenitiesNotes} characters or fewer`;
+    }
+    const amenities = normalizeList(payload.amenities);
+    if (amenities.length > MAX_LENGTHS.amenitiesMax) {
+      errors.amenities = `Must include ${MAX_LENGTHS.amenitiesMax} items or fewer`;
+    }
+    if (amenities.some((entry) => entry.length > MAX_LENGTHS.amenity)) {
+      errors.amenities = `Entries must be ${MAX_LENGTHS.amenity} characters or fewer`;
+    }
+    const evidenceUrls = normalizeList(payload.communityEvidenceUrls);
+    if (kind === "community" && !evidenceUrls.length) {
+      errors.communityEvidenceUrls = "Provide at least one URL";
+    }
+    if (evidenceUrls.length > MAX_LENGTHS.communityEvidenceUrlsMax) {
+      errors.communityEvidenceUrls = `Must include ${MAX_LENGTHS.communityEvidenceUrlsMax} items or fewer`;
+    }
+    if (evidenceUrls.some((entry) => entry.length > MAX_LENGTHS.communityEvidenceUrl)) {
+      errors.communityEvidenceUrls = `Entries must be ${MAX_LENGTHS.communityEvidenceUrl} characters or fewer`;
     }
     if (isEmpty(payload.submitterName)) {
       errors.submitterName = "Required";
@@ -135,6 +161,18 @@ export const validateDraft = (
     }
     if (payload.reportDetails && payload.reportDetails.length > MAX_LENGTHS.reportDetails) {
       errors.reportDetails = `Must be ${MAX_LENGTHS.reportDetails} characters or fewer`;
+    }
+    if (isEmpty(payload.reportAction)) {
+      errors.reportAction = "Required";
+    } else if (!["hide", "edit"].includes(payload.reportAction)) {
+      errors.reportAction = "Select a valid option";
+    }
+    const evidenceUrls = normalizeList(payload.communityEvidenceUrls);
+    if (evidenceUrls.length > MAX_LENGTHS.communityEvidenceUrlsMax) {
+      errors.communityEvidenceUrls = `Must include ${MAX_LENGTHS.communityEvidenceUrlsMax} items or fewer`;
+    }
+    if (evidenceUrls.some((entry) => entry.length > MAX_LENGTHS.communityEvidenceUrl)) {
+      errors.communityEvidenceUrls = `Entries must be ${MAX_LENGTHS.communityEvidenceUrl} characters or fewer`;
     }
     if (payload.submitterName && payload.submitterName.length > MAX_LENGTHS.submitterNameMax) {
       errors.submitterName = `Must be ${MAX_LENGTHS.submitterNameMax} characters or fewer`;

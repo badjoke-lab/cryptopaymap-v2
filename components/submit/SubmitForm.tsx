@@ -23,6 +23,8 @@ const buildDefaultDraft = (kind: SubmissionKind): SubmissionDraft => {
       placeName: "",
       reportReason: "",
       reportDetails: "",
+      reportAction: "",
+      communityEvidenceUrls: [],
       submitterName: "",
       submitterEmail: "",
     } satisfies ReportDraft;
@@ -50,10 +52,20 @@ const buildDefaultDraft = (kind: SubmissionKind): SubmissionDraft => {
     notesForAdmin: "",
     placeId: "",
     placeName: "",
+    ownerVerification: "",
+    communityEvidenceUrls: [],
+    amenities: [],
+    amenitiesNotes: "",
   } satisfies OwnerCommunityDraft;
 };
 
 const fieldLabel = (label: string) => <span className="text-sm font-medium text-gray-800">{label}</span>;
+const parseListField = (value: string) =>
+  value
+    .split(/\r?\n|,/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+const formatListField = (entries: string[]) => entries.join("\n");
 
 type SubmitFormProps = {
   kind: SubmissionKind;
@@ -112,7 +124,8 @@ export default function SubmitForm({ kind }: SubmitFormProps) {
   useEffect(() => {
     const saved = loadDraftBundle(kind);
     if (saved?.payload) {
-      setDraft(saved.payload);
+      const defaults = buildDefaultDraft(kind);
+      setDraft({ ...defaults, ...saved.payload });
       setFiles(saved.files ?? emptyFiles);
     }
     setInitialized(true);
@@ -315,6 +328,21 @@ export default function SubmitForm({ kind }: SubmitFormProps) {
               </div>
             </div>
 
+            <div className="space-y-1">
+              {fieldLabel("Verification method (required)")}
+              <select
+                className="w-full rounded-md border px-3 py-2"
+                value={ownerDraft.ownerVerification}
+                onChange={(e) => handleChange("ownerVerification", e.target.value)}
+              >
+                <option value="">Select</option>
+                <option value="domain">Domain verification</option>
+                <option value="otp">OTP verification</option>
+                <option value="dashboard_ss">Dashboard screenshot</option>
+              </select>
+              {errors.ownerVerification && <p className="text-red-600 text-sm">{errors.ownerVerification}</p>}
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1">
                 {fieldLabel("Latitude (optional)")}
@@ -353,6 +381,29 @@ export default function SubmitForm({ kind }: SubmitFormProps) {
             </div>
 
             <div className="space-y-1">
+              {fieldLabel("Amenities (optional, one per line)")}
+              <textarea
+                className="w-full rounded-md border px-3 py-2"
+                rows={3}
+                value={formatListField(ownerDraft.amenities)}
+                onChange={(e) => handleChange("amenities", parseListField(e.target.value))}
+              />
+              {errors.amenities && <p className="text-red-600 text-sm">{errors.amenities}</p>}
+            </div>
+
+            <div className="space-y-1">
+              {fieldLabel("Amenities notes (optional)")}
+              <textarea
+                className="w-full rounded-md border px-3 py-2"
+                rows={2}
+                value={ownerDraft.amenitiesNotes}
+                onChange={(e) => handleChange("amenitiesNotes", e.target.value)}
+                maxLength={MAX_LENGTHS.amenitiesNotes}
+              />
+              {errors.amenitiesNotes && <p className="text-red-600 text-sm">{errors.amenitiesNotes}</p>}
+            </div>
+
+            <div className="space-y-1">
               {fieldLabel("Payment note (optional)")}
               <input
                 type="text"
@@ -363,6 +414,21 @@ export default function SubmitForm({ kind }: SubmitFormProps) {
               />
               {errors.paymentNote && <p className="text-red-600 text-sm">{errors.paymentNote}</p>}
             </div>
+
+            {kind === "community" ? (
+              <div className="space-y-1">
+                {fieldLabel("Community evidence URLs (required, one per line)")}
+                <textarea
+                  className="w-full rounded-md border px-3 py-2"
+                  rows={3}
+                  value={formatListField(ownerDraft.communityEvidenceUrls)}
+                  onChange={(e) => handleChange("communityEvidenceUrls", parseListField(e.target.value))}
+                />
+                {errors.communityEvidenceUrls && (
+                  <p className="text-red-600 text-sm">{errors.communityEvidenceUrls}</p>
+                )}
+              </div>
+            ) : null}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1">
@@ -442,6 +508,19 @@ export default function SubmitForm({ kind }: SubmitFormProps) {
               {errors.reportReason && <p className="text-red-600 text-sm">{errors.reportReason}</p>}
             </div>
             <div className="space-y-1">
+              {fieldLabel("Requested action (required)")}
+              <select
+                className="w-full rounded-md border px-3 py-2"
+                value={reportDraft.reportAction}
+                onChange={(e) => handleChange("reportAction", e.target.value)}
+              >
+                <option value="">Select</option>
+                <option value="hide">Hide listing</option>
+                <option value="edit">Request correction</option>
+              </select>
+              {errors.reportAction && <p className="text-red-600 text-sm">{errors.reportAction}</p>}
+            </div>
+            <div className="space-y-1">
               {fieldLabel("Details (optional)")}
               <textarea
                 className="w-full rounded-md border px-3 py-2"
@@ -451,6 +530,18 @@ export default function SubmitForm({ kind }: SubmitFormProps) {
                 maxLength={MAX_LENGTHS.reportDetails}
               />
               {errors.reportDetails && <p className="text-red-600 text-sm">{errors.reportDetails}</p>}
+            </div>
+            <div className="space-y-1">
+              {fieldLabel("Evidence URLs (optional, one per line)")}
+              <textarea
+                className="w-full rounded-md border px-3 py-2"
+                rows={3}
+                value={formatListField(reportDraft.communityEvidenceUrls)}
+                onChange={(e) => handleChange("communityEvidenceUrls", parseListField(e.target.value))}
+              />
+              {errors.communityEvidenceUrls && (
+                <p className="text-red-600 text-sm">{errors.communityEvidenceUrls}</p>
+              )}
             </div>
           </div>
         ) : null}
