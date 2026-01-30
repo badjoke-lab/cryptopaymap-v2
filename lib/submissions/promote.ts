@@ -6,7 +6,7 @@ import { dbQuery } from "@/lib/db";
 import { recordHistoryEntry } from "@/lib/history";
 import { hasColumn, tableExists } from "@/lib/internal-submissions";
 import { buildSubmissionMediaUrl } from "@/lib/media/submissionMedia";
-import type { SubmissionPayload } from "@/lib/submissions";
+import type { OwnerCommunitySubmissionPayload, SubmissionPayload } from "@/lib/submissions";
 
 type PromoteActor = Parameters<typeof recordHistoryEntry>[0]["actor"];
 
@@ -376,6 +376,11 @@ export const promoteSubmission = async (
       }
     }
 
+    const ownerPayload = submission.payload as OwnerCommunitySubmissionPayload;
+    const paymentNote = ownerPayload.paymentNote ?? null;
+    const amenities = ownerPayload.amenities ?? null;
+    const submitterName = ownerPayload.contactName ?? ownerPayload.submitterName ?? null;
+
     if (linkedPlaceId) {
       await dbQuery(
         `UPDATE places
@@ -386,7 +391,10 @@ export const promoteSubmission = async (
              lat = $6,
              lng = $7,
              address = $8,
-             about = $9
+             about = $9,
+             payment_note = $10,
+             amenities = $11,
+             submitter_name = $12
          WHERE id = $1`,
         [
           placeId,
@@ -398,13 +406,29 @@ export const promoteSubmission = async (
           submission.lng,
           submission.address,
           submission.about,
+          paymentNote,
+          amenities,
+          submitterName,
         ],
         { route, client, retry: false },
       );
     } else {
       await dbQuery(
-        `INSERT INTO places (id, name, country, city, category, lat, lng, address, about)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        `INSERT INTO places (
+          id,
+          name,
+          country,
+          city,
+          category,
+          lat,
+          lng,
+          address,
+          about,
+          payment_note,
+          amenities,
+          submitter_name
+        )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
         [
           placeId,
           submission.name,
@@ -415,6 +439,9 @@ export const promoteSubmission = async (
           submission.lng,
           submission.address,
           submission.about,
+          paymentNote,
+          amenities,
+          submitterName,
         ],
         { route, client, retry: false },
       );

@@ -30,6 +30,8 @@ type DbPlace = {
   address: string | null;
   about: string | null;
   amenities: string[] | string | null;
+  payment_note: string | null;
+  submitter_name: string | null;
   hours: string | null;
   verification: string | null;
 };
@@ -183,6 +185,9 @@ const loadPlaceDetailFromDb = async (id: string, fallbackPlace?: FallbackPlace) 
       : false;
 
     const hasHours = (await hasColumn(route, "places", "hours")).rows[0]?.exists;
+    const hasAmenities = (await hasColumn(route, "places", "amenities")).rows[0]?.exists;
+    const hasPaymentNote = (await hasColumn(route, "places", "payment_note")).rows[0]?.exists;
+    const hasSubmitterName = (await hasColumn(route, "places", "submitter_name")).rows[0]?.exists;
 
     const joinVerification = hasVerificationLevel ? "LEFT JOIN verifications v ON v.place_id = p.id" : "";
 
@@ -191,9 +196,13 @@ const loadPlaceDetailFromDb = async (id: string, fallbackPlace?: FallbackPlace) 
       : "'unverified'::text AS verification";
 
     const hoursSelect = hasHours ? "p.hours" : "NULL::text AS hours";
+    const amenitiesSelect = hasAmenities ? "p.amenities" : "NULL::text[] AS amenities";
+    const paymentNoteSelect = hasPaymentNote ? "p.payment_note" : "NULL::text AS payment_note";
+    const submitterNameSelect = hasSubmitterName ? "p.submitter_name" : "NULL::text AS submitter_name";
 
     const { rows: placeRows } = await dbQuery<DbPlace>(
-      `SELECT p.id, p.name, p.category, p.country, p.city, p.lat, p.lng, p.address, p.about, p.amenities, ${hoursSelect},
+      `SELECT p.id, p.name, p.category, p.country, p.city, p.lat, p.lng, p.address, p.about, ${amenitiesSelect}, ${paymentNoteSelect},
+        ${submitterNameSelect}, ${hoursSelect},
         ${verificationSelect}
        FROM places p
        ${joinVerification}
@@ -209,6 +218,9 @@ const loadPlaceDetailFromDb = async (id: string, fallbackPlace?: FallbackPlace) 
 
     const place = placeRows[0];
     const verification = sanitizeVerification(place.verification);
+    const normalizedAmenities = hasAmenities
+      ? normalizeAmenities(place.amenities)
+      : fallbackPlace?.amenities ?? [];
 
     const hasPreferredFlag =
       tableChecks[0]?.payment_accepts
@@ -264,7 +276,9 @@ const loadPlaceDetailFromDb = async (id: string, fallbackPlace?: FallbackPlace) 
       about: normalizeAbout(place.about, verification),
       about_short: normalizeAbout(place.about, verification),
       hours: normalizeHours(place.hours),
-      amenities: normalizeAmenities(place.amenities),
+      amenities: normalizedAmenities,
+      paymentNote: hasPaymentNote ? place.payment_note : fallbackPlace?.paymentNote ?? null,
+      submitterName: hasSubmitterName ? place.submitter_name : fallbackPlace?.submitterName ?? null,
       accepted: normalizeAccepted(payments, fallbackPlace?.accepted),
       contact: pickContactFromSocials(socials),
       images: normalizeImages(media, verification),

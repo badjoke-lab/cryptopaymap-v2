@@ -162,6 +162,9 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
     const canShowLinks = !isRestricted && socialLinks.length > 0;
     const canShowNavigation = !isRestricted && navigationLinks.length > 0;
     const canShowFullAddress = !isRestricted && Boolean(fullAddress);
+    const amenities = place.amenities ?? [];
+    const paymentNote = place.paymentNote;
+    const submitter = place.submitterName ?? place.updatedAt;
 
     return (
       <div
@@ -283,10 +286,37 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
               </section>
             )}
 
+            {!isRestricted && paymentNote && (
+              <section className="cpm-drawer__section">
+                <h3 className="cpm-drawer__section-title">Payment note</h3>
+                <p className="cpm-drawer__body">{paymentNote}</p>
+              </section>
+            )}
+
+            {!isRestricted && amenities.length > 0 && (
+              <section className="cpm-drawer__section">
+                <h3 className="cpm-drawer__section-title">Amenities</h3>
+                <div className="cpm-drawer__pill-row">
+                  {amenities.map((item) => (
+                    <span key={item} className="cpm-drawer__pill">
+                      {item}
+                    </span>
+                  ))}
+                </div>
+              </section>
+            )}
+
             {canShowFullAddress && (
               <section className="cpm-drawer__section">
                 <h3 className="cpm-drawer__section-title">Address</h3>
                 <p className="cpm-drawer__body">{fullAddress}</p>
+              </section>
+            )}
+
+            {!isRestricted && submitter && (
+              <section className="cpm-drawer__section">
+                <h3 className="cpm-drawer__section-title">Submitted by</h3>
+                <p className="cpm-drawer__muted">{submitter}</p>
               </section>
             )}
           </div>
