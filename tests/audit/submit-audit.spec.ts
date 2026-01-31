@@ -72,10 +72,15 @@ const submitPayload = async (
     },
   });
   expect(response.status(), `Unexpected status for payload kind ${payload.kind}`).toBeGreaterThanOrEqual(200);
-  expect(response.status(), `Unexpected status for payload kind ${payload.kind}`).toBeLessThan(500);
+  expect(response.status(), `Unexpected status for payload kind ${payload.kind}`).toBeLessThan(300);
   const json = await response.json().catch(() => ({}));
   const submissionId = (json as { submissionId?: string }).submissionId;
-  return typeof submissionId === "string" ? submissionId : "";
+  expect(typeof submissionId, `Missing submissionId for payload kind ${payload.kind}`).toBe("string");
+  expect(
+    submissionId?.length ?? 0,
+    `Expected non-empty submissionId for payload kind ${payload.kind}`,
+  ).toBeGreaterThan(0);
+  return submissionId as string;
 };
 
 test.describe("Submit audit harness", () => {
