@@ -7,7 +7,7 @@ import {
   writeSubmitAuditReport,
 } from "./report";
 
-const BASE_URL = (process.env.BASE_URL || "http://localhost:3000").replace(/\/$/, "");
+const BASE_URL = (process.env.AUDIT_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
 const OUTPUT_DIR = path.join(process.cwd(), "docs", "audit", "runs");
 
 const runCommand = (command: string, args: string[], env: NodeJS.ProcessEnv) =>
@@ -31,6 +31,7 @@ const runPlaywright = async () => {
     ...process.env,
     BASE_URL,
     PW_BASE_URL: BASE_URL,
+    AUDIT_BASE_URL: BASE_URL,
   };
 
   const exitCode = await runCommand(
