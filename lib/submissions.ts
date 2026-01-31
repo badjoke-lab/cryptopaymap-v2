@@ -346,9 +346,11 @@ export const normalizeSubmission = (raw: unknown): NormalizationResult => {
     if (!address) errors.address = "Required";
     if (!category) errors.category = "Required";
     if (!contactEmail) errors.contactEmail = "Required";
-    if (!ownerVerification) errors.ownerVerification = "Required";
-    if (ownerVerification && !["domain", "otp", "dashboard_ss"].includes(ownerVerification)) {
-      errors.ownerVerification = "Invalid owner verification";
+    if (kind === "owner") {
+      if (!ownerVerification) errors.ownerVerification = "Required";
+      if (ownerVerification && !["domain", "otp", "dashboard_ss"].includes(ownerVerification)) {
+        errors.ownerVerification = "Invalid owner verification";
+      }
     }
   }
 
@@ -391,7 +393,9 @@ export const normalizeSubmission = (raw: unknown): NormalizationResult => {
   validateLength(errors, "role", role, MAX_LENGTHS.role);
   validateLength(errors, "about", about, MAX_LENGTHS.about);
   validateLength(errors, "paymentNote", paymentNote, MAX_LENGTHS.paymentNote);
-  validateLength(errors, "ownerVerification", ownerVerification, MAX_LENGTHS.ownerVerification);
+  if (kind === "owner") {
+    validateLength(errors, "ownerVerification", ownerVerification, MAX_LENGTHS.ownerVerification);
+  }
   validateLength(errors, "reportAction", reportAction, MAX_LENGTHS.reportAction);
   validateLength(errors, "website", website, MAX_LENGTHS.website);
   validateLength(errors, "twitter", twitter, MAX_LENGTHS.twitter);
