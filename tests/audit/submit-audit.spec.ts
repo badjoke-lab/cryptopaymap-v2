@@ -1,6 +1,7 @@
-import { test, expect } from "@playwright/test";
+import fs from "node:fs/promises";
+import path from "node:path";
 
-import { updateSubmissionIds } from "./submit-helpers";
+import { test, expect } from "@playwright/test";
 
 const BASE_URL = process.env.AUDIT_BASE_URL ?? "http://localhost:3000";
 
@@ -74,23 +75,31 @@ const submitPayload = async (
   expect(response.status(), `Unexpected status for payload kind ${payload.kind}`).toBeLessThan(500);
   const json = await response.json().catch(() => ({}));
   const submissionId = (json as { submissionId?: string }).submissionId;
-  if (submissionId && typeof payload.kind === "string") {
-    const kind = payload.kind as "owner" | "community" | "report";
-    await updateSubmissionIds(kind, submissionId);
-  }
+  return typeof submissionId === "string" ? submissionId : "";
 };
 
 test.describe("Submit audit harness", () => {
   test("create owner/community/report submissions", async ({ request }) => {
     const proofBuffer = Buffer.from(PROOF_PNG_BASE64, "base64");
-    await submitPayload(request, buildOwnerPayload(), {
+    const ownerId = await submitPayload(request, buildOwnerPayload(), {
       proof: {
         name: "proof.png",
         mimeType: "image/png",
         buffer: proofBuffer,
       },
     });
-    await submitPayload(request, buildCommunityPayload());
-    await submitPayload(request, buildReportPayload());
+    const communityId = await submitPayload(request, buildCommunityPayload());
+    const reportId = await submitPayload(request, buildReportPayload());
+
+    const outputDir = path.join(process.cwd(), "scripts", "audit", "out");
+    await fs.mkdir(outputDir, { recursive: true });
+    const outputPath = path.join(outputDir, "submission-ids.json");
+    const payload = {
+      owner: ownerId,
+      community: communityId,
+      report: reportId,
+      createdAt: new Date().toISOString(),
+    };
+    await fs.writeFile(outputPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
   });
 });
