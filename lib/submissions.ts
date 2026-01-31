@@ -118,6 +118,8 @@ const writeSubmissionToDisk = async (record: StoredSubmission) => {
 };
 
 export const saveSubmission = async (record: StoredSubmission): Promise<StoredSubmission> => {
+  let normalizedPayload: SubmissionPayload | null = null;
+  let normalizedPayload: SubmissionPayload | null = null;
   try {
     await writeSubmissionToDisk(record);
   } catch (error) {
@@ -599,7 +601,7 @@ const insertSubmissionToDb = async (record: StoredSubmission) => {
     )
     VALUES (
       $1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9, $10, $11, $12, $13, $14,
-      $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25
+      $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29
     )`,
     [
       record.submissionId,
@@ -716,17 +718,39 @@ const errorResponse = (status: number, error: SubmissionError) =>
 const invalidPayloadResponse = (message: string, details?: Record<string, unknown>) =>
   errorResponse(400, { code: "INVALID_PAYLOAD", message, details });
 
-const logSubmitFailure = (error: unknown, context: string) => {
+const summarizePayload = (payload?: SubmissionPayload | null) => {
+  if (!payload) return undefined;
+  return {
+    kind: payload.verificationRequest,
+    country: payload.country,
+    category: payload.category,
+    acceptedChainsCount: Array.isArray(payload.acceptedChains) ? payload.acceptedChains.length : 0,
+  };
+};
+
+const logSubmitFailure = (
+  error: unknown,
+  context: string,
+  payloadSummary?: ReturnType<typeof summarizePayload>,
+) => {
   if (error instanceof Error) {
     console.error("[submit] failed", {
       context,
+      name: error.name,
       message: error.message,
       stack: error.stack,
       cause: error.cause,
+      payload: payloadSummary,
     });
     return;
   }
-  console.error("[submit] failed", { context, error });
+  console.error("[submit] failed", { context, error, payload: payloadSummary });
+};
+
+const assertSubmissionId = (record: StoredSubmission) => {
+  if (typeof record.submissionId !== "string" || record.submissionId.trim().length === 0) {
+    throw new Error("SUBMISSION_ID_MISSING");
+  }
 };
 
 const MEDIA_KINDS: SubmissionMediaKind[] = ["gallery", "proof", "evidence"];
@@ -822,6 +846,7 @@ export const handleUnifiedSubmission = async (request: Request) => {
   }
 
   if (isMultipart) {
+    let normalizedPayload: SubmissionPayload | null = null;
     const parsedMultipart = await parseMultipartSubmission(request);
     if (!parsedMultipart.ok) {
       console.info(`[submissions] reject ip=${ip} reason=invalid_payload`);
@@ -840,6 +865,7 @@ export const handleUnifiedSubmission = async (request: Request) => {
       console.info(`[submissions] reject ip=${ip} reason=invalid_payload`);
       return invalidPayloadResponse("payload failed validation", { errors: normalized.errors });
     }
+    normalizedPayload = normalized.payload;
 
     const multipartValidation = validateMultipartSubmission(
       normalized.payload.verificationRequest,
@@ -853,6 +879,7 @@ export const handleUnifiedSubmission = async (request: Request) => {
 
     try {
       const record = await persistSubmission(normalized.payload);
+      assertSubmissionId(record);
       await processAndStoreSubmissionMedia(record.submissionId, parsedMultipart.value.filesByField);
       console.info(`[submissions] accept ip=${ip} kind=${record.kind}`);
       return new Response(
@@ -862,7 +889,7 @@ export const handleUnifiedSubmission = async (request: Request) => {
         { status: 201, headers: { "Content-Type": "application/json" } },
       );
     } catch (error) {
-      logSubmitFailure(error, "multipart");
+      logSubmitFailure(error, "multipart", summarizePayload(normalizedPayload));
       if (error instanceof MediaProcessingError) {
         return errorResponse(400, {
           code: "MEDIA_PROCESSING_FAILED",
@@ -922,7 +949,9 @@ export const handleUnifiedSubmission = async (request: Request) => {
       return invalidPayloadResponse("payload failed validation", { errors: normalized.errors });
     }
 
+    normalizedPayload = normalized.payload;
     const record = await persistSubmission(normalized.payload);
+    assertSubmissionId(record);
 
     console.info(`[submissions] accept ip=${ip} kind=${record.kind}`);
     return new Response(
@@ -932,7 +961,7 @@ export const handleUnifiedSubmission = async (request: Request) => {
       { status: 201, headers: { "Content-Type": "application/json" } },
     );
   } catch (error) {
-    logSubmitFailure(error, "json");
+    logSubmitFailure(error, "json", summarizePayload(normalizedPayload));
     if (error instanceof DbUnavailableError || (error as Error).message?.includes("DATABASE_URL")) {
       return errorResponse(503, {
         code: "DB_UNAVAILABLE",
@@ -953,6 +982,7 @@ export const handleUnifiedSubmission = async (request: Request) => {
 };
 
 export const handleLegacySubmission = async (request: Request, expectedKind: SubmissionKind) => {
+  let normalizedPayload: SubmissionPayload | null = null;
   try {
     const body = await request.json();
     const normalizedBody = {
@@ -985,7 +1015,9 @@ export const handleLegacySubmission = async (request: Request, expectedKind: Sub
       });
     }
 
+    normalizedPayload = normalized.payload;
     const record = await persistSubmission(normalized.payload);
+    assertSubmissionId(record);
 
     return new Response(
       JSON.stringify({
@@ -996,6 +1028,7 @@ export const handleLegacySubmission = async (request: Request, expectedKind: Sub
       { status: 201, headers: { "Content-Type": "application/json" } },
     );
   } catch (error) {
+    logSubmitFailure(error, "legacy", summarizePayload(normalizedPayload));
     if (error instanceof DbUnavailableError || (error as Error).message?.includes("DATABASE_URL")) {
       return new Response(JSON.stringify({ error: "DB_UNAVAILABLE" }), {
         status: 503,
@@ -1008,7 +1041,6 @@ export const handleLegacySubmission = async (request: Request, expectedKind: Sub
         headers: { "Content-Type": "application/json" },
       });
     }
-    console.error("[submissions] legacy", error);
     return new Response(JSON.stringify({ ok: false, error: "Invalid submission" }), {
       status: 400,
       headers: { "Content-Type": "application/json" },
