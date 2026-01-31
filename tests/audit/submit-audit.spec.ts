@@ -16,18 +16,20 @@ const buildOwnerPayload = () => {
     kind: "owner",
     desiredStatusLabel: "Owner Verified",
     submitterName: "Audit Runner",
-    submitterEmail: `audit-owner-${tag}@example.com`,
+    contactName: "Audit Runner",
+    contactEmail: `audit-owner-${tag}@example.com`,
     placeName: `Audit Owner Place ${tag}`,
     country: "US",
     city: "New York",
     address: "123 Example St",
-    ownerVerification: {
-      method: "domain",
-      domain: "example.com",
-    },
+    category: "cafe",
+    acceptedChains: ["BTC"],
+    ownerVerification: "domain",
+    ownerVerificationDomain: "example.com",
     ownerPayment: {
       paymentUrl: "https://example.com/pay",
     },
+    termsAccepted: true,
   };
 };
 
@@ -37,12 +39,16 @@ const buildCommunityPayload = () => {
     kind: "community",
     desiredStatusLabel: "Community Verified",
     submitterName: "Audit Runner",
-    submitterEmail: `audit-community-${tag}@example.com`,
+    contactName: "Audit Runner",
+    contactEmail: `audit-community-${tag}@example.com`,
     placeName: `Audit Community Place ${tag}`,
     country: "US",
     city: "Austin",
     address: "456 Example Ave",
+    category: "cafe",
+    acceptedChains: ["BTC"],
     communityEvidenceUrls: ["https://example.com/community-1", "https://example.com/community-2"],
+    termsAccepted: true,
   };
 };
 
@@ -52,10 +58,11 @@ const buildReportPayload = () => {
     kind: "report",
     desiredStatusLabel: "Report（Takedown/修正）",
     submitterName: "Audit Runner",
-    submitterEmail: `audit-report-${tag}@example.com`,
+    contactName: "Audit Runner",
+    contactEmail: `audit-report-${tag}@example.com`,
     placeName: `Audit Report Place ${tag}`,
-    reportWrongWhat: "Incorrect payment details",
-    reportEvidenceUrls: ["https://example.com/report-evidence"],
+    reportReason: "Incorrect payment details",
+    reportDetails: "Payment info listed on-site does not match what is accepted.",
     reportAction: "hide",
   };
 };
@@ -71,11 +78,27 @@ const submitPayload = async (
       ...files,
     },
   });
-  expect(response.status(), `Unexpected status for payload kind ${payload.kind}`).toBeGreaterThanOrEqual(200);
-  expect(response.status(), `Unexpected status for payload kind ${payload.kind}`).toBeLessThan(500);
-  const json = await response.json().catch(() => ({}));
-  const submissionId = (json as { submissionId?: string }).submissionId;
-  return typeof submissionId === "string" ? submissionId : "";
+  const responseText = await response.text();
+  const status = response.status();
+  const isSuccess = status === 201;
+  expect(
+    isSuccess,
+    `Unexpected status for payload kind ${payload.kind} (status ${status}). Response: ${responseText}`,
+  ).toBe(true);
+  let json: { submissionId?: string } = {};
+  if (responseText) {
+    try {
+      json = JSON.parse(responseText) as { submissionId?: string };
+    } catch {
+      json = {};
+    }
+  }
+  const submissionId = json.submissionId;
+  expect(
+    submissionId,
+    `Missing submissionId for payload kind ${payload.kind}. Response: ${responseText}`,
+  ).toBeTruthy();
+  return submissionId as string;
 };
 
 test.describe("Submit audit harness", () => {

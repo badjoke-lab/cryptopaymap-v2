@@ -64,7 +64,7 @@ const main = async () => {
   console.log(`Report: ${OUTPUT_DIR}/submit-audit-latest.md`);
 
   const hasNg = report.summary.ng > 0;
-  const exitCode = hasNg ? 1 : 0;
+  const exitCode = report.playwright.exitCode !== 0 ? 1 : hasNg ? 1 : 0;
   process.exit(exitCode);
 };
 
