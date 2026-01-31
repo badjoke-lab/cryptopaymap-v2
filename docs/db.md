@@ -1,5 +1,13 @@
 # DB — CryptoPayMap v2 (Authoritative)
 
+## Migrations (manual apply)
+
+Run the submissions compatibility migration with:
+
+```
+psql "$DATABASE_URL" -f migrations/compat_submissions_columns.sql
+```
+
 ## Appendices (legacy sources)
 
 
