@@ -12,7 +12,7 @@ import {
 } from "@/lib/storage/r2";
 
 import { parseMultipartSubmission, type MultipartFilesByField } from "@/lib/submissions/parseMultipart";
-import { emptyAcceptedMediaSummary, validateMultipartSubmission } from "@/lib/submissions/validateMultipart";
+import { validateMultipartSubmission } from "@/lib/submissions/validateMultipart";
 
 export type SubmissionKind = "owner" | "community" | "report";
 export type SubmissionLevel = "owner" | "community" | "unverified";
@@ -716,6 +716,19 @@ const errorResponse = (status: number, error: SubmissionError) =>
 const invalidPayloadResponse = (message: string, details?: Record<string, unknown>) =>
   errorResponse(400, { code: "INVALID_PAYLOAD", message, details });
 
+const logSubmitFailure = (error: unknown, context: string) => {
+  if (error instanceof Error) {
+    console.error("[submit] failed", {
+      context,
+      message: error.message,
+      stack: error.stack,
+      cause: error.cause,
+    });
+    return;
+  }
+  console.error("[submit] failed", { context, error });
+};
+
 const MEDIA_KINDS: SubmissionMediaKind[] = ["gallery", "proof", "evidence"];
 
 const hasAnyMedia = (filesByField: MultipartFilesByField) =>
@@ -797,7 +810,6 @@ export const handleUnifiedSubmission = async (request: Request) => {
   const contentType = request.headers.get("content-type") ?? "";
   const isMultipart = contentType.includes("multipart/form-data");
   let body: Record<string, unknown> | null = null;
-  let acceptedMediaSummary: Record<string, number> | null = null;
 
   // NOTE: This in-memory rate limit is best-effort and may reset in serverless environments.
   if (isRateLimited(rateLimitKey)) {
@@ -839,21 +851,18 @@ export const handleUnifiedSubmission = async (request: Request) => {
       return errorResponse(400, multipartValidation.error);
     }
 
-    acceptedMediaSummary = multipartValidation.acceptedMediaSummary;
-
     try {
       const record = await persistSubmission(normalized.payload);
-      const mediaSaved = await processAndStoreSubmissionMedia(record.submissionId, parsedMultipart.value.filesByField);
+      await processAndStoreSubmissionMedia(record.submissionId, parsedMultipart.value.filesByField);
       console.info(`[submissions] accept ip=${ip} kind=${record.kind}`);
       return new Response(
         JSON.stringify({
           submissionId: record.submissionId,
-          acceptedMediaSummary,
-          ...(mediaSaved ? { mediaSaved: true } : {}),
         }),
         { status: 201, headers: { "Content-Type": "application/json" } },
       );
     } catch (error) {
+      logSubmitFailure(error, "multipart");
       if (error instanceof MediaProcessingError) {
         return errorResponse(400, {
           code: "MEDIA_PROCESSING_FAILED",
@@ -878,7 +887,6 @@ export const handleUnifiedSubmission = async (request: Request) => {
           message: "Submissions table missing",
         });
       }
-      console.error("[submissions] unexpected", error);
       return errorResponse(500, {
         code: "INTERNAL",
         message: "Failed to process submission",
@@ -914,19 +922,17 @@ export const handleUnifiedSubmission = async (request: Request) => {
       return invalidPayloadResponse("payload failed validation", { errors: normalized.errors });
     }
 
-    acceptedMediaSummary = emptyAcceptedMediaSummary(normalized.payload.verificationRequest);
-
     const record = await persistSubmission(normalized.payload);
 
     console.info(`[submissions] accept ip=${ip} kind=${record.kind}`);
     return new Response(
       JSON.stringify({
         submissionId: record.submissionId,
-        acceptedMediaSummary,
       }),
       { status: 201, headers: { "Content-Type": "application/json" } },
     );
   } catch (error) {
+    logSubmitFailure(error, "json");
     if (error instanceof DbUnavailableError || (error as Error).message?.includes("DATABASE_URL")) {
       return errorResponse(503, {
         code: "DB_UNAVAILABLE",
@@ -939,7 +945,6 @@ export const handleUnifiedSubmission = async (request: Request) => {
         message: "Submissions table missing",
       });
     }
-    console.error("[submissions] unexpected", error);
     return errorResponse(500, {
       code: "INTERNAL",
       message: "Failed to process submission",
