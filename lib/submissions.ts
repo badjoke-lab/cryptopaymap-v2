@@ -564,7 +564,48 @@ const insertSubmissionToDb = async (record: StoredSubmission) => {
   const normalizedContactEmail = payload.contactEmail ?? "";
   const normalizedAcceptedChains = reportPayload ? [] : payload.acceptedChains;
 
-  await dbQuery(
+  
+  // compat: old DB schema may not have wide columns like `name`
+  const { rows: nameColumnRows } = await dbQuery<{ exists: number }>(
+    "SELECT 1 AS exists FROM information_schema.columns WHERE table_schema='public' AND table_name='submissions' AND column_name='name' LIMIT 1",
+    [],
+    { route },
+  );
+  const hasNameColumn = !!nameColumnRows[0]?.exists;
+
+  if (!hasNameColumn) {
+    console.warn("[submissions] compat insert (no name column) route=" + route);
+    await dbQuery(
+      `INSERT INTO submissions (
+        id,
+        created_at,
+        status,
+        kind,
+        level,
+        place_id,
+        submitted_by,
+        updated_at,
+        suggested_place_id,
+        payload
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9)`,
+      [
+        record.submissionId,
+        record.createdAt,
+        record.status,
+        record.kind,
+        record.level,
+        record.placeId ?? null,
+        record.submittedBy,
+        record.suggestedPlaceId,
+        record.payload,
+      ],
+      { route },
+    );
+    return;
+  }
+
+await dbQuery(
     `INSERT INTO submissions (
       id,
       created_at,
@@ -740,6 +781,20 @@ const processAndStoreSubmissionMedia = async (submissionId: string, filesByField
   }
 
   const uploadedKeys: string[] = [];
+  const hasR2 =
+    Boolean(process.env.R2_ACCOUNT_ID) &&
+    Boolean(process.env.R2_ACCESS_KEY_ID) &&
+    Boolean(process.env.R2_SECRET_ACCESS_KEY) &&
+    Boolean(process.env.R2_BUCKET);
+
+  if (!hasR2) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn("[submissions] media upload skipped (R2 not configured) route=/api/submissions");
+      return true;
+    }
+    throw new Error("R2_NOT_CONFIGURED");
+  }
+
 
   try {
     await withSubmissionMediaClient("/api/submissions", async (client) => {
@@ -869,7 +924,13 @@ export const handleUnifiedSubmission = async (request: Request) => {
           message: "Invalid image data",
         });
       }
-      if (error instanceof Error && error.message === "UPLOAD_FAILED") {
+            if (error instanceof Error && error.message === "R2_NOT_CONFIGURED") {
+        return errorResponse(503, {
+          code: "R2_NOT_CONFIGURED",
+          message: "Media storage (R2) is not configured",
+        });
+      }
+if (error instanceof Error && error.message === "UPLOAD_FAILED") {
         return errorResponse(500, {
           code: "UPLOAD_FAILED",
           message: "Failed to upload submission media",
@@ -885,6 +946,19 @@ export const handleUnifiedSubmission = async (request: Request) => {
         return errorResponse(500, {
           code: "SUBMISSIONS_TABLE_MISSING",
           message: "Submissions table missing",
+        });
+      }
+      if (process.env.NODE_ENV !== "production") {
+        const e = error instanceof Error ? error : new Error(String(error));
+        console.error("[submissions] INTERNAL", e);
+        return errorResponse(500, {
+          code: "INTERNAL",
+          message: "Failed to process submission",
+          details: {
+            message: e.message,
+            stack: e.stack,
+            name: e.name,
+          },
         });
       }
       return errorResponse(500, {

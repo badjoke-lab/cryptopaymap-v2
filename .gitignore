@@ -148,3 +148,12 @@ docs/audit/runs/
 scripts/audit/out/
 tests/audit/**/__screenshots__/
 tests/audit/**/*.png
+
+# local submit/audit artifacts
+data/submissions-pending.ndjson
+data/submissions/sub-*.json
+scripts/audit/out/submission-ids.json
+
+# local/dev artifacts
+data/submissions-pending.ndjson
+data/submissions/sub-*.json
