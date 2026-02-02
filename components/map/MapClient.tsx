@@ -92,6 +92,20 @@ export default function MapClient() {
   const [limitedMode, setLimitedMode] = useState(false);
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
   const selectedPlaceIdRef = useRef<string | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 900px)");
+    const apply = () => setIsMobile(mq.matches);
+    apply();
+    if (mq.addEventListener) mq.addEventListener("change", apply);
+    else mq.addListener(apply);
+    return () => {
+      if (mq.removeEventListener) mq.removeEventListener("change", apply);
+      else mq.removeListener(apply);
+    };
+  }, []);
+
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<"full" | null>(null);
   const [selectionHydrated, setSelectionHydrated] = useState(false);
@@ -610,21 +624,22 @@ export default function MapClient() {
       return;
     }
     if (selectParam) {
-      if (selectParam !== selectedPlaceId) {
+      if (selectParam !== selectedPlaceIdRef.current) {
         setSelectedPlaceId(selectParam);
       }
       if (!drawerOpen) {
         setDrawerOpen(true);
         setDrawerMode("full");
       }
-    } else if (selectedPlaceId) {
+    } else if (selectedPlaceIdRef.current) {
+      setSelectedPlaceId(null);
       closeDrawer();
     }
 
     if (!selectionHydrated) {
       setSelectionHydrated(true);
     }
-  }, [closeDrawer, drawerOpen, searchParams, selectedPlaceId, selectionHydrated]);
+  }, [closeDrawer, searchParams, selectionHydrated]);
 
   useEffect(() => {
     if (!selectionHydrated) return;
@@ -1026,7 +1041,16 @@ showHeading={false}
           className="absolute inset-0 w-full"
         />
         <div className="hidden lg:block">
-          <Drawer
+          {isMobile ? (
+            <MobileBottomSheet
+            place={selectedPlaceForDrawer}
+            isOpen={drawerOpen && Boolean(selectedPlaceId)}
+            onClose={closeDrawer}
+            ref={bottomSheetRef}
+            selectionStatus={selectionStatus}
+          />
+          ) : (
+            <Drawer
             place={selectedPlaceForDrawer}
             isOpen={drawerOpen && Boolean(selectedPlaceId)}
             mode={drawerMode}
@@ -1035,15 +1059,11 @@ showHeading={false}
             headerHeight={HEADER_HEIGHT}
             selectionStatus={selectionStatus}
           />
+          )}
+
         </div>
         <div className="lg:hidden">
-          <MobileBottomSheet
-            place={selectedPlaceForDrawer}
-            isOpen={drawerOpen && Boolean(selectedPlaceId)}
-            onClose={closeDrawer}
-            ref={bottomSheetRef}
-            selectionStatus={selectionStatus}
-          />
+
         </div>
       </div>
     </div>
