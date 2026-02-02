@@ -31,7 +31,7 @@ type FileCountRequirement = {
 
 const KIND_REQUIREMENTS: Record<SubmissionKind, Record<MediaField, FileCountRequirement>> = {
   owner: {
-    proof: { min: 1, max: 4 },
+    proof: { min: 0, max: 4 },
     gallery: { min: 0, max: 8 },
     evidence: { min: 0, max: 0 },
   },
@@ -64,14 +64,24 @@ const buildAcceptedMediaSummary = (
   }, {});
 };
 
-const validateCounts = (kind: SubmissionKind, filesByField: MultipartFilesByField): MultipartValidationError | null => {
+const validateCounts = (kind: SubmissionKind, filesByField: MultipartFilesByField, payload?: unknown): MultipartValidationError | null => {
   const requirements = KIND_REQUIREMENTS[kind];
   const allowedFields = new Set(KIND_ALLOWED_FIELDS[kind]);
+
+  // owner: proof requirement is conditional (URL or dashboard_ss)
+  let effectiveProofMin = requirements.proof.min;
+  if (kind === "owner") {
+    const paymentUrl = typeof (payload as any)?.paymentUrl === "string" ? (payload as any).paymentUrl.trim() : "";
+    const ownerVerification = (payload as any)?.ownerVerification;
+    const needsProof = ownerVerification === "dashboard_ss" || paymentUrl.length === 0;
+    effectiveProofMin = needsProof ? 1 : 0;
+  }
 
   for (const field of Object.keys(filesByField) as MediaField[]) {
     const count = filesByField[field].length;
     const requirement = requirements[field];
 
+    const minRequired = field === "proof" ? effectiveProofMin : requirement.min;
     if (!allowedFields.has(field) && count > 0) {
       return {
         code: "UNKNOWN_FORM_FIELD",
@@ -80,11 +90,11 @@ const validateCounts = (kind: SubmissionKind, filesByField: MultipartFilesByFiel
       };
     }
 
-    if (count < requirement.min) {
+    if (count < minRequired) {
       return {
         code: "REQUIRED_FILE_MISSING",
-        message: `${field} requires at least ${requirement.min} file(s)`,
-        details: { field, count, min: requirement.min },
+        message: `${field} requires at least ${minRequired} file(s)`,
+        details: { field, count, min: minRequired },
       };
     }
 
@@ -138,6 +148,7 @@ export const validateMultipartSubmission = (
   kind: SubmissionKind,
   filesByField: MultipartFilesByField,
   unexpectedFileFields: string[],
+  payload?: unknown,
 ): MultipartValidationResult => {
   if (unexpectedFileFields.length > 0) {
     return {
@@ -150,7 +161,7 @@ export const validateMultipartSubmission = (
     };
   }
 
-  const countError = validateCounts(kind, filesByField);
+  const countError = validateCounts(kind, filesByField, payload);
   if (countError) {
     return { ok: false, error: countError };
   }

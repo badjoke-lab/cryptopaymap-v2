@@ -740,7 +740,9 @@ type SubmissionErrorCode =
   | "DB_UNAVAILABLE"
   | "SUBMISSIONS_TABLE_MISSING"
   | "UPLOAD_FAILED"
-  | "INTERNAL";
+  | "INTERNAL"
+  | "R2_NOT_CONFIGURED"
+;
 
 type SubmissionError = {
   code: SubmissionErrorCode;
@@ -763,7 +765,7 @@ const logSubmitFailure = (error: unknown, context: string) => {
       context,
       message: error.message,
       stack: error.stack,
-      cause: error.cause,
+      cause: (error as any).cause,
     });
     return;
   }
