@@ -84,13 +84,16 @@ export const insertSubmissionMedia = async ({
   client,
   route = DEFAULT_ROUTE,
 }: InsertSubmissionMediaParams): Promise<SubmissionMediaRow> => {
+  const url = buildSubmissionMediaUrl(submissionId, kind, mediaId);
+  if (!url) throw new Error("SUBMISSION_MEDIA_URL_EMPTY");
   const result = await dbQuery<SubmissionMediaRow>(
     `
-      INSERT INTO public.submission_media (submission_id, kind, media_id, r2_key, mime, width, height)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      INSERT INTO public.submission_media (submission_id, kind, url, media_id, r2_key, mime, width, height)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING id,
         submission_id AS "submissionId",
         kind,
+        url,
         media_id AS "mediaId",
         r2_key AS "r2Key",
         mime,
@@ -98,7 +101,7 @@ export const insertSubmissionMedia = async ({
         height,
         created_at AS "createdAt"
     `,
-    [submissionId, kind, mediaId, r2Key, mime, width, height],
+    [submissionId, kind, url, mediaId, r2Key, mime, width, height],
     { route, client },
   );
 
