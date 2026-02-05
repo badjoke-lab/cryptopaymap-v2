@@ -3,10 +3,13 @@ import type { NextRequest } from "next/server";
 
 const COOKIE_NAME = "internal_auth";
 
-const unauthorized = () =>
+const unauthorized = (reason: string) =>
   new NextResponse("Unauthorized", {
     status: 401,
-    headers: { "WWW-Authenticate": 'Basic realm="Internal"' },
+    headers: {
+      "WWW-Authenticate": 'Basic realm="Internal"',
+      "x-internal-auth-reason": reason, // デバッグ用（理由だけ。値は出さない）
+    },
   });
 
 function base64urlFromBytes(bytes: ArrayBuffer) {
@@ -37,43 +40,48 @@ function isStatic(pathname: string) {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // static assets must never be intercepted
   if (isStatic(pathname)) return NextResponse.next();
 
-  const username = process.env.INTERNAL_BASIC_USER;
-  const password = process.env.INTERNAL_BASIC_PASS;
+  // ✅ 末尾改行/空白を殺す（Vercel UI貼り付け事故対策）
+  const username = (process.env.INTERNAL_BASIC_USER ?? "").trim();
+  const password = (process.env.INTERNAL_BASIC_PASS ?? "").trim();
 
-  // devでは未設定なら素通し（ローカル作業止めない）
+  // devでは未設定なら素通し
   if (process.env.NODE_ENV === "development" && (!username || !password)) {
     return NextResponse.next();
   }
 
   // prodでは必須
-  if (!username || !password) return unauthorized();
+  if (!username || !password) return unauthorized("missing_env");
 
   const expected = await sha256Base64url(`${username}:${password}`);
 
-  // ① cookie で通す（<img> は Authorization 付けられないが cookie は送れる）
+  // cookie で通す（画像など）
   const cookie = request.cookies.get(COOKIE_NAME)?.value;
   if (cookie && cookie === expected) {
     return NextResponse.next();
   }
 
-  // ② Basic で通す
+  // Basic で通す
   const auth = request.headers.get("authorization");
-  if (!auth?.startsWith("Basic ")) return unauthorized();
+  if (!auth?.startsWith("Basic ")) return unauthorized("no_basic");
 
   let decoded = "";
   try {
     decoded = atob(auth.slice(6));
   } catch {
-    return unauthorized();
+    return unauthorized("bad_base64");
   }
 
-  const [u, p] = decoded.split(":");
-  if (u !== username || p !== password) return unauthorized();
+  const idx = decoded.indexOf(":");
+  if (idx < 0) return unauthorized("no_colon");
 
-  // 認証成功 → cookie をセットして以後の <img> も通す
+  const u = decoded.slice(0, idx);
+  const p = decoded.slice(idx + 1);
+
+  if (u !== username || p !== password) return unauthorized("bad_creds");
+
+  // 認証成功 → cookieセット
   const res = NextResponse.next();
   const secure = process.env.NODE_ENV === "production";
   res.cookies.set({
@@ -83,7 +91,7 @@ export async function middleware(request: NextRequest) {
     sameSite: "lax",
     secure,
     path: "/",
-    maxAge: 60 * 60 * 12, // 12h
+    maxAge: 60 * 60 * 12,
   });
   return res;
 }
