@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { DbUnavailableError, dbQuery, hasDatabaseUrl } from "@/lib/db";
 import { buildDataSourceHeaders } from "@/lib/dataSource";
-import { ensureSubmissionColumns, mapSubmissionRow, tableExists } from "@/lib/internal-submissions";
 import { requireInternalAuth } from "@/lib/internalAuth";
+import { tableExists } from "@/lib/internal-submissions";
 
 export const runtime = "nodejs";
 
@@ -25,9 +25,7 @@ const parsePage = (value: string | null) => {
 
 export async function GET(request: NextRequest) {
   const auth = requireInternalAuth(request);
-  if (!("ok" in auth)) {
-    return auth;
-  }
+  if (!("ok" in auth)) return auth;
 
   if (!hasDatabaseUrl()) {
     return NextResponse.json(
@@ -38,8 +36,10 @@ export async function GET(request: NextRequest) {
 
   const route = "api_internal_submissions_list";
   const { searchParams } = request.nextUrl;
-  const status = searchParams.get("status") ?? "pending";
-  const kind = searchParams.get("kind");
+
+  // status は submissions.status（存在する前提）
+  const status = (searchParams.get("status") ?? "pending").toLowerCase();
+  const kind = searchParams.get("kind"); // submissions.kind は無いので payload から参照する
   const q = searchParams.get("q");
   const limit = parseLimit(searchParams.get("limit"));
   const page = parsePage(searchParams.get("page"));
@@ -54,85 +54,92 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    await ensureSubmissionColumns(route);
-
     const params: unknown[] = [];
     const where: string[] = [];
 
-    if (status) {
+    // status=all のときは絞らない
+    if (status && status !== "all") {
       params.push(status);
-      where.push(`status = $${params.length}`);
+      where.push(`s.status = $${params.length}`);
     }
 
+    // kind は submissions.kind ではなく payload->>'kind' にする
     if (kind) {
       params.push(kind);
-      where.push(`kind = $${params.length}`);
+      where.push(`(COALESCE(s.payload->>'kind','') = $${params.length})`);
     }
 
+    // q 検索：存在しないカラム（s.name等）は参照しない
     if (q) {
       params.push(`%${q}%`);
-      const matcher = `$${params.length}`;
+      const m = `$${params.length}`;
       where.push(
         `(
-          id ILIKE ${matcher}
-          OR name ILIKE ${matcher}
-          OR place_id ILIKE ${matcher}
-          OR submitted_by->>'name' ILIKE ${matcher}
-          OR submitted_by->>'email' ILIKE ${matcher}
-          OR payload->>'placeName' ILIKE ${matcher}
-          OR payload->>'name' ILIKE ${matcher}
-          OR payload->>'contactName' ILIKE ${matcher}
-          OR payload->>'contactEmail' ILIKE ${matcher}
+          s.id ILIKE ${m}
+          OR COALESCE(s.place_id,'') ILIKE ${m}
+          OR COALESCE(s.submitted_by->>'name','') ILIKE ${m}
+          OR COALESCE(s.submitted_by->>'email','') ILIKE ${m}
+          OR COALESCE(s.payload->>'placeName','') ILIKE ${m}
+          OR COALESCE(s.payload->>'name','') ILIKE ${m}
+          OR COALESCE(s.payload->>'contactName','') ILIKE ${m}
+          OR COALESCE(s.payload->>'contactEmail','') ILIKE ${m}
         )`,
       );
     }
 
     const whereClause = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
+    // total
     const totalResult = await dbQuery<{ total: number }>(
-      `SELECT COUNT(*)::int AS total FROM submissions ${whereClause}`,
+      `SELECT COUNT(*)::int AS total FROM submissions s ${whereClause}`,
       params,
       { route },
     );
-    const total = totalResult.rows[0]?.total ?? null;
+    const total = totalResult.rows?.[0]?.total ?? null;
 
-    const query = `SELECT id, status, kind, level, created_at, updated_at, name, country, city, place_id,
-      submitted_by, reviewed_by, review_note, payload, published_place_id, approved_at, rejected_at, reject_reason
-      FROM submissions
+    // list
+    // - submissions には name/country/city/kind/level 等が無い前提で payload から拾う
+    // - place_name は places.name があればそれ、無ければ payload.placeName
+    const listSql = `
+      SELECT
+        s.id,
+        s.status,
+        s.created_at,
+        s.updated_at,
+        s.place_id,
+        COALESCE(p.name, s.payload->>'placeName') AS place_name,
+        s.payload,
+        s.submitted_by,
+        s.reviewed_by,
+        s.review_note
+      FROM submissions s
+      LEFT JOIN places p ON p.id = s.place_id
       ${whereClause}
-      ORDER BY created_at DESC
+      ORDER BY s.created_at DESC
       LIMIT $${params.length + 1}
-      OFFSET $${params.length + 2}`;
+      OFFSET $${params.length + 2}
+    `;
 
     const listParams = [...params, limit, offset];
-
-    const { rows } = await dbQuery<{
+    const listResult = await dbQuery<{
       id: string;
       status: string;
-      kind: string;
-      level: string | null;
       created_at: string;
       updated_at: string | null;
-      name: string;
-      country: string;
-      city: string;
       place_id: string | null;
+      place_name: string | null;
+      payload: unknown;
       submitted_by: Record<string, unknown> | null;
       reviewed_by: Record<string, unknown> | null;
       review_note: string | null;
-      payload: Parameters<typeof mapSubmissionRow>[0]["payload"];
-      published_place_id: string | null;
-      approved_at: string | null;
-      rejected_at: string | null;
-      reject_reason: string | null;
-    }>(query, listParams, { route });
+    }>(listSql, listParams, { route });
 
-    const submissions = rows.map(mapSubmissionRow);
-    const hasMore = total !== null ? page * limit < total : submissions.length === limit;
+    const items = listResult.rows ?? [];
+    const hasMore = total !== null ? page * limit < total : items.length === limit;
 
     return NextResponse.json(
       {
-        items: submissions,
+        items,
         pageInfo: {
           page,
           limit,
