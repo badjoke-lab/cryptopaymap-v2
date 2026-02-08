@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE=${BASE:-"http://localhost:3000"}
+BASE=${BASE_URL:-${BASE:-"http://localhost:3000"}}
 INTERNAL_KEY=${INTERNAL_KEY:-""}
 DRY_RUN=${DRY_RUN:-""}
 
@@ -26,6 +26,12 @@ request() {
   else
     curl -sS -X "${method}" "${url}" "${headers[@]}" -w "\n%{http_code}"
   fi
+}
+
+request_multipart() {
+  local url=$1
+  local payload=$2
+  curl -sS -X POST "${url}" -F "payload=${payload}" -w "\n%{http_code}"
 }
 
 get_status() {
@@ -128,8 +134,8 @@ OWNER_NAME="[SMOKE] Owner ${RUN_ID}"
 COMMUNITY_NAME="[SMOKE] Community ${RUN_ID}"
 REPORT_NAME="[SMOKE] Report ${RUN_ID}"
 
-# Owner submission
-owner_response=$(request POST "${BASE}/api/submissions/owner${SUBMIT_QUERY}" "$(submit_owner_payload)")
+# Owner submission (canonical /api/submissions)
+owner_response=$(request_multipart "${BASE}/api/submissions${SUBMIT_QUERY}" "$(submit_owner_payload)")
 owner_status=$(get_status "${owner_response}")
 owner_body=$(get_body "${owner_response}")
 if [[ "${owner_status}" != "201" && "${owner_status}" != "200" ]]; then
@@ -189,8 +195,8 @@ if [[ "${owner_place_detail_status}" != "200" ]]; then
   exit 1
 fi
 
-# Community submission
-community_response=$(request POST "${BASE}/api/submissions/community${SUBMIT_QUERY}" "$(submit_community_payload)")
+# Community submission (canonical /api/submissions)
+community_response=$(request_multipart "${BASE}/api/submissions${SUBMIT_QUERY}" "$(submit_community_payload)")
 community_status=$(get_status "${community_response}")
 community_body=$(get_body "${community_response}")
 if [[ "${community_status}" != "201" && "${community_status}" != "200" ]]; then
@@ -250,8 +256,8 @@ if [[ "${community_place_detail_status}" != "200" ]]; then
   exit 1
 fi
 
-# Report submission
-report_response=$(request POST "${BASE}/api/submissions/report${SUBMIT_QUERY}" "$(submit_report_payload)")
+# Report submission (canonical /api/submissions)
+report_response=$(request_multipart "${BASE}/api/submissions${SUBMIT_QUERY}" "$(submit_report_payload)")
 report_status=$(get_status "${report_response}")
 report_body=$(get_body "${report_response}")
 if [[ "${report_status}" != "201" && "${report_status}" != "200" ]]; then
@@ -270,6 +276,22 @@ report_approve_body=$(get_body "${report_approve}")
 if [[ "${report_approve_status}" != "200" ]]; then
   echo "Report approve failed: ${report_approve_body}" >&2
   exit 1
+fi
+
+# Report promote should fail (4xx) with reason
+report_promote=$(request POST "${BASE}/api/internal/submissions/${report_id}/promote${INTERNAL_QUERY}" "{}")
+report_promote_status=$(get_status "${report_promote}")
+report_promote_body=$(get_body "${report_promote}")
+if [[ -n "${DRY_RUN}" ]]; then
+  if [[ "${report_promote_status}" != "200" ]]; then
+    echo "Report promote (dry-run) failed: ${report_promote_body}" >&2
+    exit 1
+  fi
+else
+  if [[ "${report_promote_status}" != 4* ]]; then
+    echo "Report promote should be 4xx but got ${report_promote_status}: ${report_promote_body}" >&2
+    exit 1
+  fi
 fi
 
 # Report detail (confirm saved state)

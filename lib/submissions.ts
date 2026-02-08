@@ -221,7 +221,7 @@ const generateSubmissionId = () => {
   return `sub-${date}-${time}-${generateRandomSuffix()}`;
 };
 
-const generateSuggestedPlaceId = (payload: SubmissionPayload) => {
+export const generateSuggestedPlaceId = (payload: SubmissionPayload) => {
   if (payload.verificationRequest === "report") {
     const suffix = generateRandomSuffix();
     const base = payload.placeId ? slugify(payload.placeId) : slugify(payload.placeName ?? "report");
@@ -816,16 +816,34 @@ type SubmissionError = {
   code: SubmissionErrorCode;
   message: string;
   details?: Record<string, unknown>;
+  hint?: string;
 };
 
-const errorResponse = (status: number, error: SubmissionError) =>
-  new Response(JSON.stringify({ error }), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
+const errorResponse = (status: number, error: SubmissionError) => {
+  const errors = error.details && "errors" in error.details ? (error.details.errors as unknown) : undefined;
+  return new Response(
+    JSON.stringify({
+      error,
+      hint: error.hint,
+      errors,
+    }),
+    {
+      status,
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+};
+
+const submissionCurlHint =
+  "Use multipart form-data with a payload JSON field. Example: curl -F 'payload={\"kind\":\"owner\",\"name\":\"Example\",\"country\":\"US\",\"city\":\"Austin\",\"address\":\"100 Congress Ave\",\"category\":\"cafe\",\"acceptedChains\":[\"btc\"],\"ownerVerification\":\"domain\",\"contactEmail\":\"me@example.com\"}' $BASE/api/submissions";
 
 const invalidPayloadResponse = (message: string, details?: Record<string, unknown>) =>
-  errorResponse(400, { code: "INVALID_PAYLOAD", message, details });
+  errorResponse(400, {
+    code: "INVALID_PAYLOAD",
+    message,
+    details,
+    hint: submissionCurlHint,
+  });
 
 const logSubmitFailure = (error: unknown, context: string) => {
   if (error instanceof Error) {
@@ -983,7 +1001,9 @@ export const handleUnifiedSubmission = async (request: Request) => {
       console.info(`[submissions] accept ip=${ip} kind=${record.kind}`);
       return new Response(
         JSON.stringify({
+          id: record.submissionId,
           submissionId: record.submissionId,
+          kind: record.kind,
           status: record.status,
           suggestedPlaceId: record.suggestedPlaceId,
         }),
@@ -1074,7 +1094,9 @@ if (error instanceof Error && error.message === "UPLOAD_FAILED") {
     console.info(`[submissions] accept ip=${ip} kind=${record.kind}`);
     return new Response(
       JSON.stringify({
+        id: record.submissionId,
         submissionId: record.submissionId,
+        kind: record.kind,
         status: record.status,
         suggestedPlaceId: record.suggestedPlaceId,
       }),

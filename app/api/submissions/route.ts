@@ -4,7 +4,12 @@ import path from "path";
 
 import { buildDataSourceHeaders } from "@/lib/dataSource";
 import { parseMultipartSubmission } from "@/lib/submissions/parseMultipart";
-import { handleUnifiedSubmission, normalizeSubmission, SubmissionPayload } from "@/lib/submissions";
+import {
+  generateSuggestedPlaceId,
+  handleUnifiedSubmission,
+  normalizeSubmission,
+  SubmissionPayload,
+} from "@/lib/submissions";
 
 const pendingSubmissionsPath = path.join(process.cwd(), "data", "submissions-pending.ndjson");
 
@@ -44,6 +49,7 @@ const getDbFailureSummary = async (response: Response) => {
 export async function POST(request: Request) {
   let parsedBody: Record<string, unknown> | null = null;
   let normalizedPayload: SubmissionPayload | null = null;
+  let normalizedErrors: Record<string, string> | null = null;
 
   try {
     const contentType = request.headers.get("content-type") ?? "";
@@ -54,6 +60,8 @@ export async function POST(request: Request) {
         const normalized = normalizeSubmission(parsedMultipart.value.payload);
         if (normalized.ok) {
           normalizedPayload = normalized.payload;
+        } else {
+          normalizedErrors = normalized.errors;
         }
       }
     } else {
@@ -63,11 +71,40 @@ export async function POST(request: Request) {
         const normalized = normalizeSubmission(parsed);
         if (normalized.ok) {
           normalizedPayload = normalized.payload;
+        } else {
+          normalizedErrors = normalized.errors;
         }
       }
     }
   } catch {
     parsedBody = null;
+  }
+
+  const url = new URL(request.url);
+  const dryRunParam = url.searchParams.get("dryRun") ?? "";
+  const dryRun = ["1", "true", "yes"].includes(dryRunParam.toLowerCase());
+  if (dryRun) {
+    if (!normalizedPayload) {
+      return new Response(
+        JSON.stringify({
+          error: "Invalid submission",
+          errors: normalizedErrors ?? { body: "Invalid JSON payload" },
+          hint:
+            "Use multipart form-data with a payload JSON field. Example: curl -F 'payload={\"kind\":\"owner\",\"name\":\"Example\",\"country\":\"US\",\"city\":\"Austin\",\"address\":\"100 Congress Ave\",\"category\":\"cafe\",\"acceptedChains\":[\"btc\"],\"ownerVerification\":\"domain\",\"contactEmail\":\"me@example.com\"}' $BASE/api/submissions",
+        }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        id: `dryrun-${normalizedPayload.kind}-${randomUUID()}`,
+        kind: normalizedPayload.kind,
+        status: "validated",
+        suggestedPlaceId: generateSuggestedPlaceId(normalizedPayload),
+        dryRun: true,
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
   }
 
   const response = await handleUnifiedSubmission(request);
@@ -101,8 +138,10 @@ export async function POST(request: Request) {
 
   return new Response(
     JSON.stringify({
+      id: submissionId,
       submissionId,
       status: "pending",
+      kind: normalizedPayload?.kind ?? null,
       accepted: true,
     }),
     {
