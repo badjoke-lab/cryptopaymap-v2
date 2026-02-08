@@ -20,9 +20,19 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  const dryRunParam = request.nextUrl.searchParams.get("dryRun") ?? "";
+  const dryRun = ["1", "true", "yes"].includes(dryRunParam.toLowerCase());
   const decoded = decodePlaceId(rawId);
   if (!decoded.ok) {
     return NextResponse.json({ error: "Invalid place id" }, { status: 400 });
+  }
+
+  if (dryRun || decoded.id.startsWith("cpm:dryrun-")) {
+    return NextResponse.json({
+      id: decoded.id,
+      name: "[DRY RUN]",
+      dryRun: true,
+    });
   }
 
   try {

@@ -221,7 +221,7 @@ const generateSubmissionId = () => {
   return `sub-${date}-${time}-${generateRandomSuffix()}`;
 };
 
-const generateSuggestedPlaceId = (payload: SubmissionPayload) => {
+export const generateSuggestedPlaceId = (payload: SubmissionPayload) => {
   if (payload.verificationRequest === "report") {
     const suffix = generateRandomSuffix();
     const base = payload.placeId ? slugify(payload.placeId) : slugify(payload.placeName ?? "report");
@@ -266,6 +266,74 @@ const buildSubmittedBy = (obj: Record<string, unknown> | SubmissionPayload, kind
   submittedBy.kind = kind;
   return submittedBy;
 };
+
+const parseJsonBody = async <T>(
+  request: Request,
+): Promise<{ ok: true; body: T } | { ok: false; error: string }> => {
+  const text = await request.text();
+  if (!text.trim()) {
+    return { ok: false, error: "EMPTY_BODY" };
+  }
+  try {
+    return { ok: true, body: JSON.parse(text) as T };
+  } catch {
+    return { ok: false, error: "INVALID_JSON" };
+  }
+};
+
+const isNewSchemaCandidate = (body: Record<string, unknown>) =>
+  [
+    "acceptedChains",
+    "ownerVerification",
+    "verificationRequest",
+    "kind",
+    "communityEvidenceUrls",
+    "reportAction",
+    "reportReason",
+    "reportDetails",
+  ].some((key) => key in body);
+
+const buildLegacySubmissionPayload = (body: Record<string, unknown>, expectedKind: SubmissionKind) => ({
+  name: (body.place as Record<string, unknown> | undefined)?.name ?? body.name,
+  country: (body.place as Record<string, unknown> | undefined)?.country ?? body.country,
+  city: (body.place as Record<string, unknown> | undefined)?.city ?? body.city,
+  address: (body.place as Record<string, unknown> | undefined)?.address ?? body.address,
+  category: (body.place as Record<string, unknown> | undefined)?.category ?? body.category,
+  acceptedChains:
+    (body.place as Record<string, unknown> | undefined)?.accepted ??
+    body.accepted ??
+    body.acceptedChains,
+  ownerVerification:
+    body.ownerVerificationMethod ??
+    (body.place as Record<string, unknown> | undefined)?.ownerVerificationMethod ??
+    body.ownerVerification,
+  verificationRequest: expectedKind,
+  kind: expectedKind,
+  contactEmail: (body.submitter as Record<string, unknown> | undefined)?.email ?? body.contactEmail,
+  contactName: (body.submitter as Record<string, unknown> | undefined)?.name ?? body.contactName,
+  submitterName: (body.submitter as Record<string, unknown> | undefined)?.name ?? body.submitterName,
+  role: (body.submitter as Record<string, unknown> | undefined)?.role ?? body.role,
+  about: (body.place as Record<string, unknown> | undefined)?.about ?? body.about,
+  paymentNote: (body.place as Record<string, unknown> | undefined)?.paymentNote ?? body.paymentNote,
+  website: (body.place as Record<string, unknown> | undefined)?.website ?? body.website,
+  twitter: (body.place as Record<string, unknown> | undefined)?.twitter ?? body.twitter,
+  instagram: (body.place as Record<string, unknown> | undefined)?.instagram ?? body.instagram,
+  facebook: (body.place as Record<string, unknown> | undefined)?.facebook ?? body.facebook,
+  lat: (body.place as Record<string, unknown> | undefined)?.lat ?? body.lat,
+  lng: (body.place as Record<string, unknown> | undefined)?.lng ?? body.lng,
+  notesForAdmin:
+    (body.submitter as Record<string, unknown> | undefined)?.notesForAdmin ??
+    body.notesForAdmin ??
+    body.notes,
+  communityEvidenceUrls:
+    (body.submitter as Record<string, unknown> | undefined)?.communityEvidenceUrls ??
+    body.communityEvidenceUrls,
+  reportAction: body.reportAction ?? body.action,
+  reportReason: body.reportReason ?? body.reason ?? body.notes,
+  reportDetails: body.reportDetails ?? body.details,
+  placeId: body.placeId ?? (body.place as Record<string, unknown> | undefined)?.id,
+  placeName: body.placeName ?? (body.place as Record<string, unknown> | undefined)?.name,
+});
 
 const validateLength = (
   errors: SubmissionErrors,
@@ -748,16 +816,34 @@ type SubmissionError = {
   code: SubmissionErrorCode;
   message: string;
   details?: Record<string, unknown>;
+  hint?: string;
 };
 
-const errorResponse = (status: number, error: SubmissionError) =>
-  new Response(JSON.stringify({ error }), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
+const errorResponse = (status: number, error: SubmissionError) => {
+  const errors = error.details && "errors" in error.details ? (error.details.errors as unknown) : undefined;
+  return new Response(
+    JSON.stringify({
+      error,
+      hint: error.hint,
+      errors,
+    }),
+    {
+      status,
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+};
+
+const submissionCurlHint =
+  "Use multipart form-data with a payload JSON field. Example: curl -F 'payload={\"kind\":\"owner\",\"name\":\"Example\",\"country\":\"US\",\"city\":\"Austin\",\"address\":\"100 Congress Ave\",\"category\":\"cafe\",\"acceptedChains\":[\"btc\"],\"ownerVerification\":\"domain\",\"contactEmail\":\"me@example.com\"}' $BASE/api/submissions";
 
 const invalidPayloadResponse = (message: string, details?: Record<string, unknown>) =>
-  errorResponse(400, { code: "INVALID_PAYLOAD", message, details });
+  errorResponse(400, {
+    code: "INVALID_PAYLOAD",
+    message,
+    details,
+    hint: submissionCurlHint,
+  });
 
 const logSubmitFailure = (error: unknown, context: string) => {
   if (error instanceof Error) {
@@ -915,7 +1001,9 @@ export const handleUnifiedSubmission = async (request: Request) => {
       console.info(`[submissions] accept ip=${ip} kind=${record.kind}`);
       return new Response(
         JSON.stringify({
+          id: record.submissionId,
           submissionId: record.submissionId,
+          kind: record.kind,
           status: record.status,
           suggestedPlaceId: record.suggestedPlaceId,
         }),
@@ -1006,7 +1094,9 @@ if (error instanceof Error && error.message === "UPLOAD_FAILED") {
     console.info(`[submissions] accept ip=${ip} kind=${record.kind}`);
     return new Response(
       JSON.stringify({
+        id: record.submissionId,
         submissionId: record.submissionId,
+        kind: record.kind,
         status: record.status,
         suggestedPlaceId: record.suggestedPlaceId,
       }),
@@ -1035,35 +1125,84 @@ if (error instanceof Error && error.message === "UPLOAD_FAILED") {
 
 export const handleLegacySubmission = async (request: Request, expectedKind: SubmissionKind) => {
   try {
-    const body = await request.json();
-    const normalizedBody = {
-      name: (body.place?.name ?? body.name) as unknown,
-      country: (body.place?.country ?? body.country) as unknown,
-      city: (body.place?.city ?? body.city) as unknown,
-      address: (body.place?.address ?? body.address) as unknown,
-      category: (body.place?.category ?? body.category) as unknown,
-      acceptedChains: (body.place?.accepted ?? body.accepted) as unknown,
-      verificationRequest: expectedKind,
-      contactEmail: (body.submitter?.email ?? body.contactEmail) as unknown,
-      contactName: (body.submitter?.name ?? body.contactName) as unknown,
-      role: (body.submitter?.role ?? body.role) as unknown,
-      about: (body.place?.about ?? body.about) as unknown,
-      paymentNote: (body.place?.paymentNote ?? body.paymentNote) as unknown,
-      website: (body.place?.website ?? body.website) as unknown,
-      twitter: (body.place?.twitter ?? body.twitter) as unknown,
-      instagram: (body.place?.instagram ?? body.instagram) as unknown,
-      facebook: (body.place?.facebook ?? body.facebook) as unknown,
-      lat: (body.place?.lat ?? body.lat) as unknown,
-      lng: (body.place?.lng ?? body.lng) as unknown,
-      notesForAdmin: (body.submitter?.notesForAdmin ?? body.notesForAdmin) as unknown,
-    };
+    const url = new URL(request.url);
+    const dryRun = ["1", "true", "yes"].includes((url.searchParams.get("dryRun") ?? "").toLowerCase());
+
+    const parsedBody = await parseJsonBody<Record<string, unknown>>(request);
+    if (!parsedBody.ok) {
+      return new Response(
+        JSON.stringify({
+          error: "Invalid JSON",
+          hint: "Send a JSON body (use '{}' when no fields are required).",
+          detail: parsedBody.error,
+        }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    const body = parsedBody.body;
+    if (!body || typeof body !== "object") {
+      return new Response(
+        JSON.stringify({
+          error: "Invalid submission",
+          hint: "Request body must be a JSON object.",
+        }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    const rawBody = body as Record<string, unknown>;
+    const requestedKind = resolveSubmissionKind(rawBody);
+    if (requestedKind && requestedKind !== expectedKind) {
+      return new Response(
+        JSON.stringify({
+          error: "Invalid submission kind",
+          detail: `This endpoint only accepts ${expectedKind} submissions.`,
+          hint: `Remove 'kind' or set it to '${expectedKind}'.`,
+        }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    const normalizedBody = isNewSchemaCandidate(rawBody)
+      ? {
+          ...rawBody,
+          acceptedChains:
+            rawBody.acceptedChains ??
+            rawBody.accepted ??
+            (rawBody.place as Record<string, unknown> | undefined)?.accepted,
+          ownerVerification: rawBody.ownerVerification ?? rawBody.ownerVerificationMethod,
+          verificationRequest: rawBody.verificationRequest ?? expectedKind,
+          kind: rawBody.kind ?? expectedKind,
+        }
+      : buildLegacySubmissionPayload(rawBody, expectedKind);
 
     const normalized = normalizeSubmission(normalizedBody);
     if (!normalized.ok) {
-      return new Response(JSON.stringify({ errors: normalized.errors }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({
+          error: "Invalid submission",
+          detail: normalized.errors,
+          hint: "Check required fields (acceptedChains/ownerVerification/etc.) and try again.",
+        }),
+        {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }
+
+    if (dryRun) {
+      return new Response(
+        JSON.stringify({
+          id: `dryrun-${expectedKind}-${randomUUID()}`,
+          status: "validated",
+          kind: normalized.payload.kind,
+          suggestedPlaceId: generateSuggestedPlaceId(normalized.payload),
+          dryRun: true,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
     }
 
     const record = await persistSubmission(normalized.payload);
@@ -1072,22 +1211,35 @@ export const handleLegacySubmission = async (request: Request, expectedKind: Sub
       JSON.stringify({
         id: record.submissionId,
         status: record.status,
+        kind: record.kind,
         suggestedPlaceId: record.suggestedPlaceId,
       }),
       { status: 201, headers: { "Content-Type": "application/json" } },
     );
   } catch (error) {
     if (error instanceof DbUnavailableError || (error as Error).message?.includes("DATABASE_URL")) {
-      return new Response(JSON.stringify({ error: "DB_UNAVAILABLE" }), {
+      return new Response(
+        JSON.stringify({
+          error: "DB_UNAVAILABLE",
+          hint: "Database unavailable; try again later or use ?dryRun=1 to validate only.",
+        }),
+        {
         status: 503,
         headers: { "Content-Type": "application/json" },
-      });
+        },
+      );
     }
     if (error instanceof Error && error.message === "SUBMISSIONS_TABLE_MISSING") {
-      return new Response(JSON.stringify({ error: "Submissions table missing" }), {
+      return new Response(
+        JSON.stringify({
+          error: "Submissions table missing",
+          hint: "Run migrations before submitting.",
+        }),
+        {
         status: 500,
         headers: { "Content-Type": "application/json" },
-      });
+        },
+      );
     }
     console.error("[submissions] legacy", error);
     return new Response(JSON.stringify({ ok: false, error: "Invalid submission" }), {
