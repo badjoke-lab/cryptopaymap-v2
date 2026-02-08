@@ -2,18 +2,18 @@
 set -euo pipefail
 
 BASE_URL="${BASE_URL:-http://localhost:3000}"
-ADMIN_USER="${ADMIN_USER:-}"
-ADMIN_PASS="${ADMIN_PASS:-}"
+INTERNAL_USER="${INTERNAL_USER:-}"
+INTERNAL_PASS="${INTERNAL_PASS:-}"
 COOKIE_JAR="${COOKIE_JAR:-/tmp/cpm_internal_cookie_$$.txt}"
 
-if [[ -z "$ADMIN_USER" || -z "$ADMIN_PASS" ]]; then
-  echo "Missing ADMIN_USER/ADMIN_PASS for internal auth." >&2
+if [[ -z "$INTERNAL_USER" || -z "$INTERNAL_PASS" ]]; then
+  echo "Missing INTERNAL_USER/INTERNAL_PASS for internal auth." >&2
   exit 1
 fi
 
 trap 'rm -f "$COOKIE_JAR"' EXIT
 
-internal_auth_args=(-u "${ADMIN_USER}:${ADMIN_PASS}" -c "$COOKIE_JAR" -b "$COOKIE_JAR")
+internal_auth_args=(-u "${INTERNAL_USER}:${INTERNAL_PASS}" -c "$COOKIE_JAR" -b "$COOKIE_JAR")
 
 request() {
   local method="$1"
@@ -25,6 +25,23 @@ request() {
   local body="${response%$'\n'*}"
   if [[ "$status" -lt 200 || "$status" -ge 300 ]]; then
     echo "Request failed: $method $url ($status)" >&2
+    echo "$body" >&2
+    exit 1
+  fi
+  printf "%s" "$body"
+}
+
+request_expect_status() {
+  local expected="$1"
+  local method="$2"
+  local url="$3"
+  shift 3
+  local response
+  response=$(curl -sS -w "\n%{http_code}" -X "$method" "$url" "$@")
+  local status="${response##*$'\n'}"
+  local body="${response%$'\n'*}"
+  if [[ "$status" != "$expected" ]]; then
+    echo "Request failed: expected $expected got $status ($method $url)" >&2
     echo "$body" >&2
     exit 1
   fi
@@ -112,4 +129,5 @@ fi
 request POST "$BASE_URL/api/internal/submissions/$report_id/approve" "${internal_auth_args[@]}" >/dev/null
 report_detail=$(request GET "$BASE_URL/api/internal/submissions/$report_id" "${internal_auth_args[@]}")
 echo "$report_detail" | grep -q "\"status\":\"approved\""
+request_expect_status 409 POST "$BASE_URL/api/internal/submissions/$report_id/promote" "${internal_auth_args[@]}" >/dev/null
 echo "report flow: ok"

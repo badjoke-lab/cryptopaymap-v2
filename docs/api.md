@@ -448,6 +448,7 @@ Preconditions:
 
 * kind in (owner, community)
 * status == approved
+* report は promote 対象外（409）
 
 Side effects（概念）:
 
@@ -457,14 +458,20 @@ Side effects（概念）:
 
 Errors:
 
-* 409：not approved / wrong kind
+* 409：not approved / wrong kind / report
 * 400：payload不足
-* 500：反映失敗
+* 500：反映失敗（detail に原因を返す）
 
 Response（例）:
 
 ```json
-{ "placeId": "cpm:...", "promoted": true }
+{ "status": "promoted", "placeId": "cpm:...", "mode": "insert" }
+```
+
+Failure response（例）:
+
+```json
+{ "error": "Failed to promote submission", "detail": "Submission must be approved before promote", "code": "NOT_APPROVED" }
 ```
 
 ---
@@ -489,4 +496,3 @@ Response（例）:
 * [ ] `submission_media.url` は永続URL（署名URL禁止）
 * [ ] public gallery / internal proof,evidence の配信分離＋no-store
 * [ ] internal approve/reject/promote が動作（reportにpromoteなし）
-
