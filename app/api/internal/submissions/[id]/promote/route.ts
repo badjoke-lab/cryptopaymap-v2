@@ -7,6 +7,21 @@ import { promoteSubmission } from "@/lib/submissions/promote";
 
 export const runtime = "nodejs";
 
+const parseOptionalJson = async <T extends Record<string, unknown>>(
+  request: Request,
+): Promise<{ ok: true; value: T } | { ok: false }> => {
+  const text = await request.text();
+  if (!text || text.trim().length === 0) {
+    return { ok: true, value: {} as T };
+  }
+
+  try {
+    return { ok: true, value: JSON.parse(text) as T };
+  } catch {
+    return { ok: false };
+  }
+};
+
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   const auth = requireInternalAuth(request);
   if (!("ok" in auth)) {
@@ -22,13 +37,16 @@ export async function POST(request: Request, { params }: { params: { id: string 
   const actor = resolveActorFromRequest(request, "internal");
   let galleryMediaIds: string[] | undefined;
 
-  try {
-    const payload = await request.json();
-    if (payload && typeof payload === "object" && Array.isArray(payload.galleryMediaIds)) {
-      galleryMediaIds = payload.galleryMediaIds.filter((item: unknown) => typeof item === "string");
-    }
-  } catch {
-    galleryMediaIds = undefined;
+  const parsedBody = await parseOptionalJson<{ galleryMediaIds?: unknown }>(request);
+  if (!parsedBody.ok) {
+    return NextResponse.json(
+      { error: "Invalid JSON", hint: "Send {} with content-type: application/json" },
+      { status: 400 },
+    );
+  }
+  const payload = parsedBody.value;
+  if (payload && typeof payload === "object" && Array.isArray(payload.galleryMediaIds)) {
+    galleryMediaIds = payload.galleryMediaIds.filter((item: unknown) => typeof item === "string");
   }
 
   let client: Awaited<ReturnType<typeof getDbClient>> | null = null;
@@ -40,16 +58,31 @@ export async function POST(request: Request, { params }: { params: { id: string 
     });
 
     if (!result.ok) {
-      return NextResponse.json(result.body, { status: result.status });
+      return NextResponse.json({ ...result.body, submissionId: id }, { status: result.status });
     }
 
-    return NextResponse.json({ placeId: result.placeId, promoted: result.promoted });
+    return NextResponse.json({
+      status: "promoted",
+      placeId: result.placeId,
+      mode: result.mode,
+      sourceSubmissionId: id,
+      promoted: result.promoted,
+    });
   } catch (error) {
     if (error instanceof DbUnavailableError || (error as Error).message?.includes("DATABASE_URL")) {
       return NextResponse.json({ error: "DB_UNAVAILABLE" }, { status: 503 });
     }
+    const detail = error instanceof Error ? error.message : String(error);
     console.error("[internal submissions] promote failed", error);
-    return NextResponse.json({ error: "Failed to promote submission" }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: "Failed to promote submission",
+        detail: process.env.NODE_ENV !== "production" ? detail : undefined,
+        code: "PROMOTE_FAILED",
+        submissionId: id,
+      },
+      { status: 500 },
+    );
   } finally {
     client?.release();
   }

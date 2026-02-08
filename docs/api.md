@@ -84,6 +84,7 @@ internal 系は **運営のみ**が触れる。
 | ------------------------------------------------------------- | ---------------------------------------------- |
 | `GET /api/places`                                             | 地図用の全店舗取得（軽量版）                                 |
 | `GET /api/places/[id]`                                        | 個別店舗詳細（Drawer用）                                |
+| `GET /api/places/by-id?id=<urlencoded>`                       | `:` を含むIDの詳細取得（curl用）                         |
 | `GET /api/stats`                                              | v3 コア統計                                        |
 | `GET /api/filters/meta`                                       | UIフィルタ用メタデータ                                   |
 | `GET /api/search`                                             | v2.1 予定の検索API                                  |
@@ -255,6 +256,13 @@ type SubmissionMedia = {
 
 ---
 
+## 4.1 GET `/api/places/by-id?id=<urlencoded>`
+
+* `:` を含むID（例: `cpm:...`）を curl で安全に取得するためのエンドポイント
+* `id` は URL エンコードして渡す（例: `cpm%3A...`）
+
+---
+
 ## 5. GET `/api/stats`（v3 核心統計）
 
 * Response：`StatsCoreV3`
@@ -416,6 +424,9 @@ Side effects:
 * `status=approved`
 * reviewed_by / approved_at 等の整合を取る
 * **approve は “反映(promote)” をしない（分離）**（promoteでplacesへ反映）
+* 空ボディ許容（curl事故防止）
+* JSONが壊れている場合は `{"error":"Invalid JSON","hint":"Send {} with content-type: application/json"}` を返す
+* report(kind=report) でも approve は可能。status を更新するのみで places には反映しない。
 
 Response:
 
@@ -427,6 +438,8 @@ Body:
 
 * `reject_reason?: string`（推奨）
 * `review_note?: string`
+* 空ボディは不可（reject_reason 必須）
+* JSONが壊れている場合は `{"error":"Invalid JSON","hint":"Send {} with content-type: application/json"}` を返す
 
 Side effects:
 
@@ -445,7 +458,7 @@ Preconditions:
 
 Side effects（概念）:
 
-* places を新規作成 or 更新
+* places を新規作成 or 更新（idempotent）
 * place 公開mediaへ `gallery` を反映（proof/evidenceは公開禁止）
 * payment_accepts / socials 等の正規化反映
 
@@ -458,7 +471,36 @@ Errors:
 Response（例）:
 
 ```json
-{ "placeId": "cpm:...", "promoted": true }
+{ "status": "promoted", "placeId": "cpm:...", "mode": "insert", "sourceSubmissionId": "sub-...", "promoted": true }
+```
+
+* 500時は `error`, `detail`(非prodのみ), `code`, `submissionId` を返す
+
+---
+
+### 11.6 Curl one-pass（コピペ例）
+
+* `curl` と `sed/grep/awk` のみで完走する手順
+* 詳細は `scripts/cpm_submit_smoke_test.sh` を参照
+
+```bash
+BASE_URL="http://localhost:3000"
+INTERNAL_USER="admin"
+INTERNAL_PASS="cryptoSO8map"
+
+SUB_OWNER=$(curl -sS -X POST "$BASE_URL/api/submissions/owner" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Test Shop","country":"JP","city":"Tokyo","address":"1-2-3 Test Street","category":"cafe","acceptedChains":["BTC"],"contactEmail":"owner@example.com","contactName":"Owner","ownerVerification":"domain","lat":35.6895,"lng":139.6917,"termsAccepted":true}' \
+  | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
+
+curl -sS -u "$INTERNAL_USER:$INTERNAL_PASS" -c /tmp/cpm_cookie.txt "$BASE_URL/api/internal/submissions?limit=1" >/dev/null
+curl -sS -b /tmp/cpm_cookie.txt -X POST "$BASE_URL/api/internal/submissions/$SUB_OWNER/approve" >/dev/null
+
+PLACE_ID=$(curl -sS -b /tmp/cpm_cookie.txt -X POST "$BASE_URL/api/internal/submissions/$SUB_OWNER/promote" \
+  | sed -n 's/.*"placeId":"\([^"]*\)".*/\1/p')
+
+ENCODED_ID=$(printf '%s' "$PLACE_ID" | sed 's/:/%3A/g')
+curl -sS "$BASE_URL/api/places/by-id?id=$ENCODED_ID"
 ```
 
 ---
@@ -483,5 +525,3 @@ Response（例）:
 * [ ] `submission_media.url` は永続URL（署名URL禁止）
 * [ ] public gallery / internal proof,evidence の配信分離＋no-store
 * [ ] internal approve/reject/promote が動作（reportにpromoteなし）
-
-

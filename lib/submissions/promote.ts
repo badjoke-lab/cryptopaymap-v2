@@ -14,6 +14,8 @@ type SubmissionRow = {
   id: string;
   status: string;
   kind: string;
+  place_id: string | null;
+  suggested_place_id: string | null;
   country: string;
   city: string;
   category: string;
@@ -30,7 +32,7 @@ type SubmissionRow = {
 };
 
 type PromoteResult =
-  | { ok: true; placeId: string; promoted: boolean }
+  | { ok: true; placeId: string; promoted: boolean; mode: "insert" | "update" }
   | { ok: false; status: number; body: Record<string, unknown> };
 
 type PromoteOptions = {
@@ -229,6 +231,21 @@ const buildVerificationInsert = async (
 
 const promoteKindAllowed = (kind: string) => kind === "owner" || kind === "community";
 
+const loadPlaceColumns = async (route: string, client: PoolClient) => {
+  const { rows } = await dbQuery<{ column_name: string }>(
+    `
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'places'
+    `,
+    [],
+    { route, client, retry: false },
+  );
+
+  return new Set(rows.map((row) => row.column_name));
+};
+
 const collectMissingFields = (submission: SubmissionRow) => {
   const missing: string[] = [];
 
@@ -284,6 +301,8 @@ export const promoteSubmission = async (
       "id",
       "status",
       "kind",
+      "place_id",
+      "suggested_place_id",
       "country",
       "city",
       "category",
@@ -347,16 +366,12 @@ export const promoteSubmission = async (
     const linkedPlaceId =
       (linkColumn === "linked_place_id" ? submission.linked_place_id : submission.published_place_id) ?? null;
     const alreadyPromoted = Boolean(linkedPlaceId) || (hasPromotedAt && submission.promoted_at);
-    if (alreadyPromoted) {
-      await dbQuery("ROLLBACK", [], { route, client, retry: false });
-      return {
-        ok: false,
-        status: 409,
-        body: { error: "Submission already promoted", placeId: linkedPlaceId },
-      };
-    }
 
-    const placeId = linkedPlaceId ?? randomUUID();
+    const placeId =
+      submission.place_id ??
+      linkedPlaceId ??
+      submission.suggested_place_id ??
+      randomUUID();
     const availableGalleryMedia = await loadSubmissionGalleryMedia(route, client, submissionId);
     const requestedGalleryMediaIds = options.galleryMediaIds
       ? Array.from(
@@ -381,71 +396,72 @@ export const promoteSubmission = async (
     const amenities = ownerPayload.amenities ?? null;
     const submitterName = ownerPayload.contactName ?? ownerPayload.submitterName ?? null;
 
-    if (linkedPlaceId) {
-      await dbQuery(
-        `UPDATE places
-         SET name = $2,
-             country = $3,
-             city = $4,
-             category = $5,
-             lat = $6,
-             lng = $7,
-             address = $8,
-             about = $9,
-             payment_note = $10,
-             amenities = $11,
-             submitter_name = $12
-         WHERE id = $1`,
-        [
-          placeId,
-          submission.name,
-          submission.country,
-          submission.city,
-          submission.category,
-          submission.lat,
-          submission.lng,
-          submission.address,
-          submission.about,
-          paymentNote,
-          amenities,
-          submitterName,
-        ],
-        { route, client, retry: false },
-      );
-    } else {
-      await dbQuery(
-        `INSERT INTO places (
-          id,
-          name,
-          country,
-          city,
-          category,
-          lat,
-          lng,
-          address,
-          about,
-          payment_note,
-          amenities,
-          submitter_name
-        )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-        [
-          placeId,
-          submission.name,
-          submission.country,
-          submission.city,
-          submission.category,
-          submission.lat,
-          submission.lng,
-          submission.address,
-          submission.about,
-          paymentNote,
-          amenities,
-          submitterName,
-        ],
-        { route, client, retry: false },
-      );
+    const placeColumns = await loadPlaceColumns(route, client);
+    const requiredPlaceColumns = [
+      "id",
+      "name",
+      "country",
+      "city",
+      "category",
+      "lat",
+      "lng",
+      "address",
+    ];
+    const missingPlaceColumns = requiredPlaceColumns.filter((column) => !placeColumns.has(column));
+    if (missingPlaceColumns.length) {
+      await dbQuery("ROLLBACK", [], { route, client, retry: false });
+      return {
+        ok: false,
+        status: 500,
+        body: { error: "places table is missing required columns", missingColumns: missingPlaceColumns },
+      };
     }
+
+    const hasAbout = placeColumns.has("about");
+    const hasPaymentNote = placeColumns.has("payment_note");
+    const hasAmenities = placeColumns.has("amenities");
+    const hasSubmitterName = placeColumns.has("submitter_name");
+
+    const placeValues: Record<string, unknown> = {
+      id: placeId,
+      name: submission.name,
+      country: submission.country,
+      city: submission.city,
+      category: submission.category,
+      lat: submission.lat,
+      lng: submission.lng,
+      address: submission.address,
+      about: hasAbout ? submission.about : undefined,
+      payment_note: hasPaymentNote ? paymentNote : undefined,
+      amenities: hasAmenities ? amenities : undefined,
+      submitter_name: hasSubmitterName ? submitterName : undefined,
+    };
+
+    const insertColumns = Object.entries(placeValues)
+      .filter(([, value]) => value !== undefined)
+      .map(([key]) => key);
+    const insertParams = insertColumns.map((column) => placeValues[column]);
+
+    const insertPlaceholders = insertColumns.map((_, index) => `$${index + 1}`).join(", ");
+    const updateAssignments = insertColumns
+      .filter((column) => column !== "id")
+      .map((column) => `${column} = EXCLUDED.${column}`)
+      .join(", ");
+
+    const { rows: existingRows } = await dbQuery<{ exists: number }>(
+      `SELECT 1 AS exists FROM places WHERE id = $1 LIMIT 1`,
+      [placeId],
+      { route, client, retry: false },
+    );
+    const mode = existingRows.length ? "update" : "insert";
+
+    await dbQuery(
+      `INSERT INTO places (${insertColumns.join(", ")})
+       VALUES (${insertPlaceholders})
+       ON CONFLICT (id) DO UPDATE SET ${updateAssignments}`,
+      insertParams,
+      { route, client, retry: false },
+    );
 
     const verificationsTableExists = await tableExists(route, "verifications", client);
     if (verificationsTableExists) {
@@ -489,7 +505,7 @@ export const promoteSubmission = async (
     }
 
     if (hasPromotedAt) {
-      submissionUpdates.push(`promoted_at = NOW()`);
+      submissionUpdates.push(`promoted_at = COALESCE(promoted_at, NOW())`);
     }
 
     if (submissionUpdates.length) {
@@ -521,7 +537,7 @@ export const promoteSubmission = async (
 
     await dbQuery("COMMIT", [], { route, client, retry: false });
 
-    return { ok: true, placeId, promoted: true };
+    return { ok: true, placeId, promoted: !alreadyPromoted, mode };
   } catch (error) {
     await dbQuery("ROLLBACK", [], { route, client, retry: false }).catch(() => undefined);
     throw error;

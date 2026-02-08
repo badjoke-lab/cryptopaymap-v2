@@ -22,6 +22,21 @@ type SubmissionRow = {
 const parseReviewNote = (body: ApproveBody) =>
   typeof body.review_note === "string" ? body.review_note.trim() : null;
 
+const parseOptionalJson = async <T extends Record<string, unknown>>(
+  request: Request,
+): Promise<{ ok: true; value: T } | { ok: false }> => {
+  const text = await request.text();
+  if (!text || text.trim().length === 0) {
+    return { ok: true, value: {} as T };
+  }
+
+  try {
+    return { ok: true, value: JSON.parse(text) as T };
+  } catch {
+    return { ok: false };
+  }
+};
+
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   const auth = requireInternalAuth(request);
   if (!("ok" in auth)) {
@@ -36,12 +51,14 @@ export async function POST(request: Request, { params }: { params: { id: string 
   const route = "api_internal_submissions_approve";
   const actor = resolveActorFromRequest(request, "internal");
 
-  let body: ApproveBody = {};
-  try {
-    body = (await request.json()) as ApproveBody;
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  const parsedBody = await parseOptionalJson<ApproveBody>(request);
+  if (!parsedBody.ok) {
+    return NextResponse.json(
+      { error: "Invalid JSON", hint: "Send {} with content-type: application/json" },
+      { status: 400 },
+    );
   }
+  const body = parsedBody.value;
 
   const reviewNote = parseReviewNote(body);
 
