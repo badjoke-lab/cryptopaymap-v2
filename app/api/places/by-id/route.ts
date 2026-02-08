@@ -11,8 +11,16 @@ const decodePlaceId = (rawId: string) => {
   }
 };
 
-export async function GET(_request: NextRequest, { params }: { params: { id: string } }) {
-  const decoded = decodePlaceId(params.id);
+export async function GET(request: NextRequest) {
+  const rawId = request.nextUrl.searchParams.get("id");
+  if (!rawId) {
+    return NextResponse.json(
+      { error: "Missing place id", hint: "use /api/places/by-id?id=cpm:..." },
+      { status: 400 },
+    );
+  }
+
+  const decoded = decodePlaceId(rawId);
   if (!decoded.ok) {
     return NextResponse.json({ error: "Invalid place id" }, { status: 400 });
   }
