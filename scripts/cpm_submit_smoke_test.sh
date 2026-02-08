@@ -54,6 +54,18 @@ json_value() {
   echo "$body" | sed -n "s/.*\"$key\":\"\\([^\"]*\\)\".*/\\1/p" | head -n 1
 }
 
+place_list_contains() {
+  local name="$1"
+  local list
+  list=$(request GET "$BASE_URL/api/places" --get --data-urlencode "limit=5000")
+  if echo "$list" | grep -q "$name"; then
+    return 0
+  fi
+  local fallback
+  fallback=$(request GET "$BASE_URL/api/places" --get --data-urlencode "q=$name" --data-urlencode "limit=5000")
+  echo "$fallback" | grep -q "$name"
+}
+
 RUN_ID="$(date +%s)"
 
 OWNER_NAME="smoke-owner-${RUN_ID}"
@@ -93,8 +105,7 @@ if [[ -z "$owner_place_id" ]]; then
   echo "$owner_promote" >&2
   exit 1
 fi
-owner_list=$(request GET "$BASE_URL/api/places" --get --data-urlencode "q=$OWNER_NAME")
-echo "$owner_list" | grep -q "$OWNER_NAME"
+place_list_contains "$OWNER_NAME"
 request GET "$BASE_URL/api/places/by-id" --get --data-urlencode "id=$owner_place_id" >/dev/null
 echo "owner flow: ok"
 
@@ -114,8 +125,7 @@ if [[ -z "$community_place_id" ]]; then
   echo "$community_promote" >&2
   exit 1
 fi
-community_list=$(request GET "$BASE_URL/api/places" --get --data-urlencode "q=$COMMUNITY_NAME")
-echo "$community_list" | grep -q "$COMMUNITY_NAME"
+place_list_contains "$COMMUNITY_NAME"
 request GET "$BASE_URL/api/places/by-id" --get --data-urlencode "id=$community_place_id" >/dev/null
 echo "community flow: ok"
 

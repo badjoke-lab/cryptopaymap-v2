@@ -237,6 +237,7 @@ type SubmissionMedia = {
 
 ### 3.2 Query（all optional）
 
+* `q`（部分一致検索、未指定でも一覧を返す）
 * `country`
 * `city`
 * `category`
