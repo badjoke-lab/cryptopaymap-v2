@@ -29,6 +29,21 @@ const parseRejectReason = (body: RejectBody) => {
 const parseReviewNote = (body: RejectBody) =>
   typeof body.review_note === "string" ? body.review_note.trim() : null;
 
+const parseOptionalJson = async <T extends Record<string, unknown>>(
+  request: Request,
+): Promise<{ ok: true; value: T } | { ok: false }> => {
+  const text = await request.text();
+  if (!text || text.trim().length === 0) {
+    return { ok: true, value: {} as T };
+  }
+
+  try {
+    return { ok: true, value: JSON.parse(text) as T };
+  } catch {
+    return { ok: false };
+  }
+};
+
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   const auth = requireInternalAuth(request);
   if (!("ok" in auth)) {
@@ -43,12 +58,14 @@ export async function POST(request: Request, { params }: { params: { id: string 
   const route = "api_internal_submissions_reject";
   const actor = resolveActorFromRequest(request, "internal");
 
-  let body: RejectBody = {};
-  try {
-    body = (await request.json()) as RejectBody;
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  const parsedBody = await parseOptionalJson<RejectBody>(request);
+  if (!parsedBody.ok) {
+    return NextResponse.json(
+      { error: "Invalid JSON", hint: "Send {} with content-type: application/json" },
+      { status: 400 },
+    );
   }
+  const body = parsedBody.value;
 
   const rejectReason = parseRejectReason(body);
   if (!rejectReason) {

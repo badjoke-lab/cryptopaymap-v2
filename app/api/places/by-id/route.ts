@@ -1,12 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
+
 import { DbUnavailableError } from "@/lib/db";
 import { loadPlaceDetail } from "@/lib/places/detail";
 
-export async function GET(_request: NextRequest, { params }: { params: { id: string } }) {
-  const { id } = params;
+export const runtime = "nodejs";
+
+export async function GET(request: NextRequest) {
+  const rawId = request.nextUrl.searchParams.get("id");
+  if (!rawId) {
+    return NextResponse.json({ error: "id query param is required" }, { status: 400 });
+  }
 
   try {
-    const place = await loadPlaceDetail(id);
+    const place = await loadPlaceDetail(rawId);
     if (place) {
       return NextResponse.json(place);
     }
