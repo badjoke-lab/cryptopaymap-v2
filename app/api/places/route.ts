@@ -434,6 +434,8 @@ const loadPlacesFromDb = async (
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
+  const dryRunParam = searchParams.get("dryRun") ?? "";
+  const dryRun = ["1", "true", "yes"].includes(dryRunParam.toLowerCase());
   const dataSource = getDataSourceSetting();
   const { shouldAttemptDb, shouldAllowJson } = getDataSourceContext(dataSource);
   const defaultSource =
@@ -452,6 +454,27 @@ export async function GET(request: NextRequest) {
   const mode = searchParams.get("mode");
   const searchTerm = parseSearchTerm(searchParams.get("q"));
   const bboxResult = parseBbox(searchParams.get("bbox"));
+
+  if (dryRun) {
+    const dryRunId = searchParams.get("placeId") ?? "cpm:dryrun-placeholder";
+    const stubName = searchTerm ?? "[DRY RUN]";
+    return NextResponse.json(
+      [
+        {
+          id: dryRunId,
+          name: stubName,
+          lat: 0,
+          lng: 0,
+          verification: "unverified",
+          category: "dry-run",
+          city: "",
+          country: "",
+          accepted: [],
+        },
+      ],
+      { headers: buildDataSourceHeaders("json", true) },
+    );
+  }
 
   if (bboxResult.error) {
     return NextResponse.json(

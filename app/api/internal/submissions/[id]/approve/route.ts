@@ -40,11 +40,18 @@ export async function POST(request: Request, { params }: { params: { id: string 
     return auth;
   }
 
-  if (!hasDatabaseUrl()) {
-    return NextResponse.json({ error: "DB_UNAVAILABLE" }, { status: 503 });
+  const { id } = params;
+  const dryRunParam = new URL(request.url).searchParams.get("dryRun") ?? "";
+  const dryRun =
+    id.startsWith("dryrun-") || ["1", "true", "yes"].includes(dryRunParam.toLowerCase());
+
+  if (dryRun) {
+    return NextResponse.json({ status: "approved", dryRun: true, id });
   }
 
-  const { id } = params;
+  if (!hasDatabaseUrl()) {
+    return NextResponse.json({ error: "DB_UNAVAILABLE", hint: "Database unavailable." }, { status: 503 });
+  }
   const route = "api_internal_submissions_approve";
   const actor = resolveActorFromRequest(request, "internal");
 

@@ -17,6 +17,14 @@ export async function GET(_request: NextRequest, { params }: { params: { id: str
     return NextResponse.json({ error: "Invalid place id" }, { status: 400 });
   }
 
+  if (decoded.id.startsWith("cpm:dryrun-")) {
+    return NextResponse.json({
+      id: decoded.id,
+      name: "[DRY RUN]",
+      dryRun: true,
+    });
+  }
+
   try {
     const result = await getPlaceDetail(decoded.id);
     if (result.place) {

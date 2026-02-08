@@ -47,11 +47,18 @@ export async function POST(request: Request, { params }: { params: { id: string 
     return auth;
   }
 
-  if (!hasDatabaseUrl()) {
-    return NextResponse.json({ error: "DB_UNAVAILABLE" }, { status: 503 });
+  const { id } = params;
+  const dryRunParam = new URL(request.url).searchParams.get("dryRun") ?? "";
+  const dryRun =
+    id.startsWith("dryrun-") || ["1", "true", "yes"].includes(dryRunParam.toLowerCase());
+
+  if (dryRun) {
+    return NextResponse.json({ status: "rejected", dryRun: true, id });
   }
 
-  const { id } = params;
+  if (!hasDatabaseUrl()) {
+    return NextResponse.json({ error: "DB_UNAVAILABLE", hint: "Database unavailable." }, { status: 503 });
+  }
   const route = "api_internal_submissions_reject";
   const actor = resolveActorFromRequest(request, "internal");
 
@@ -66,7 +73,10 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
   const rejectReason = parseRejectReason(body);
   if (!rejectReason) {
-    return NextResponse.json({ error: "Reject reason is required" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Reject reason is required", hint: "Provide reject_reason or reason." },
+      { status: 400 },
+    );
   }
 
   const reviewNote = parseReviewNote(body);

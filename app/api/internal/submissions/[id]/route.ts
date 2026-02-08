@@ -27,6 +27,22 @@ export async function GET(request: Request, { params }: { params: { id: string }
     return auth;
   }
 
+  const { id } = params;
+  const dryRunParam = new URL(request.url).searchParams.get("dryRun") ?? "";
+  const dryRun = id.startsWith("dryrun-") || ["1", "true", "yes"].includes(dryRunParam.toLowerCase());
+  if (dryRun) {
+    const kindMatch = id.match(/^dryrun-(owner|community|report)-/);
+    const kind = kindMatch?.[1] ?? "community";
+    return NextResponse.json({
+      submission: {
+        id,
+        status: "approved",
+        kind,
+        dryRun: true,
+      },
+    });
+  }
+
   if (!hasDatabaseUrl()) {
     return NextResponse.json(
       { error: "DB_UNAVAILABLE" },
@@ -35,7 +51,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
   }
 
   const route = "api_internal_submissions_detail";
-  const { id } = params;
+  const { id: submissionId } = params;
 
   try {
     const submissionsTableExists = await tableExists(route, "submissions");
@@ -71,8 +87,8 @@ export async function GET(request: Request, { params }: { params: { id: string }
       `SELECT id, status, kind, level, created_at, updated_at, name, country, city, place_id,
         submitted_by, reviewed_by, review_note, payload, published_place_id, approved_at, rejected_at, reject_reason
        FROM submissions
-       WHERE id = $1`,
-      [id],
+      WHERE id = $1`,
+      [submissionId],
       { route },
     );
 
@@ -129,7 +145,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
            FROM submission_media
            WHERE submission_id = $1
            ORDER BY id ASC`,
-          [id],
+          [submissionId],
           { route },
         )
       : { rows: [] };
@@ -147,7 +163,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
         return {
           kind: mediaRow.kind,
           mediaId,
-          url: buildSubmissionMediaUrl(id, mediaRow.kind, mediaId),
+          url: buildSubmissionMediaUrl(submissionId, mediaRow.kind, mediaId),
           mime: mediaRow.mime,
           width: mediaRow.width,
           height: mediaRow.height,

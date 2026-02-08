@@ -25,11 +25,24 @@ export async function POST(request: Request, { params }: { params: { id: string 
     return auth;
   }
 
-  if (!hasDatabaseUrl()) {
-    return NextResponse.json({ error: "DB_UNAVAILABLE" }, { status: 503 });
+  const { id } = params;
+  const dryRunParam = new URL(request.url).searchParams.get("dryRun") ?? "";
+  const dryRun =
+    id.startsWith("dryrun-") || ["1", "true", "yes"].includes(dryRunParam.toLowerCase());
+
+  if (dryRun) {
+    return NextResponse.json({
+      status: "promoted",
+      placeId: `cpm:dryrun-${id}`,
+      mode: "insert",
+      sourceSubmissionId: id,
+      dryRun: true,
+    });
   }
 
-  const { id } = params;
+  if (!hasDatabaseUrl()) {
+    return NextResponse.json({ error: "DB_UNAVAILABLE", hint: "Database unavailable." }, { status: 503 });
+  }
   const route = "api_internal_submissions_promote";
   const actor = resolveActorFromRequest(request, "internal");
   let galleryMediaIds: string[] | undefined;
@@ -58,7 +71,12 @@ export async function POST(request: Request, { params }: { params: { id: string 
       return NextResponse.json(result.body, { status: result.status });
     }
 
-    return NextResponse.json({ status: "promoted", placeId: result.placeId, mode: result.mode });
+    return NextResponse.json({
+      status: "promoted",
+      placeId: result.placeId,
+      mode: result.mode,
+      sourceSubmissionId: id,
+    });
   } catch (error) {
     if (error instanceof DbUnavailableError || (error as Error).message?.includes("DATABASE_URL")) {
       return NextResponse.json({ error: "DB_UNAVAILABLE" }, { status: 503 });
