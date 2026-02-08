@@ -84,6 +84,7 @@ internal 系は **運営のみ**が触れる。
 | ------------------------------------------------------------- | ---------------------------------------------- |
 | `GET /api/places`                                             | 地図用の全店舗取得（軽量版）                                 |
 | `GET /api/places/[id]`                                        | 個別店舗詳細（Drawer用）                                |
+| `GET /api/places/by-id?id=...`                                | 個別店舗詳細（cpm/osm IDの安全取得）                     |
 | `GET /api/stats`                                              | v3 コア統計                                        |
 | `GET /api/filters/meta`                                       | UIフィルタ用メタデータ                                   |
 | `GET /api/search`                                             | v2.1 予定の検索API                                  |
@@ -251,6 +252,11 @@ type SubmissionMedia = {
 
 ## 4. GET `/api/places/[id]`（Drawer用）
 
+* Response：`PlaceDetail`
+
+## 4.1 GET `/api/places/by-id?id=...`
+
+* `id`: `cpm:...` / `osm:...` をクエリで指定
 * Response：`PlaceDetail`
 
 ---
@@ -483,5 +489,4 @@ Response（例）:
 * [ ] `submission_media.url` は永続URL（署名URL禁止）
 * [ ] public gallery / internal proof,evidence の配信分離＋no-store
 * [ ] internal approve/reject/promote が動作（reportにpromoteなし）
-
 

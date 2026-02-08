@@ -63,6 +63,7 @@ export type SubmissionActionResponse = {
   status?: string;
   placeId?: string;
   promoted?: boolean;
+  mode?: "insert" | "update";
 };
 
 type ApiResult<T> =

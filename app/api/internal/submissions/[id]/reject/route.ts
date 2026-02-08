@@ -21,6 +21,18 @@ type SubmissionRow = {
   category: string;
 };
 
+const parseJsonBody = async <T>(request: Request): Promise<{ ok: true; body: T } | { ok: false }> => {
+  const text = await request.text();
+  if (!text.trim()) {
+    return { ok: true, body: {} as T };
+  }
+  try {
+    return { ok: true, body: JSON.parse(text) as T };
+  } catch {
+    return { ok: false };
+  }
+};
+
 const parseRejectReason = (body: RejectBody) => {
   const value = typeof body.reject_reason === "string" ? body.reject_reason : body.reason;
   return typeof value === "string" ? value.trim() : "";
@@ -43,12 +55,14 @@ export async function POST(request: Request, { params }: { params: { id: string 
   const route = "api_internal_submissions_reject";
   const actor = resolveActorFromRequest(request, "internal");
 
-  let body: RejectBody = {};
-  try {
-    body = (await request.json()) as RejectBody;
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  const parsedBody = await parseJsonBody<RejectBody>(request);
+  if (!parsedBody.ok) {
+    return NextResponse.json(
+      { error: "Invalid JSON", hint: "send {} with content-type: application/json" },
+      { status: 400 },
+    );
   }
+  const body = parsedBody.body;
 
   const rejectReason = parseRejectReason(body);
   if (!rejectReason) {

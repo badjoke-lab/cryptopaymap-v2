@@ -1,5 +1,3 @@
-import { randomUUID } from "crypto";
-
 import type { PoolClient } from "pg";
 
 import { dbQuery } from "@/lib/db";
@@ -24,13 +22,14 @@ type SubmissionRow = {
   lat: number | null;
   lng: number | null;
   payload: SubmissionPayload;
+  suggested_place_id?: string | null;
   published_place_id?: string | null;
   linked_place_id?: string | null;
   promoted_at?: string | null;
 };
 
 type PromoteResult =
-  | { ok: true; placeId: string; promoted: boolean }
+  | { ok: true; placeId: string; mode: "insert" | "update" }
   | { ok: false; status: number; body: Record<string, unknown> };
 
 type PromoteOptions = {
@@ -229,6 +228,23 @@ const buildVerificationInsert = async (
 
 const promoteKindAllowed = (kind: string) => kind === "owner" || kind === "community";
 
+const slugify = (value: string): string =>
+  value
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-");
+
+const buildFallbackPlaceId = (submission: SubmissionRow) => {
+  const country = submission.country?.toLowerCase() || "xx";
+  const citySlug = slugify(submission.city || "city");
+  const nameSlug = slugify(submission.name || "place");
+  const categorySlug = slugify(submission.category || "category");
+  const suffix = slugify(submission.id);
+  return `cpm:${country}-${citySlug}-${submission.kind}-${categorySlug}-${nameSlug}-${suffix}`;
+};
+
 const collectMissingFields = (submission: SubmissionRow) => {
   const missing: string[] = [];
 
@@ -264,16 +280,33 @@ export const promoteSubmission = async (
 ): Promise<PromoteResult> => {
   const submissionsTableExists = await tableExists(route, "submissions", client);
   if (!submissionsTableExists) {
-    return { ok: false, status: 500, body: { error: "submissions table is missing" } };
+    return {
+      ok: false,
+      status: 500,
+      body: {
+        error: "Failed to promote submission",
+        detail: "submissions table is missing",
+        code: "SUBMISSIONS_TABLE_MISSING",
+      },
+    };
   }
 
   const placesTableExists = await tableExists(route, "places", client);
   if (!placesTableExists) {
-    return { ok: false, status: 500, body: { error: "places table is missing" } };
+    return {
+      ok: false,
+      status: 500,
+      body: {
+        error: "Failed to promote submission",
+        detail: "places table is missing",
+        code: "PLACES_TABLE_MISSING",
+      },
+    };
   }
 
   const hasLinkedPlaceId = await hasColumn(route, "submissions", "linked_place_id", client);
   const hasPublishedPlaceId = await hasColumn(route, "submissions", "published_place_id", client);
+  const hasSuggestedPlaceId = await hasColumn(route, "submissions", "suggested_place_id", client);
   const linkColumn = hasLinkedPlaceId ? "linked_place_id" : hasPublishedPlaceId ? "published_place_id" : null;
   const hasPromotedAt = await hasColumn(route, "submissions", "promoted_at", client);
 
@@ -294,6 +327,7 @@ export const promoteSubmission = async (
       "lat",
       "lng",
       "payload",
+      hasSuggestedPlaceId ? "suggested_place_id" : null,
       hasPublishedPlaceId ? "published_place_id" : null,
       hasLinkedPlaceId ? "linked_place_id" : null,
       hasPromotedAt ? "promoted_at" : null,
@@ -313,7 +347,15 @@ export const promoteSubmission = async (
     const submission = rows[0];
     if (!submission) {
       await dbQuery("ROLLBACK", [], { route, client, retry: false });
-      return { ok: false, status: 404, body: { error: "Submission not found" } };
+      return {
+        ok: false,
+        status: 404,
+        body: {
+          error: "Failed to promote submission",
+          detail: "Submission not found",
+          code: "NOT_FOUND",
+        },
+      };
     }
 
     if (!promoteKindAllowed(submission.kind)) {
@@ -321,7 +363,12 @@ export const promoteSubmission = async (
       return {
         ok: false,
         status: 409,
-        body: { error: "Submission kind cannot be promoted", kind: submission.kind },
+        body: {
+          error: "Failed to promote submission",
+          detail: `Submission kind cannot be promoted (${submission.kind})`,
+          code: "INVALID_KIND",
+          kind: submission.kind,
+        },
       };
     }
 
@@ -330,7 +377,12 @@ export const promoteSubmission = async (
       return {
         ok: false,
         status: 409,
-        body: { error: "Submission must be approved before promote", status: submission.status },
+        body: {
+          error: "Failed to promote submission",
+          detail: "Submission must be approved before promote",
+          code: "NOT_APPROVED",
+          status: submission.status,
+        },
       };
     }
 
@@ -340,23 +392,28 @@ export const promoteSubmission = async (
       return {
         ok: false,
         status: 400,
-        body: { error: "Submission missing required fields", missingFields },
+        body: {
+          error: "Failed to promote submission",
+          detail: `Submission missing required fields: ${missingFields.join(", ")}`,
+          code: "MISSING_FIELDS",
+          missingFields,
+        },
       };
     }
 
     const linkedPlaceId =
       (linkColumn === "linked_place_id" ? submission.linked_place_id : submission.published_place_id) ?? null;
-    const alreadyPromoted = Boolean(linkedPlaceId) || (hasPromotedAt && submission.promoted_at);
-    if (alreadyPromoted) {
-      await dbQuery("ROLLBACK", [], { route, client, retry: false });
-      return {
-        ok: false,
-        status: 409,
-        body: { error: "Submission already promoted", placeId: linkedPlaceId },
-      };
-    }
-
-    const placeId = linkedPlaceId ?? randomUUID();
+    const suggestedPlaceId = hasSuggestedPlaceId ? submission.suggested_place_id ?? null : null;
+    const placeId = linkedPlaceId ?? suggestedPlaceId ?? buildFallbackPlaceId(submission);
+    const {
+      rows: placeExistsRows,
+    } = await dbQuery<{ exists: boolean }>(
+      "SELECT EXISTS(SELECT 1 FROM places WHERE id = $1) AS exists",
+      [placeId],
+      { route, client, retry: false },
+    );
+    const placeExists = placeExistsRows[0]?.exists ?? false;
+    const mode: "insert" | "update" = placeExists || Boolean(linkedPlaceId) ? "update" : "insert";
     const availableGalleryMedia = await loadSubmissionGalleryMedia(route, client, submissionId);
     const requestedGalleryMediaIds = options.galleryMediaIds
       ? Array.from(
@@ -371,7 +428,12 @@ export const promoteSubmission = async (
         return {
           ok: false,
           status: 400,
-          body: { error: "Invalid gallery media selection", invalidMediaIds: invalidIds },
+          body: {
+            error: "Failed to promote submission",
+            detail: "Invalid gallery media selection",
+            code: "INVALID_GALLERY_MEDIA",
+            invalidMediaIds: invalidIds,
+          },
         };
       }
     }
@@ -381,71 +443,50 @@ export const promoteSubmission = async (
     const amenities = ownerPayload.amenities ?? null;
     const submitterName = ownerPayload.contactName ?? ownerPayload.submitterName ?? null;
 
-    if (linkedPlaceId) {
-      await dbQuery(
-        `UPDATE places
-         SET name = $2,
-             country = $3,
-             city = $4,
-             category = $5,
-             lat = $6,
-             lng = $7,
-             address = $8,
-             about = $9,
-             payment_note = $10,
-             amenities = $11,
-             submitter_name = $12
-         WHERE id = $1`,
-        [
-          placeId,
-          submission.name,
-          submission.country,
-          submission.city,
-          submission.category,
-          submission.lat,
-          submission.lng,
-          submission.address,
-          submission.about,
-          paymentNote,
-          amenities,
-          submitterName,
-        ],
-        { route, client, retry: false },
-      );
-    } else {
-      await dbQuery(
-        `INSERT INTO places (
-          id,
-          name,
-          country,
-          city,
-          category,
-          lat,
-          lng,
-          address,
-          about,
-          payment_note,
-          amenities,
-          submitter_name
-        )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-        [
-          placeId,
-          submission.name,
-          submission.country,
-          submission.city,
-          submission.category,
-          submission.lat,
-          submission.lng,
-          submission.address,
-          submission.about,
-          paymentNote,
-          amenities,
-          submitterName,
-        ],
-        { route, client, retry: false },
-      );
-    }
+    await dbQuery(
+      `INSERT INTO places (
+        id,
+        name,
+        country,
+        city,
+        category,
+        lat,
+        lng,
+        address,
+        about,
+        payment_note,
+        amenities,
+        submitter_name
+      )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       ON CONFLICT (id) DO UPDATE SET
+         name = EXCLUDED.name,
+         country = EXCLUDED.country,
+         city = EXCLUDED.city,
+         category = EXCLUDED.category,
+         lat = EXCLUDED.lat,
+         lng = EXCLUDED.lng,
+         address = EXCLUDED.address,
+         about = EXCLUDED.about,
+         payment_note = EXCLUDED.payment_note,
+         amenities = EXCLUDED.amenities,
+         submitter_name = EXCLUDED.submitter_name`,
+      [
+        placeId,
+        submission.name,
+        submission.country,
+        submission.city,
+        submission.category,
+        submission.lat,
+        submission.lng,
+        submission.address,
+        submission.about,
+        paymentNote,
+        amenities,
+        submitterName,
+      ],
+      { route, client, retry: false },
+    );
 
     const verificationsTableExists = await tableExists(route, "verifications", client);
     if (verificationsTableExists) {
@@ -521,7 +562,7 @@ export const promoteSubmission = async (
 
     await dbQuery("COMMIT", [], { route, client, retry: false });
 
-    return { ok: true, placeId, promoted: true };
+    return { ok: true, placeId, mode };
   } catch (error) {
     await dbQuery("ROLLBACK", [], { route, client, retry: false }).catch(() => undefined);
     throw error;

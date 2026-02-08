@@ -902,6 +902,7 @@ export const handleUnifiedSubmission = async (request: Request) => {
       normalized.payload.verificationRequest,
       parsedMultipart.value.filesByField,
       parsedMultipart.value.unexpectedFileFields,
+      body,
     );
     if (!multipartValidation.ok) {
       console.info(`[submissions] reject ip=${ip} reason=${multipartValidation.error.code}`);
@@ -915,6 +916,8 @@ export const handleUnifiedSubmission = async (request: Request) => {
       return new Response(
         JSON.stringify({
           submissionId: record.submissionId,
+          status: record.status,
+          suggestedPlaceId: record.suggestedPlaceId,
         }),
         { status: 201, headers: { "Content-Type": "application/json" } },
       );
@@ -1004,6 +1007,8 @@ if (error instanceof Error && error.message === "UPLOAD_FAILED") {
     return new Response(
       JSON.stringify({
         submissionId: record.submissionId,
+        status: record.status,
+        suggestedPlaceId: record.suggestedPlaceId,
       }),
       { status: 201, headers: { "Content-Type": "application/json" } },
     );

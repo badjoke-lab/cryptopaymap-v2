@@ -19,6 +19,18 @@ type SubmissionRow = {
   category: string;
 };
 
+const parseJsonBody = async <T>(request: Request): Promise<{ ok: true; body: T } | { ok: false }> => {
+  const text = await request.text();
+  if (!text.trim()) {
+    return { ok: true, body: {} as T };
+  }
+  try {
+    return { ok: true, body: JSON.parse(text) as T };
+  } catch {
+    return { ok: false };
+  }
+};
+
 const parseReviewNote = (body: ApproveBody) =>
   typeof body.review_note === "string" ? body.review_note.trim() : null;
 
@@ -36,12 +48,14 @@ export async function POST(request: Request, { params }: { params: { id: string 
   const route = "api_internal_submissions_approve";
   const actor = resolveActorFromRequest(request, "internal");
 
-  let body: ApproveBody = {};
-  try {
-    body = (await request.json()) as ApproveBody;
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  const parsedBody = await parseJsonBody<ApproveBody>(request);
+  if (!parsedBody.ok) {
+    return NextResponse.json(
+      { error: "Invalid JSON", hint: "send {} with content-type: application/json" },
+      { status: 400 },
+    );
   }
+  const body = parsedBody.body;
 
   const reviewNote = parseReviewNote(body);
 
