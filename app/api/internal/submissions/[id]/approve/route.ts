@@ -81,7 +81,12 @@ export async function POST(request: Request, { params }: { params: { id: string 
     await dbQuery("BEGIN", [], { route, client, retry: false });
 
     const { rows } = await dbQuery<SubmissionRow>(
-      `SELECT status, country, city, kind, category
+      `SELECT
+        status,
+        kind,
+        COALESCE(payload->>'country', '') AS country,
+        COALESCE(payload->>'city', '') AS city,
+        COALESCE(payload->>'category', '') AS category
        FROM submissions
        WHERE id = $1
        FOR UPDATE`,
@@ -111,7 +116,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
     const paramsList: unknown[] = [id];
 
     if (hasReviewedBy) {
-      updates.push(`reviewed_by = $${paramsList.length + 1}`);
+      updates.push(`reviewed_by = to_jsonb($${paramsList.length + 1}::text)`);
       paramsList.push(actor);
     }
 
@@ -156,7 +161,12 @@ export async function POST(request: Request, { params }: { params: { id: string 
       return NextResponse.json({ error: "DB_UNAVAILABLE" }, { status: 503 });
     }
     console.error("[internal submissions] approve failed", error);
-    return NextResponse.json({ error: "Failed to approve submission" }, { status: 500 });
+    return NextResponse.json({
+      error: "Failed to approve submission",
+      detail: process.env.NODE_ENV === "development"
+        ? (error instanceof Error ? (error.stack || error.message) : String(error))
+        : undefined,
+    }, { status: 500 });
   } finally {
     client?.release();
   }
