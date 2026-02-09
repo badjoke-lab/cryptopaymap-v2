@@ -84,7 +84,11 @@ export async function GET(request: Request, { params }: { params: { id: string }
       rejected_at: string | null;
       reject_reason: string | null;
     }>(
-      `SELECT id, status, kind, level, created_at, updated_at, name, country, city, place_id,
+      `SELECT id, status, kind, level, created_at, updated_at,
+        COALESCE(payload->>'name','') AS name,
+        COALESCE(payload->>'country','') AS country,
+        COALESCE(payload->>'city','') AS city,
+        place_id,
         submitted_by, reviewed_by, review_note, payload, published_place_id, approved_at, rejected_at, reject_reason
        FROM submissions
       WHERE id = $1`,

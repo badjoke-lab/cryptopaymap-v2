@@ -96,7 +96,12 @@ export async function POST(request: Request, { params }: { params: { id: string 
     await dbQuery("BEGIN", [], { route, client, retry: false });
 
     const { rows } = await dbQuery<SubmissionRow>(
-      `SELECT status, country, city, kind, category
+      `SELECT
+        status,
+        kind,
+        COALESCE(payload->>'country', '') AS country,
+        COALESCE(payload->>'city', '') AS city,
+        COALESCE(payload->>'category', '') AS category
        FROM submissions
        WHERE id = $1
        FOR UPDATE`,
@@ -125,7 +130,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
     const paramsList: unknown[] = [id, rejectReason];
 
     if (hasReviewedBy) {
-      updates.push(`reviewed_by = $${paramsList.length + 1}`);
+      updates.push(`reviewed_by = to_jsonb($${paramsList.length + 1}::text)`);
       paramsList.push(actor);
     }
 

@@ -72,6 +72,7 @@ submit_owner_payload() {
   "category": "cafe",
   "acceptedChains": ["btc"],
   "ownerVerification": "domain",
+  "paymentUrl": "https://example.com",
   "contactEmail": "owner@example.com",
   "contactName": "Owner Test",
   "lat": 30.2672,
