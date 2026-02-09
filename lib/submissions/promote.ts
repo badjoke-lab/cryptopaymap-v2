@@ -193,7 +193,7 @@ const buildVerificationInsert = async (
   if (hasStatus) {
     insertColumns.push("status");
     values.push(`$${params.length + 1}`);
-    params.push(level);
+    params.push("approved");
   }
 
   if (hasLevel) {

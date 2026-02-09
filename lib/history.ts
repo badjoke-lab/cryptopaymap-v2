@@ -100,16 +100,15 @@ export const recordHistoryEntry = async (options: {
 
   await ensureHistoryTable(route, client);
 
-  const id = randomUUID();
-
-  await dbQuery(
-    `INSERT INTO public.history (id, actor, action, submission_id, place_id, meta)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    [id, actor, action, submissionId, placeId ?? null, meta ? JSON.stringify(meta) : null],
+  const { rows } = await dbQuery<{ id: number }>(
+    `INSERT INTO public.history (actor, action, submission_id, place_id, meta)
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING id`,
+    [actor, action, submissionId, placeId ?? null, meta ? JSON.stringify(meta) : null],
     { route, client, retry: false },
   );
 
-  return id;
+  return String(rows?.[0]?.id);
 };
 
 export const mapHistoryRow = (row: {
@@ -121,7 +120,7 @@ export const mapHistoryRow = (row: {
   created_at: string;
   meta: Record<string, unknown> | null;
 }): HistoryEntry => ({
-  id: row.id,
+  id: String(row.id),
   actor: row.actor,
   action: row.action,
   submissionId: row.submission_id,
