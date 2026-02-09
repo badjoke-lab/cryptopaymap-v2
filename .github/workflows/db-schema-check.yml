@@ -1,0 +1,34 @@
+name: DB schema compatibility check
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+jobs:
+  db-schema:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install deps
+        run: npm ci
+
+      # NOTE:
+      # このプロジェクトは外部DB(Neon等)を使うので、CIでは DATABASE_URL が必要。
+      # GitHub Secrets に DATABASE_URL を設定してから有効化する。
+      - name: Apply compat migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: npm run -s db:migrate:compat
+
+      - name: Schema check
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: npm run -s db:schema:check
