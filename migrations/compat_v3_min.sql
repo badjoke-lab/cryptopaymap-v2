@@ -191,22 +191,37 @@ BEGIN
   END IF;
 END$$;
 
--- 4) payment_accepts: promote の ON CONFLICT(place_id,asset,chain) を成立させる UNIQUE（念のため）
+-- 4) payment_accepts: promote の ON CONFLICT(place_id,asset,chain) を成立させる UNIQUE（重複は作らない）
 DO $$
+DECLARE
+  has_uq boolean := false;
 BEGIN
   IF EXISTS (
     SELECT 1 FROM information_schema.tables
     WHERE table_schema='public' AND table_name='payment_accepts'
   ) THEN
-    -- method列は現DBに無いが、将来増えても壊れないよう分岐
-    IF EXISTS (
-      SELECT 1 FROM information_schema.columns
-      WHERE table_schema='public' AND table_name='payment_accepts' AND column_name='method'
-    ) THEN
-      EXECUTE 'CREATE UNIQUE INDEX IF NOT EXISTS payment_accepts_uq_v4 ON public.payment_accepts(place_id, asset, chain, method)';
-    ELSE
-      EXECUTE 'CREATE UNIQUE INDEX IF NOT EXISTS payment_accepts_uq_v4 ON public.payment_accepts(place_id, asset, chain)';
+
+    -- 既に (place_id, asset, chain) の UNIQUE があるか？（constraint由来 *_key も含めて検出）
+    SELECT EXISTS (
+      SELECT 1
+      FROM pg_indexes
+      WHERE schemaname='public' AND tablename='payment_accepts'
+        AND indexdef ILIKE '%UNIQUE%'
+        AND replace(lower(indexdef), ' ', '') LIKE '%(place_id,asset,chain)%'
+    ) INTO has_uq;
+
+    IF NOT has_uq THEN
+      -- method列は将来増えても壊れないよう分岐（ただし method があればそのキーで作る）
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='payment_accepts' AND column_name='method'
+      ) THEN
+        EXECUTE 'CREATE UNIQUE INDEX IF NOT EXISTS payment_accepts_uq_v4 ON public.payment_accepts(place_id, asset, chain, method)';
+      ELSE
+        EXECUTE 'CREATE UNIQUE INDEX IF NOT EXISTS payment_accepts_uq_v4 ON public.payment_accepts(place_id, asset, chain)';
+      END IF;
     END IF;
   END IF;
 END$$;
+
 
