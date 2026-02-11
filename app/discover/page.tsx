@@ -3,19 +3,29 @@ import Link from 'next/link';
 
 export const metadata: Metadata = {
   title: 'Discover',
-  description: 'Browse curated crypto-friendly destinations, guides, and upcoming directory highlights.',
+  description: 'Discover crypto-friendly destinations and upcoming directory highlights — curated collections are coming soon.',
   alternates: {
     canonical: '/discover',
   },
   openGraph: {
-    title: 'Discover CryptoPayMap',
-    description: 'Browse curated crypto-friendly destinations, guides, and upcoming directory highlights.',
+    title: 'Discover | CryptoPayMap',
+    description: 'Discover crypto-friendly destinations and upcoming directory highlights — curated collections are coming soon.',
     url: '/discover',
-    images: ['/og.png'],
+    siteName: 'CryptoPayMap',
+    type: 'website',
+    images: [
+      {
+        url: '/og.png',
+        width: 1200,
+        height: 630,
+        alt: 'CryptoPayMap',
+      },
+    ],
   },
   twitter: {
-    title: 'Discover CryptoPayMap',
-    description: 'Browse curated crypto-friendly destinations, guides, and upcoming directory highlights.',
+    card: 'summary_large_image',
+    title: 'Discover | CryptoPayMap',
+    description: 'Discover crypto-friendly destinations and upcoming directory highlights — curated collections are coming soon.',
     images: ['/og.png'],
   },
 };

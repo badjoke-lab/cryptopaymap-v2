@@ -3,19 +3,29 @@ import CopyButton from '@/components/CopyButton';
 
 export const metadata: Metadata = {
   title: 'Donate',
-  description: 'Support CryptoPayMap with cryptocurrency donations to keep the directory growing.',
+  description: 'Support CryptoPayMap with donations to help maintain listings, verify submissions, and improve coverage.',
   alternates: {
     canonical: '/donate',
   },
   openGraph: {
-    title: 'Donate to CryptoPayMap',
-    description: 'Support CryptoPayMap with cryptocurrency donations to keep the directory growing.',
+    title: 'Donate | CryptoPayMap',
+    description: 'Support CryptoPayMap with donations to help maintain listings, verify submissions, and improve coverage.',
     url: '/donate',
-    images: ['/og.png'],
+    siteName: 'CryptoPayMap',
+    type: 'website',
+    images: [
+      {
+        url: '/og.png',
+        width: 1200,
+        height: 630,
+        alt: 'CryptoPayMap',
+      },
+    ],
   },
   twitter: {
-    title: 'Donate to CryptoPayMap',
-    description: 'Support CryptoPayMap with cryptocurrency donations to keep the directory growing.',
+    card: 'summary_large_image',
+    title: 'Donate | CryptoPayMap',
+    description: 'Support CryptoPayMap with donations to help maintain listings, verify submissions, and improve coverage.',
     images: ['/og.png'],
   },
 };

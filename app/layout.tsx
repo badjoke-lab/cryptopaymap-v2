@@ -4,7 +4,7 @@ import Script from 'next/script';
 import { ReactNode } from 'react';
 import GlobalHeader from '@/components/GlobalHeader';
 
-const description = 'CryptoPayMap — discover places that accept cryptocurrency payments.';
+const description = 'CryptoPayMap — find crypto-friendly places worldwide, with verification levels to judge listing reliability.';
 const siteUrl = 'https://www.cryptopaymap.com';
 
 export const metadata: Metadata = {
