@@ -160,12 +160,7 @@ const syncPlaceMedia = async (route: string, client: PoolClient, placeId: string
   }
 };
 
-const buildVerificationInsert = async (
-  route: string,
-  client: PoolClient,
-  placeId: string,
-  level: string,
-) => {
+const buildVerificationInsert = async (route: string, client: PoolClient, placeId: string, level: string) => {
   const columnsCheck = await dbQuery<{ column_name: string }>(
     `SELECT column_name
      FROM information_schema.columns
@@ -405,6 +400,30 @@ export const promoteSubmission = async (
       (linkColumn === "linked_place_id" ? submission.linked_place_id : submission.published_place_id) ?? null;
     const suggestedPlaceId = hasSuggestedPlaceId ? submission.suggested_place_id ?? null : null;
     const placeId = linkedPlaceId ?? suggestedPlaceId ?? buildFallbackPlaceId(submission);
+
+    // Idempotency:
+    // - Prefer promoted_at when available.
+    // - Otherwise (or additionally), treat an existing promote history entry as already promoted.
+    // This prevents duplicate history entries / repeated upserts on retries.
+    const historyTableExists = await tableExists(route, "history", client);
+    const alreadyPromoted =
+      (hasPromotedAt && Boolean(submission.promoted_at)) ||
+      (historyTableExists &&
+        (await dbQuery(
+          `SELECT 1
+           FROM public.history
+           WHERE submission_id = $1
+             AND action = 'promote'
+           LIMIT 1`,
+          [submissionId],
+          { route, client, retry: false },
+        )).rowCount > 0);
+
+    if (alreadyPromoted) {
+      await dbQuery("ROLLBACK", [], { route, client, retry: false });
+      return { ok: true, placeId, mode: "update" };
+    }
+
     const {
       rows: placeExistsRows,
     } = await dbQuery<{ exists: boolean }>(
@@ -414,12 +433,12 @@ export const promoteSubmission = async (
     );
     const placeExists = placeExistsRows[0]?.exists ?? false;
     const mode: "insert" | "update" = placeExists || Boolean(linkedPlaceId) ? "update" : "insert";
+
     const availableGalleryMedia = await loadSubmissionGalleryMedia(route, client, submissionId);
     const requestedGalleryMediaIds = options.galleryMediaIds
-      ? Array.from(
-          new Set(options.galleryMediaIds.map((item) => item.trim()).filter((item) => item.length > 0)),
-        )
+      ? Array.from(new Set(options.galleryMediaIds.map((item) => item.trim()).filter((item) => item.length > 0)))
       : null;
+
     if (requestedGalleryMediaIds) {
       const availableIds = new Set(availableGalleryMedia.map((item) => item.mediaId));
       const invalidIds = requestedGalleryMediaIds.filter((item) => !availableIds.has(item));
@@ -499,9 +518,7 @@ export const promoteSubmission = async (
       const hasMethod = await hasColumn(route, "payment_accepts", "method", client);
       const columns = hasMethod ? "(place_id, asset, chain, method)" : "(place_id, asset, chain)";
       const values = hasMethod ? "($1, $2, $3, $4)" : "($1, $2, $3)";
-      const conflictTarget = hasMethod
-        ? "(place_id, asset, chain, method)"
-        : "(place_id, asset, chain)";
+      const conflictTarget = hasMethod ? "(place_id, asset, chain, method)" : "(place_id, asset, chain)";
 
       if (submission.accepted_chains?.length) {
         for (const asset of submission.accepted_chains) {
