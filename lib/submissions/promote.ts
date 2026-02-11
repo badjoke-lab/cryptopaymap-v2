@@ -401,15 +401,14 @@ export const promoteSubmission = async (
     const suggestedPlaceId = hasSuggestedPlaceId ? submission.suggested_place_id ?? null : null;
     const placeId = linkedPlaceId ?? suggestedPlaceId ?? buildFallbackPlaceId(submission);
 
+
     // Idempotency:
     // - Prefer promoted_at when available.
     // - Otherwise (or additionally), treat an existing promote history entry as already promoted.
     // This prevents duplicate history entries / repeated upserts on retries.
     const historyTableExists = await tableExists(route, "history", client);
-    const alreadyPromoted =
-      (hasPromotedAt && Boolean(submission.promoted_at)) ||
-      (historyTableExists &&
-        (await dbQuery(
+    const promoteHistory = historyTableExists
+      ? await dbQuery(
           `SELECT 1
            FROM public.history
            WHERE submission_id = $1
@@ -417,13 +416,17 @@ export const promoteSubmission = async (
            LIMIT 1`,
           [submissionId],
           { route, client, retry: false },
-        )).rowCount > 0);
-
+        )
+      : null;
+    
+    const alreadyPromoted =
+      (hasPromotedAt && Boolean(submission.promoted_at)) ||
+      ((promoteHistory?.rowCount ?? 0) > 0);
+    
     if (alreadyPromoted) {
       await dbQuery("ROLLBACK", [], { route, client, retry: false });
       return { ok: true, placeId, mode: "update" };
     }
-
     const {
       rows: placeExistsRows,
     } = await dbQuery<{ exists: boolean }>(
