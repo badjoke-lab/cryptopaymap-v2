@@ -3,19 +3,29 @@ import StatsPageClient from './StatsPageClient';
 
 export const metadata: Metadata = {
   title: 'Stats',
-  description: 'Track CryptoPayMap growth with live counts and recent listing trends.',
+  description: 'Track CryptoPayMap growth with live counts and recent listing trends across verification levels.',
   alternates: {
     canonical: '/stats',
   },
   openGraph: {
-    title: 'CryptoPayMap Stats',
-    description: 'Track CryptoPayMap growth with live counts and recent listing trends.',
+    title: 'Stats | CryptoPayMap',
+    description: 'Track CryptoPayMap growth with live counts and recent listing trends across verification levels.',
     url: '/stats',
-    images: ['/og.png'],
+    siteName: 'CryptoPayMap',
+    type: 'website',
+    images: [
+      {
+        url: '/og.png',
+        width: 1200,
+        height: 630,
+        alt: 'CryptoPayMap',
+      },
+    ],
   },
   twitter: {
-    title: 'CryptoPayMap Stats',
-    description: 'Track CryptoPayMap growth with live counts and recent listing trends.',
+    card: 'summary_large_image',
+    title: 'Stats | CryptoPayMap',
+    description: 'Track CryptoPayMap growth with live counts and recent listing trends across verification levels.',
     images: ['/og.png'],
   },
 };

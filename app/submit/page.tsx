@@ -2,21 +2,31 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "Submit",
-  description: "Submit a crypto-friendly place or request updates for CryptoPayMap listings.",
+  title: 'Submit',
+  description: 'Submit a place or request updates as Owner Verified, Community Verified, or Report a listing.',
   alternates: {
-    canonical: "/submit",
+    canonical: '/submit',
   },
   openGraph: {
-    title: "Submit to CryptoPayMap",
-    description: "Submit a crypto-friendly place or request updates for CryptoPayMap listings.",
-    url: "/submit",
-    images: ["/og.png"],
+    title: 'Submit | CryptoPayMap',
+    description: 'Submit a place or request updates as Owner Verified, Community Verified, or Report a listing.',
+    url: '/submit',
+    siteName: 'CryptoPayMap',
+    type: 'website',
+    images: [
+      {
+        url: '/og.png',
+        width: 1200,
+        height: 630,
+        alt: 'CryptoPayMap',
+      },
+    ],
   },
   twitter: {
-    title: "Submit to CryptoPayMap",
-    description: "Submit a crypto-friendly place or request updates for CryptoPayMap listings.",
-    images: ["/og.png"],
+    card: 'summary_large_image',
+    title: 'Submit | CryptoPayMap',
+    description: 'Submit a place or request updates as Owner Verified, Community Verified, or Report a listing.',
+    images: ['/og.png'],
   },
 };
 
