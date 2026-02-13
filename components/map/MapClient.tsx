@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 // Leaflet core CSS
@@ -114,7 +115,8 @@ export default function MapClient() {
   const lastSelectedIdRef = useRef<string | null>(null);
   const invalidateTimeoutRef = useRef<number | null>(null);
   const missingSelectionTimeoutRef = useRef<number | null>(null);
-  const lastFilterChangeAtRef = useRef<number>(0);
+  const lastMarkerClickAtRef = useRef(0);
+  const drawerReasonRef = useRef("initial");
 
   const isDrawerOpen = Boolean(selectedPlaceId);
 
@@ -133,11 +135,21 @@ export default function MapClient() {
     });
   }, []);
 
-  const toggleFilters = useCallback(
-    () => setFiltersOpen((previous) => !previous),
-    [],
-  );
-  const closeFilters = useCallback(() => setFiltersOpen(false), []);
+  const toggleFilters = useCallback(() => {
+    setFiltersOpen((previous) => {
+      const next = !previous;
+      if (process.env.NODE_ENV !== "production") {
+        console.debug("[map] filters toggle", { next });
+      }
+      return next;
+    });
+  }, []);
+  const closeFilters = useCallback(() => {
+    if (process.env.NODE_ENV !== "production") {
+      console.debug("[map] close filters", { caller: "filters-close" });
+    }
+    setFiltersOpen(false);
+  }, []);
 
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
@@ -146,8 +158,23 @@ export default function MapClient() {
 
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
-    console.debug("[map] drawerOpen", isDrawerOpen);
+    console.debug("[map] drawerOpen", {
+      open: isDrawerOpen,
+      reason: drawerReasonRef.current,
+    });
   }, [isDrawerOpen]);
+
+  useEffect(() => {
+    if (!filtersOpen) return;
+    if (process.env.NODE_ENV !== "production") {
+      console.debug("[map] filters panel mount");
+    }
+    return () => {
+      if (process.env.NODE_ENV !== "production") {
+        console.debug("[map] filters panel unmount");
+      }
+    };
+  }, [filtersOpen]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -201,6 +228,7 @@ export default function MapClient() {
     if (process.env.NODE_ENV !== "production") {
       console.debug("[map] marker click", { placeId });
     }
+    drawerReasonRef.current = `marker:${placeId}`;
     setSelectedPlaceId((prev) => {
       if (prev === placeId) {
         return prev;
@@ -210,7 +238,11 @@ export default function MapClient() {
     setDrawerMode("full");
   }, []);
 
-  const closeDrawer = useCallback(() => {
+  const closeDrawer = useCallback((caller: string) => {
+    if (process.env.NODE_ENV !== "production") {
+      console.debug("[map] close drawer", { caller });
+    }
+    drawerReasonRef.current = `close:${caller}`;
     skipNextSelectionRef.current = true;
     setSelectedPlaceId(null);
     setDrawerMode(null);
@@ -334,8 +366,10 @@ export default function MapClient() {
         });
         const marker = L.marker([lat, lng], { icon });
         marker.on("click", (event: import("leaflet").LeafletMouseEvent) => {
+          L.DomEvent.stopPropagation(event);
           event.originalEvent?.stopPropagation();
           event.originalEvent?.preventDefault();
+          lastMarkerClickAtRef.current = performance.now();
           openDrawerForPlace(clusterItem.id);
         });
         marker.setZIndexOffset(isSelected ? 1000 : 0);
@@ -652,9 +686,6 @@ export default function MapClient() {
     };
   }, [selectedPlace, selectedPlaceId]);
 
-  useEffect(() => {
-    lastFilterChangeAtRef.current = Date.now();
-  }, [filters]);
 
   useEffect(() => {
     if (!selectedPlaceId || placesStatus !== "success") return;
@@ -668,12 +699,9 @@ export default function MapClient() {
       if (!selectedId) return;
       const stillMissing = !placesRef.current.some((place) => place.id === selectedId);
       if (!stillMissing) return;
-      const isLikelyFilterDriven = Date.now() - lastFilterChangeAtRef.current < 2000;
-      if (isLikelyFilterDriven) {
-        closeDrawer();
-      }
+      closeDrawer("missing-selection-after-fetch");
       setSelectionNotice("Selected place is outside the current map area or filters.");
-    }, 320);
+    }, 400);
 
     return () => {
       if (missingSelectionTimeoutRef.current !== null) {
@@ -705,6 +733,7 @@ export default function MapClient() {
     }
     if (selectParam) {
       if (selectParam !== selectedPlaceIdRef.current) {
+        drawerReasonRef.current = `search-param:${selectParam}`;
         setSelectedPlaceId(selectParam);
       }
       setDrawerMode("full");
@@ -756,10 +785,10 @@ export default function MapClient() {
     [filters],
   );
 
-  // Mobile filter UI (overlay above Leaflet with higher z-index).
+  // Mobile filter UI (ported to body to avoid transformed parent stacking issues).
   const renderMobileFilters = () => {
     if (!isMobileViewport) return null;
-    return (
+    const content = (
       <div className="cpm-map-mobile-filters lg:hidden">
         <div className="cpm-map-mobile-filters__sheet-wrap">
           {filtersOpen && (
@@ -852,6 +881,12 @@ export default function MapClient() {
         </div>
       </div>
     );
+
+    if (typeof document === "undefined") {
+      return content;
+    }
+
+    return createPortal(content, document.body);
   };
 
   const renderPlaceList = useCallback(() => {
@@ -1033,7 +1068,14 @@ export default function MapClient() {
         }
 
         if (mapContainerRef.current?.contains(target)) {
-          closeDrawer();
+          const sinceMarkerClick = performance.now() - lastMarkerClickAtRef.current;
+          if (sinceMarkerClick <= 300) {
+            if (process.env.NODE_ENV !== "production") {
+              console.debug("[map] ignore close from map click", { sinceMarkerClick });
+            }
+            return;
+          }
+          closeDrawer("map-click");
         }
       }
     };
@@ -1147,7 +1189,7 @@ export default function MapClient() {
             place={selectedPlaceForDrawer}
             isOpen={isDrawerOpen}
             mode={drawerMode}
-            onClose={closeDrawer}
+            onClose={() => closeDrawer("drawer-close-button")}
             ref={drawerRef}
             headerHeight={HEADER_HEIGHT}
             selectionStatus={selectionStatus}
@@ -1157,7 +1199,7 @@ export default function MapClient() {
           <MobileBottomSheet
             place={selectedPlaceForDrawer}
             isOpen={isDrawerOpen}
-            onClose={closeDrawer}
+            onClose={() => closeDrawer("mobile-sheet-close")}
             ref={bottomSheetRef}
             selectionStatus={selectionStatus}
             onStageChange={() => {
