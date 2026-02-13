@@ -103,20 +103,21 @@
   pointer-events: auto;
 }
 
-.cpm-map-fetch-status__spinner {
-  width: 12px;
-  height: 12px;
-  border-radius: 999px;
-  border: 2px solid #c7d2fe;
-  border-top-color: #6366f1;
-  animation: cpm-spin 0.9s linear infinite;
-}
-
 .cpm-map-fetch-status__dot {
   width: 8px;
   height: 8px;
   border-radius: 999px;
   background: #ef4444;
+}
+
+.cpm-inline-loading-spinner {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 2px solid #c7d2fe;
+  border-top-color: #6366f1;
+  animation: cpm-spin 0.9s linear infinite;
+  flex: 0 0 auto;
 }
 
 .cpm-map-fetch-status__retry {

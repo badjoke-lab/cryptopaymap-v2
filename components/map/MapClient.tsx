@@ -109,7 +109,6 @@ export default function MapClient() {
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [geolocationError, setGeolocationError] = useState<string | null>(null);
   const [isLocating, setIsLocating] = useState(false);
-  const [showLoadingIndicator, setShowLoadingIndicator] = useState(false);
   const [showDbStatus, setShowDbStatus] = useState(false);
 
   const invalidateMapSize = useCallback(() => {
@@ -685,18 +684,6 @@ export default function MapClient() {
     return () => window.clearTimeout(timeout);
   }, [selectionNotice]);
 
-  useEffect(() => {
-    if (placesStatus !== "loading") {
-      setShowLoadingIndicator(false);
-      return;
-    }
-    const timeout = window.setTimeout(() => {
-      setShowLoadingIndicator(true);
-    }, 220);
-
-    return () => window.clearTimeout(timeout);
-  }, [placesStatus]);
-
   const selectionStatus = selectedPlace ? "idle" : selectedPlaceDetailStatus;
 
   const hasActiveFilters = useMemo(
@@ -789,8 +776,13 @@ export default function MapClient() {
               />
             )}
           </button>
-          <div className="rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-gray-700 shadow-sm">
-            {places.length} place{places.length === 1 ? "" : "s"}
+          <div className="inline-flex items-center gap-2 rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-gray-700 shadow-sm">
+            <span>
+              {places.length} place{places.length === 1 ? "" : "s"}
+            </span>
+            {placesStatus === "loading" ? (
+              <span className="cpm-inline-loading-spinner" aria-hidden />
+            ) : null}
           </div>
         </div>
       </div>
@@ -1008,8 +1000,13 @@ export default function MapClient() {
             onChange={setFilters}
             onClear={() => setFilters(defaultFilterState)}
 />
-          <div className="mt-4 rounded-md bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-700">
-            Showing {places.length} place{places.length === 1 ? "" : "s"}
+          <div className="mt-4 inline-flex items-center gap-2 rounded-md bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-700">
+            <span>
+              Showing {places.length} place{places.length === 1 ? "" : "s"}
+            </span>
+            {placesStatus === "loading" ? (
+              <span className="cpm-inline-loading-spinner" aria-hidden />
+            ) : null}
           </div>
           <div className="mt-4 h-px bg-gray-100" />
           <div className="mt-4 flex flex-col gap-2">{renderPlaceList()}</div>
@@ -1047,7 +1044,6 @@ export default function MapClient() {
             {limitedMode ? <LimitedModeNotice className="mt-2 w-full max-w-sm" /> : null}
           </div>
           <MapFetchStatus
-            isLoading={placesStatus === "loading" && showLoadingIndicator}
             error={placesError}
             onRetry={() => fetchPlacesRef.current?.()}
           />
