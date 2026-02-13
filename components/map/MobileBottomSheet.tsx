@@ -98,15 +98,21 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
     const [renderedPlace, setRenderedPlace] = useState<Place | null>(null);
     const touchStartY = useRef<number | null>(null);
     const touchCurrentY = useRef<number | null>(null);
+    const previousPlaceIdRef = useRef<string | null>(null);
 
     useEffect(() => {
       if (place) {
+        previousPlaceIdRef.current = place.id;
         setRenderedPlace(place);
-        setStage("peek");
+        if (!isOpen) {
+          setStage("peek");
+        }
         return;
       }
 
       if (!isOpen) {
+        previousPlaceIdRef.current = null;
+        setStage("peek");
         const timeout = window.setTimeout(() => setRenderedPlace(null), 220);
         return () => window.clearTimeout(timeout);
       }

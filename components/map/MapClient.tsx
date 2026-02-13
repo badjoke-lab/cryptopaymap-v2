@@ -92,7 +92,6 @@ export default function MapClient() {
   const [limitedMode, setLimitedMode] = useState(false);
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
   const selectedPlaceIdRef = useRef<string | null>(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<"full" | null>(null);
   const [selectionHydrated, setSelectionHydrated] = useState(false);
   const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
@@ -110,16 +109,22 @@ export default function MapClient() {
   const [geolocationError, setGeolocationError] = useState<string | null>(null);
   const [isLocating, setIsLocating] = useState(false);
   const [showDbStatus, setShowDbStatus] = useState(false);
+  const lastSelectAtRef = useRef(0);
+  const lastSelectedIdRef = useRef<string | null>(null);
+  const invalidateTimeoutRef = useRef<number | null>(null);
+
+  const isDrawerOpen = Boolean(selectedPlaceId);
 
   const invalidateMapSize = useCallback(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
-    window.requestAnimationFrame(() => {
+    if (invalidateTimeoutRef.current !== null) {
+      window.clearTimeout(invalidateTimeoutRef.current);
+    }
+    invalidateTimeoutRef.current = window.setTimeout(() => {
       map.invalidateSize({ pan: false });
-    });
-    window.setTimeout(() => {
-      map.invalidateSize({ pan: false });
-    }, 50);
+      invalidateTimeoutRef.current = null;
+    }, 100);
   }, []);
 
   const toggleFilters = useCallback(
@@ -157,6 +162,14 @@ export default function MapClient() {
   }, []);
 
   const openDrawerForPlace = useCallback((placeId: string) => {
+    const now = performance.now();
+    const isRapidRepeat =
+      lastSelectedIdRef.current === placeId && now - lastSelectAtRef.current < 200;
+    if (isRapidRepeat) {
+      return;
+    }
+    lastSelectedIdRef.current = placeId;
+    lastSelectAtRef.current = now;
     lastFocusedElementRef.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setSelectionNotice(null);
@@ -166,14 +179,12 @@ export default function MapClient() {
       }
       return placeId;
     });
-    setDrawerOpen(true);
     setDrawerMode("full");
   }, []);
 
   const closeDrawer = useCallback(() => {
     skipNextSelectionRef.current = true;
     setSelectedPlaceId(null);
-    setDrawerOpen(false);
     setDrawerMode(null);
     window.requestAnimationFrame(() => {
       restoreFocus();
@@ -295,7 +306,8 @@ export default function MapClient() {
         });
         const marker = L.marker([lat, lng], { icon });
         marker.on("click", (event: import("leaflet").LeafletMouseEvent) => {
-          event.originalEvent.stopPropagation();
+          event.originalEvent?.stopPropagation();
+          event.originalEvent?.preventDefault();
           openDrawerForPlace(clusterItem.id);
         });
         marker.setZIndexOffset(isSelected ? 1000 : 0);
@@ -645,19 +657,15 @@ export default function MapClient() {
       if (selectParam !== selectedPlaceIdRef.current) {
         setSelectedPlaceId(selectParam);
       }
-      if (!drawerOpen) {
-        setDrawerOpen(true);
-        setDrawerMode("full");
-      }
+      setDrawerMode("full");
     } else if (selectedPlaceIdRef.current) {
-      setSelectedPlaceId(null);
       closeDrawer();
     }
 
     if (!selectionHydrated) {
       setSelectionHydrated(true);
     }
-  }, [closeDrawer, drawerOpen, searchParams, selectionHydrated]);
+  }, [closeDrawer, searchParams, selectionHydrated]);
 
   useEffect(() => {
     if (!selectionHydrated) return;
@@ -753,11 +761,11 @@ export default function MapClient() {
             </div>
           )}
         </div>
-        <div className="cpm-map-mobile-hud-row">
+        <div className="cpm-map-mobile-hud-stack">
           <button
             type="button"
             onClick={handleLocateMe}
-            className="cpm-map-button"
+            className="cpm-map-button cpm-map-button--compact"
             disabled={isLocating}
           >
             {isLocating ? "Locating…" : "Locate"}
@@ -766,7 +774,7 @@ export default function MapClient() {
             type="button"
             onClick={toggleFilters}
             data-testid="map-filters-toggle"
-            className="flex items-center gap-2 rounded-full border border-gray-200 bg-white/95 px-4 py-2 text-sm font-semibold text-gray-800 shadow-sm backdrop-blur"
+            className="cpm-map-button cpm-map-button--compact cpm-map-filters-toggle"
           >
             <span>Filters</span>
             {hasActiveFilters && (
@@ -776,7 +784,7 @@ export default function MapClient() {
               />
             )}
           </button>
-          <div className="inline-flex items-center gap-2 rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-gray-700 shadow-sm">
+          <div className="cpm-map-places-pill" role="status" aria-live="polite">
             <span>
               {places.length} place{places.length === 1 ? "" : "s"}
             </span>
@@ -936,9 +944,12 @@ export default function MapClient() {
   }, []);
 
   useEffect(() => {
-    if (!selectedPlaceId && !drawerOpen) return;
+    if (!selectedPlaceId) return;
 
     const handlePointerDown = (event: PointerEvent) => {
+      if (window.matchMedia("(max-width: 1023px)").matches) {
+        return;
+      }
       const target = event.target;
 
       if (target instanceof Element) {
@@ -975,13 +986,24 @@ export default function MapClient() {
     return () => {
       document.removeEventListener("pointerdown", handlePointerDown);
     };
-  }, [closeDrawer, drawerOpen, selectedPlaceId]);
+  }, [closeDrawer, selectedPlaceId]);
 
   useEffect(() => {
-    const map = mapInstanceRef.current;
-    if (!map) return;
+    if (!isDrawerOpen) return;
     invalidateMapSize();
-  }, [drawerOpen, filtersOpen, invalidateMapSize]);
+  }, [drawerMode, invalidateMapSize, isDrawerOpen]);
+
+  useEffect(() => {
+    invalidateMapSize();
+  }, [filtersOpen, invalidateMapSize]);
+
+  useEffect(() => {
+    return () => {
+      if (invalidateTimeoutRef.current !== null) {
+        window.clearTimeout(invalidateTimeoutRef.current);
+      }
+    };
+  }, []);
 
   return (
     <div
@@ -1065,7 +1087,7 @@ export default function MapClient() {
         <div className="hidden lg:block">
           <Drawer
             place={selectedPlaceForDrawer}
-            isOpen={drawerOpen && Boolean(selectedPlaceId)}
+            isOpen={isDrawerOpen}
             mode={drawerMode}
             onClose={closeDrawer}
             ref={drawerRef}
@@ -1076,7 +1098,7 @@ export default function MapClient() {
         <div className="lg:hidden">
           <MobileBottomSheet
             place={selectedPlaceForDrawer}
-            isOpen={drawerOpen && Boolean(selectedPlaceId)}
+            isOpen={isDrawerOpen}
             onClose={closeDrawer}
             ref={bottomSheetRef}
             selectionStatus={selectionStatus}
