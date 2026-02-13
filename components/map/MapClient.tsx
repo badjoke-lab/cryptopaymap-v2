@@ -109,9 +109,12 @@ export default function MapClient() {
   const [geolocationError, setGeolocationError] = useState<string | null>(null);
   const [isLocating, setIsLocating] = useState(false);
   const [showDbStatus, setShowDbStatus] = useState(false);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
   const lastSelectAtRef = useRef(0);
   const lastSelectedIdRef = useRef<string | null>(null);
   const invalidateTimeoutRef = useRef<number | null>(null);
+  const missingSelectionTimeoutRef = useRef<number | null>(null);
+  const lastFilterChangeAtRef = useRef<number>(0);
 
   const isDrawerOpen = Boolean(selectedPlaceId);
 
@@ -121,10 +124,13 @@ export default function MapClient() {
     if (invalidateTimeoutRef.current !== null) {
       window.clearTimeout(invalidateTimeoutRef.current);
     }
-    invalidateTimeoutRef.current = window.setTimeout(() => {
+    window.requestAnimationFrame(() => {
       map.invalidateSize({ pan: false });
-      invalidateTimeoutRef.current = null;
-    }, 100);
+      invalidateTimeoutRef.current = window.setTimeout(() => {
+        map.invalidateSize({ pan: false });
+        invalidateTimeoutRef.current = null;
+      }, 120);
+    });
   }, []);
 
   const toggleFilters = useCallback(
@@ -132,6 +138,25 @@ export default function MapClient() {
     [],
   );
   const closeFilters = useCallback(() => setFiltersOpen(false), []);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    console.debug("[map] selectedPlaceId", selectedPlaceId);
+  }, [selectedPlaceId]);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    console.debug("[map] drawerOpen", isDrawerOpen);
+  }, [isDrawerOpen]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia("(max-width: 1023px)");
+    const sync = () => setIsMobileViewport(media.matches);
+    sync();
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -173,6 +198,9 @@ export default function MapClient() {
     lastFocusedElementRef.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setSelectionNotice(null);
+    if (process.env.NODE_ENV !== "production") {
+      console.debug("[map] marker click", { placeId });
+    }
     setSelectedPlaceId((prev) => {
       if (prev === placeId) {
         return prev;
@@ -625,13 +653,35 @@ export default function MapClient() {
   }, [selectedPlace, selectedPlaceId]);
 
   useEffect(() => {
+    lastFilterChangeAtRef.current = Date.now();
+  }, [filters]);
+
+  useEffect(() => {
     if (!selectedPlaceId || placesStatus !== "success") return;
-    if (!selectedPlace) {
-      setSelectionNotice(
-        "Selected place is outside the current map area or filters.",
-      );
+    if (missingSelectionTimeoutRef.current !== null) {
+      window.clearTimeout(missingSelectionTimeoutRef.current);
+      missingSelectionTimeoutRef.current = null;
     }
-  }, [placesStatus, selectedPlace, selectedPlaceId]);
+    if (selectedPlace) return;
+    missingSelectionTimeoutRef.current = window.setTimeout(() => {
+      const selectedId = selectedPlaceIdRef.current;
+      if (!selectedId) return;
+      const stillMissing = !placesRef.current.some((place) => place.id === selectedId);
+      if (!stillMissing) return;
+      const isLikelyFilterDriven = Date.now() - lastFilterChangeAtRef.current < 2000;
+      if (isLikelyFilterDriven) {
+        closeDrawer();
+      }
+      setSelectionNotice("Selected place is outside the current map area or filters.");
+    }, 320);
+
+    return () => {
+      if (missingSelectionTimeoutRef.current !== null) {
+        window.clearTimeout(missingSelectionTimeoutRef.current);
+        missingSelectionTimeoutRef.current = null;
+      }
+    };
+  }, [closeDrawer, placesStatus, selectedPlace, selectedPlaceId]);
 
   useEffect(() => {
     if (!fetchPlacesRef.current) return;
@@ -658,14 +708,12 @@ export default function MapClient() {
         setSelectedPlaceId(selectParam);
       }
       setDrawerMode("full");
-    } else if (selectedPlaceIdRef.current) {
-      closeDrawer();
     }
 
     if (!selectionHydrated) {
       setSelectionHydrated(true);
     }
-  }, [closeDrawer, searchParams, selectionHydrated]);
+  }, [searchParams, selectionHydrated]);
 
   useEffect(() => {
     if (!selectionHydrated) return;
@@ -710,25 +758,33 @@ export default function MapClient() {
 
   // Mobile filter UI (overlay above Leaflet with higher z-index).
   const renderMobileFilters = () => {
+    if (!isMobileViewport) return null;
     return (
       <div className="cpm-map-mobile-filters lg:hidden">
         <div className="cpm-map-mobile-filters__sheet-wrap">
           {filtersOpen && (
-            <div
-              className="cpm-map-mobile-filters__sheet"
-              data-testid="mobile-filters-sheet"
-            >
+            <>
+              <button
+                type="button"
+                className="cpm-map-mobile-filters__backdrop"
+                onClick={closeFilters}
+                aria-label="Close filters"
+              />
+              <div
+                className="cpm-map-mobile-filters__sheet"
+                data-testid="mobile-filters-sheet"
+              >
               <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
                 <h3 className="text-base font-semibold text-gray-900">Filters</h3>
                 <button
                   type="button"
-                  className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-sm font-medium text-gray-700"
+                  className="rounded-full border border-gray-200 bg-gray-50 px-4 py-2 text-sm font-medium text-gray-700"
                   onClick={closeFilters}
                 >
                   Close
                 </button>
               </div>
-              <div className="max-h-[calc(70vh-56px)] overflow-y-auto p-4">
+              <div className="cpm-map-mobile-filters__sheet-content">
                 <FiltersPanel
                   filters={filters}
                   meta={filterMeta}
@@ -758,10 +814,11 @@ export default function MapClient() {
                   )}
                 </div>
               </div>
-            </div>
+              </div>
+            </>
           )}
         </div>
-        <div className="cpm-map-mobile-hud-stack">
+        <div className={`cpm-map-mobile-hud-stack ${filtersOpen ? "is-hidden" : ""}`}>
           <button
             type="button"
             onClick={handleLocateMe}
@@ -1002,6 +1059,9 @@ export default function MapClient() {
       if (invalidateTimeoutRef.current !== null) {
         window.clearTimeout(invalidateTimeoutRef.current);
       }
+      if (missingSelectionTimeoutRef.current !== null) {
+        window.clearTimeout(missingSelectionTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -1045,18 +1105,16 @@ export default function MapClient() {
                   className="cpm-map-button"
                   disabled={isLocating}
                 >
-                  {isLocating ? "Locating…" : "Locate me"}
+                  {isLocating ? "Locating…" : "Locate"}
                 </button>
-                {geolocationError && (
-                  <div className="cpm-map-toast">{geolocationError}</div>
-                )}
-                {selectionNotice && (
-                  <div className="cpm-map-toast" role="status" aria-live="polite">
-                    {selectionNotice}
-                  </div>
-                )}
               </div>
             </div>
+            {geolocationError && <div className="cpm-map-toast">{geolocationError}</div>}
+            {selectionNotice && (
+              <div className="cpm-map-toast" role="status" aria-live="polite">
+                {selectionNotice}
+              </div>
+            )}
             {showDbStatus ? (
               <DbStatusIndicator
                 className="cpm-map-db-status hidden lg:flex"
