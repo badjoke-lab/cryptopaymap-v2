@@ -11,6 +11,7 @@ type Props = {
   isOpen: boolean;
   onClose: () => void;
   selectionStatus?: "idle" | "loading" | "error";
+  onStageChange?: (stage: SheetStage) => void;
 };
 
 type SheetStage = "peek" | "expanded";
@@ -92,7 +93,7 @@ const buildNavigationLinks = (place: Place | null) => {
 };
 
 const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
-  ({ place, isOpen, onClose, selectionStatus = "idle" }, ref) => {
+  ({ place, isOpen, onClose, selectionStatus = "idle", onStageChange }, ref) => {
     const [stage, setStage] = useState<SheetStage>("peek");
     const [renderedPlace, setRenderedPlace] = useState<Place | null>(null);
     const touchStartY = useRef<number | null>(null);
@@ -123,6 +124,11 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
 
     const isRestricted =
       renderedPlace?.verification === "directory" || renderedPlace?.verification === "unverified";
+
+    useEffect(() => {
+      if (!isOpen) return;
+      onStageChange?.(stage);
+    }, [isOpen, onStageChange, stage]);
     const canShowPhotos =
       renderedPlace && (renderedPlace.verification === "owner" || renderedPlace.verification === "community")
         ? photos.length > 0
