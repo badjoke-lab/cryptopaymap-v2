@@ -112,6 +112,17 @@ export default function MapClient() {
   const [showLoadingIndicator, setShowLoadingIndicator] = useState(false);
   const [showDbStatus, setShowDbStatus] = useState(false);
 
+  const invalidateMapSize = useCallback(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    window.requestAnimationFrame(() => {
+      map.invalidateSize({ pan: false });
+    });
+    window.setTimeout(() => {
+      map.invalidateSize({ pan: false });
+    }, 50);
+  }, []);
+
   const toggleFilters = useCallback(
     () => setFiltersOpen((previous) => !previous),
     [],
@@ -535,6 +546,7 @@ export default function MapClient() {
         scheduleFetchForBounds(mapInstanceRef.current.getBounds(), { force: true });
       };
       map.whenReady(() => {
+        invalidateMapSize();
         scheduleFetchForBounds(map.getBounds(), { force: true });
       });
     };
@@ -551,7 +563,7 @@ export default function MapClient() {
         mapInstanceRef.current = null;
       }
     };
-  }, [openDrawerForPlace]);
+  }, [invalidateMapSize, openDrawerForPlace]);
 
   const selectedPlace = useMemo(
     () =>
@@ -976,17 +988,15 @@ export default function MapClient() {
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
-    const frame = window.requestAnimationFrame(() => {
-      map.invalidateSize({ pan: false });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [drawerOpen, filtersOpen]);
+    invalidateMapSize();
+  }, [drawerOpen, filtersOpen, invalidateMapSize]);
 
   return (
     <div
-      className="relative flex w-full"
+      className="relative flex w-full min-h-0 flex-1"
       style={{
         height: `calc(100dvh - var(--cpm-header-h, ${HEADER_HEIGHT}px))`,
+        minHeight: 0,
         ["--header-height" as string]: `var(--cpm-header-h, ${HEADER_HEIGHT}px)`,
       }}
     >
@@ -1005,7 +1015,7 @@ export default function MapClient() {
           <div className="mt-4 flex flex-col gap-2">{renderPlaceList()}</div>
         </div>
       </aside>
-      <div className="relative flex-1 bg-gray-50">
+      <div className="relative flex-1 bg-gray-50 min-h-0">
         <div className="cpm-map-overlay">
           <div className="cpm-map-overlay__top">
             <div className="hidden lg:block">
@@ -1054,7 +1064,7 @@ export default function MapClient() {
           data-selected-place={selectedPlaceId ?? ""}
           tabIndex={0}
           aria-label="Map"
-          className="absolute inset-0 w-full"
+          className="absolute inset-0 h-full w-full"
         />
         <div className="hidden lg:block">
           <Drawer
@@ -1075,9 +1085,7 @@ export default function MapClient() {
             ref={bottomSheetRef}
             selectionStatus={selectionStatus}
             onStageChange={() => {
-              const map = mapInstanceRef.current;
-              if (!map) return;
-              window.requestAnimationFrame(() => map.invalidateSize({ pan: false }));
+              invalidateMapSize();
             }}
           />
         </div>
