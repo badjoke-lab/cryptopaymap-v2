@@ -218,6 +218,10 @@
   pointer-events: auto;
 }
 
+html[data-cpm-menu-open="1"] .cpm-map-mobile-hud-row {
+  display: none !important;
+}
+
 .cpm-map-mobile-filters__sheet-wrap {
   pointer-events: none;
 }

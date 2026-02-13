@@ -64,6 +64,22 @@ export default function GlobalHeader() {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [isMenuOpen]);
 
+  useEffect(() => {
+    if (typeof document === 'undefined') {
+      return;
+    }
+
+    if (isMenuOpen) {
+      document.documentElement.setAttribute('data-cpm-menu-open', '1');
+      return () => {
+        document.documentElement.removeAttribute('data-cpm-menu-open');
+      };
+    }
+
+    document.documentElement.removeAttribute('data-cpm-menu-open');
+    return undefined;
+  }, [isMenuOpen]);
+
   const setDebugState = (enabled: boolean) => {
     setDebugMode(enabled);
     if (typeof window === 'undefined') return;
