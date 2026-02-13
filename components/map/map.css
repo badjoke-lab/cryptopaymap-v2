@@ -275,7 +275,7 @@ html[data-cpm-menu-open="1"] .cpm-map-mobile-filters {
   inset: 0;
   border: none;
   background: rgba(15, 23, 42, 0.32);
-  z-index: 345;
+  z-index: 10000;
   pointer-events: auto;
 }
 
@@ -284,7 +284,7 @@ html[data-cpm-menu-open="1"] .cpm-map-mobile-filters {
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 360;
+  z-index: 10001;
   margin-inline: auto;
   max-height: min(78vh, 640px);
   width: 100%;
@@ -296,6 +296,7 @@ html[data-cpm-menu-open="1"] .cpm-map-mobile-filters {
   display: flex;
   flex-direction: column;
   padding-bottom: env(safe-area-inset-bottom);
+  transform: translateY(0);
 }
 
 .cpm-map-mobile-filters__sheet-content {
