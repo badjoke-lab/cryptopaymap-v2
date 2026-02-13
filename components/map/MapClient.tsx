@@ -109,8 +109,18 @@ export default function MapClient() {
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [geolocationError, setGeolocationError] = useState<string | null>(null);
   const [isLocating, setIsLocating] = useState(false);
-  const [showLoadingIndicator, setShowLoadingIndicator] = useState(false);
   const [showDbStatus, setShowDbStatus] = useState(false);
+
+  const invalidateMapSize = useCallback(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    window.requestAnimationFrame(() => {
+      map.invalidateSize({ pan: false });
+    });
+    window.setTimeout(() => {
+      map.invalidateSize({ pan: false });
+    }, 50);
+  }, []);
 
   const toggleFilters = useCallback(
     () => setFiltersOpen((previous) => !previous),
@@ -535,6 +545,7 @@ export default function MapClient() {
         scheduleFetchForBounds(mapInstanceRef.current.getBounds(), { force: true });
       };
       map.whenReady(() => {
+        invalidateMapSize();
         scheduleFetchForBounds(map.getBounds(), { force: true });
       });
     };
@@ -551,7 +562,7 @@ export default function MapClient() {
         mapInstanceRef.current = null;
       }
     };
-  }, [openDrawerForPlace]);
+  }, [invalidateMapSize, openDrawerForPlace]);
 
   const selectedPlace = useMemo(
     () =>
@@ -673,18 +684,6 @@ export default function MapClient() {
     return () => window.clearTimeout(timeout);
   }, [selectionNotice]);
 
-  useEffect(() => {
-    if (placesStatus !== "loading") {
-      setShowLoadingIndicator(false);
-      return;
-    }
-    const timeout = window.setTimeout(() => {
-      setShowLoadingIndicator(true);
-    }, 220);
-
-    return () => window.clearTimeout(timeout);
-  }, [placesStatus]);
-
   const selectionStatus = selectedPlace ? "idle" : selectedPlaceDetailStatus;
 
   const hasActiveFilters = useMemo(
@@ -777,8 +776,13 @@ export default function MapClient() {
               />
             )}
           </button>
-          <div className="rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-gray-700 shadow-sm">
-            {places.length} place{places.length === 1 ? "" : "s"}
+          <div className="inline-flex items-center gap-2 rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-gray-700 shadow-sm">
+            <span>
+              {places.length} place{places.length === 1 ? "" : "s"}
+            </span>
+            {placesStatus === "loading" ? (
+              <span className="cpm-inline-loading-spinner" aria-hidden />
+            ) : null}
           </div>
         </div>
       </div>
@@ -976,17 +980,15 @@ export default function MapClient() {
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
-    const frame = window.requestAnimationFrame(() => {
-      map.invalidateSize({ pan: false });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [drawerOpen, filtersOpen]);
+    invalidateMapSize();
+  }, [drawerOpen, filtersOpen, invalidateMapSize]);
 
   return (
     <div
-      className="relative flex w-full"
+      className="relative flex w-full min-h-0 flex-1"
       style={{
         height: `calc(100dvh - var(--cpm-header-h, ${HEADER_HEIGHT}px))`,
+        minHeight: 0,
         ["--header-height" as string]: `var(--cpm-header-h, ${HEADER_HEIGHT}px)`,
       }}
     >
@@ -998,14 +1000,19 @@ export default function MapClient() {
             onChange={setFilters}
             onClear={() => setFilters(defaultFilterState)}
 />
-          <div className="mt-4 rounded-md bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-700">
-            Showing {places.length} place{places.length === 1 ? "" : "s"}
+          <div className="mt-4 inline-flex items-center gap-2 rounded-md bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-700">
+            <span>
+              Showing {places.length} place{places.length === 1 ? "" : "s"}
+            </span>
+            {placesStatus === "loading" ? (
+              <span className="cpm-inline-loading-spinner" aria-hidden />
+            ) : null}
           </div>
           <div className="mt-4 h-px bg-gray-100" />
           <div className="mt-4 flex flex-col gap-2">{renderPlaceList()}</div>
         </div>
       </aside>
-      <div className="relative flex-1 bg-gray-50">
+      <div className="relative flex-1 bg-gray-50 min-h-0">
         <div className="cpm-map-overlay">
           <div className="cpm-map-overlay__top">
             <div className="hidden lg:block">
@@ -1037,7 +1044,6 @@ export default function MapClient() {
             {limitedMode ? <LimitedModeNotice className="mt-2 w-full max-w-sm" /> : null}
           </div>
           <MapFetchStatus
-            isLoading={placesStatus === "loading" && showLoadingIndicator}
             error={placesError}
             onRetry={() => fetchPlacesRef.current?.()}
           />
@@ -1054,7 +1060,7 @@ export default function MapClient() {
           data-selected-place={selectedPlaceId ?? ""}
           tabIndex={0}
           aria-label="Map"
-          className="absolute inset-0 w-full"
+          className="absolute inset-0 h-full w-full"
         />
         <div className="hidden lg:block">
           <Drawer
@@ -1075,9 +1081,7 @@ export default function MapClient() {
             ref={bottomSheetRef}
             selectionStatus={selectionStatus}
             onStageChange={() => {
-              const map = mapInstanceRef.current;
-              if (!map) return;
-              window.requestAnimationFrame(() => map.invalidateSize({ pan: false }));
+              invalidateMapSize();
             }}
           />
         </div>

@@ -64,6 +64,22 @@ export default function GlobalHeader() {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [isMenuOpen]);
 
+  useEffect(() => {
+    if (typeof document === 'undefined') {
+      return;
+    }
+
+    if (isMenuOpen) {
+      document.documentElement.setAttribute('data-cpm-menu-open', '1');
+      return () => {
+        document.documentElement.removeAttribute('data-cpm-menu-open');
+      };
+    }
+
+    document.documentElement.removeAttribute('data-cpm-menu-open');
+    return undefined;
+  }, [isMenuOpen]);
+
   const setDebugState = (enabled: boolean) => {
     setDebugMode(enabled);
     if (typeof window === 'undefined') return;
@@ -118,14 +134,14 @@ export default function GlobalHeader() {
         </div>
       </div>
       <div
-        className={`fixed inset-0 z-[120] bg-slate-950/35 transition-opacity duration-200 md:hidden ${
+        className={`fixed inset-0 z-[10000] bg-slate-950/35 transition-opacity duration-200 md:hidden ${
           isMenuOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
         }`}
         aria-hidden={!isMenuOpen}
         onClick={() => setIsMenuOpen(false)}
       />
       <aside
-        className={`fixed right-0 top-0 z-[130] flex h-dvh w-[min(88vw,360px)] flex-col bg-white shadow-2xl transition-transform duration-200 md:hidden ${
+        className={`fixed right-0 top-0 z-[10001] flex h-dvh w-[min(88vw,360px)] flex-col bg-white shadow-2xl transition-transform duration-200 md:hidden ${
           isMenuOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
         aria-hidden={!isMenuOpen}

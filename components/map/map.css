@@ -103,20 +103,21 @@
   pointer-events: auto;
 }
 
-.cpm-map-fetch-status__spinner {
-  width: 12px;
-  height: 12px;
-  border-radius: 999px;
-  border: 2px solid #c7d2fe;
-  border-top-color: #6366f1;
-  animation: cpm-spin 0.9s linear infinite;
-}
-
 .cpm-map-fetch-status__dot {
   width: 8px;
   height: 8px;
   border-radius: 999px;
   background: #ef4444;
+}
+
+.cpm-inline-loading-spinner {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 2px solid #c7d2fe;
+  border-top-color: #6366f1;
+  animation: cpm-spin 0.9s linear infinite;
+  flex: 0 0 auto;
 }
 
 .cpm-map-fetch-status__retry {
@@ -169,7 +170,7 @@
 .cpm-map-overlay {
   position: absolute;
   inset: 0;
-  z-index: 70;
+  z-index: 200;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -218,6 +219,10 @@
   pointer-events: auto;
 }
 
+html[data-cpm-menu-open="1"] .cpm-map-mobile-hud-row {
+  display: none !important;
+}
+
 .cpm-map-mobile-filters__sheet-wrap {
   pointer-events: none;
 }
@@ -226,7 +231,7 @@
   position: absolute;
   inset-inline: 0;
   bottom: 0;
-  z-index: 80;
+  z-index: 220;
   margin-inline: auto;
   max-height: 70vh;
   width: 100%;
@@ -255,42 +260,7 @@
 }
 
 
-/* CPM: UI overlay stacking fix */
-.leaflet-container{position:relative;z-index:0;}
-[data-cpm-ui="1"]{z-index:4000 !important;}
-#dbok,.dbok,.map-controls,.MapControls,.filters,.Filters,.filter,.Filter{z-index:4000 !important;}
-
-/* CPM: UI overlay stacking fix (position + z-index) */
-.cpm-ui-overlay {
-  position: relative !important;
-  z-index: 5000 !important;
-}
-
-/* Leaflet stays behind */
 .leaflet-container {
   position: relative;
   z-index: 0;
 }
-
-/* Mobile-only helper */
-.cpm-mobile-only { display: none; }
-@media (max-width: 1024px) {
-  .cpm-mobile-only { display: inline-flex; }
-}
-
-
-/* CPM: UI overlay stacking fix v2 */
-.cpm-ui-overlay{position:relative !important; z-index:5000 !important;}
-.cpm-mobile-only{display:none !important;}
-@media (max-width: 1024px){.cpm-mobile-only{display:inline-flex !important;}}
-.leaflet-container{position:relative; z-index:0;}
-
-
-/* CPM: map-filters-toggle desktop hide */
-button[data-testid="map-filters-toggle"]{ position:relative !important; z-index:5000 !important; }
-@media (min-width: 1025px){ button[data-testid="map-filters-toggle"]{ display:none !important; } }
-@media (max-width: 1024px){ button[data-testid="map-filters-toggle"]{ display:inline-flex !important; } }
-
-
-/* CPM: bring locate button above Leaflet */
-.cpm-map-button{ position:relative !important; z-index:5000 !important; }
