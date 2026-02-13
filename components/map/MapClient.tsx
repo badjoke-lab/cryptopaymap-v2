@@ -92,20 +92,6 @@ export default function MapClient() {
   const [limitedMode, setLimitedMode] = useState(false);
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
   const selectedPlaceIdRef = useRef<string | null>(null);
-  const [isMobile, setIsMobile] = useState(false);
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const mq = window.matchMedia("(max-width: 900px)");
-    const apply = () => setIsMobile(mq.matches);
-    apply();
-    if (mq.addEventListener) mq.addEventListener("change", apply);
-    else mq.addListener(apply);
-    return () => {
-      if (mq.removeEventListener) mq.removeEventListener("change", apply);
-      else mq.removeListener(apply);
-    };
-  }, []);
-
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<"full" | null>(null);
   const [selectionHydrated, setSelectionHydrated] = useState(false);
@@ -124,13 +110,34 @@ export default function MapClient() {
   const [geolocationError, setGeolocationError] = useState<string | null>(null);
   const [isLocating, setIsLocating] = useState(false);
   const [showLoadingIndicator, setShowLoadingIndicator] = useState(false);
-  const showEmptyState = placesStatus === "success" && places.length === 0 && !placesError;
+  const [showDbStatus, setShowDbStatus] = useState(false);
 
   const toggleFilters = useCallback(
     () => setFiltersOpen((previous) => !previous),
     [],
   );
   const closeFilters = useCallback(() => setFiltersOpen(false), []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const applyDebugValue = () => {
+      const stored = window.localStorage.getItem("cpm:debug-mode");
+      setShowDbStatus(stored === "1");
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === "cpm:debug-mode") {
+        applyDebugValue();
+      }
+    };
+    const onDebugChange = () => applyDebugValue();
+    applyDebugValue();
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("cpm:debug-mode-change", onDebugChange as EventListener);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("cpm:debug-mode-change", onDebugChange as EventListener);
+    };
+  }, []);
 
   const restoreFocus = useCallback(() => {
     const target = lastFocusedElementRef.current ?? mapContainerRef.current;
@@ -639,7 +646,7 @@ export default function MapClient() {
     if (!selectionHydrated) {
       setSelectionHydrated(true);
     }
-  }, [closeDrawer, searchParams, selectionHydrated]);
+  }, [closeDrawer, drawerOpen, searchParams, selectionHydrated]);
 
   useEffect(() => {
     if (!selectionHydrated) return;
@@ -698,8 +705,64 @@ export default function MapClient() {
   const renderMobileFilters = () => {
     return (
       <div className="cpm-map-mobile-filters lg:hidden">
-        {/* Top Filters button and count */}
-        <div className="flex items-center justify-center gap-2">
+        <div className="cpm-map-mobile-filters__sheet-wrap">
+          {filtersOpen && (
+            <div
+              className="cpm-map-mobile-filters__sheet"
+              data-testid="mobile-filters-sheet"
+            >
+              <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+                <h3 className="text-base font-semibold text-gray-900">Filters</h3>
+                <button
+                  type="button"
+                  className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-sm font-medium text-gray-700"
+                  onClick={closeFilters}
+                >
+                  Close
+                </button>
+              </div>
+              <div className="max-h-[calc(70vh-56px)] overflow-y-auto p-4">
+                <FiltersPanel
+                  filters={filters}
+                  meta={filterMeta}
+                  onChange={setFilters}
+                  onClear={() => setFilters(defaultFilterState)}
+                  showHeading={false}
+                />
+                <div className="mt-4 space-y-2">
+                  <div className="text-sm font-semibold text-gray-800">
+                    Places ({places.length})
+                  </div>
+                  {places.length === 0 ? (
+                    <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
+                      <div className="font-semibold">No places for current filters.</div>
+                      <button
+                        type="button"
+                        className="mt-2 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-semibold text-gray-700"
+                        onClick={() => setFilters(defaultFilterState)}
+                      >
+                        Reset filters
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="max-h-48 overflow-y-auto rounded-xl border border-gray-100 p-2">
+                      {renderPlaceList()}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="cpm-map-mobile-hud-row">
+          <button
+            type="button"
+            onClick={handleLocateMe}
+            className="cpm-map-button"
+            disabled={isLocating}
+          >
+            {isLocating ? "Locating…" : "Locate"}
+          </button>
           <button
             type="button"
             onClick={toggleFilters}
@@ -718,41 +781,6 @@ export default function MapClient() {
             {places.length} place{places.length === 1 ? "" : "s"}
           </div>
         </div>
-        {/* Bottom sheet filters */}
-        {filtersOpen && (
-          <div
-            className="cpm-map-mobile-filters__sheet"
-            data-testid="mobile-filters-sheet"
-          >
-            <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
-              <h3 className="text-base font-semibold text-gray-900">Filters</h3>
-              <button
-                type="button"
-                className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-sm font-medium text-gray-700"
-                onClick={closeFilters}
-              >
-                Close
-              </button>
-            </div>
-            <div className="max-h-[calc(70vh-56px)] overflow-y-auto p-4">
-              <FiltersPanel
-                filters={filters}
-                meta={filterMeta}
-                onChange={setFilters}
-                onClear={() => setFilters(defaultFilterState)}
-showHeading={false}
-              />
-              <div className="mt-4 space-y-2">
-                <div className="text-sm font-semibold text-gray-800">
-                  Places ({places.length})
-                </div>
-                <div className="max-h-48 overflow-y-auto rounded-xl border border-gray-100 p-2">
-                  {renderPlaceList()}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     );
   };
@@ -945,11 +973,20 @@ showHeading={false}
     };
   }, [closeDrawer, drawerOpen, selectedPlaceId]);
 
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    const frame = window.requestAnimationFrame(() => {
+      map.invalidateSize({ pan: false });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [drawerOpen, filtersOpen]);
+
   return (
     <div
       className="relative flex w-full"
       style={{
-        height: `calc(100vh - var(--cpm-header-h, ${HEADER_HEIGHT}px))`,
+        height: `calc(100dvh - var(--cpm-header-h, ${HEADER_HEIGHT}px))`,
         ["--header-height" as string]: `var(--cpm-header-h, ${HEADER_HEIGHT}px)`,
       }}
     >
@@ -971,28 +1008,32 @@ showHeading={false}
       <div className="relative flex-1 bg-gray-50">
         <div className="cpm-map-overlay">
           <div className="cpm-map-overlay__top">
-            <div className="cpm-map-controls">
-              <button
-                type="button"
-                onClick={handleLocateMe}
-                className="cpm-map-button"
-                disabled={isLocating}
-              >
-                {isLocating ? "Locating…" : "Locate me"}
-              </button>
-              {geolocationError && (
-                <div className="cpm-map-toast">{geolocationError}</div>
-              )}
-              {selectionNotice && (
-                <div className="cpm-map-toast" role="status" aria-live="polite">
-                  {selectionNotice}
-                </div>
-              )}
+            <div className="hidden lg:block">
+              <div className="cpm-map-controls">
+                <button
+                  type="button"
+                  onClick={handleLocateMe}
+                  className="cpm-map-button"
+                  disabled={isLocating}
+                >
+                  {isLocating ? "Locating…" : "Locate me"}
+                </button>
+                {geolocationError && (
+                  <div className="cpm-map-toast">{geolocationError}</div>
+                )}
+                {selectionNotice && (
+                  <div className="cpm-map-toast" role="status" aria-live="polite">
+                    {selectionNotice}
+                  </div>
+                )}
+              </div>
             </div>
-            <DbStatusIndicator
-              className="cpm-map-db-status"
-              showBanner={false}
-            />
+            {showDbStatus ? (
+              <DbStatusIndicator
+                className="cpm-map-db-status hidden lg:flex"
+                showBanner={false}
+              />
+            ) : null}
             {limitedMode ? <LimitedModeNotice className="mt-2 w-full max-w-sm" /> : null}
           </div>
           <MapFetchStatus
@@ -1007,31 +1048,6 @@ showHeading={false}
             Too many results ({limitNotice.count} of {limitNotice.limit}). Zoom in to narrow down.
           </div>
         )}
-        {showEmptyState && (
-          <div className="cpm-map-empty" role="status" aria-live="polite">
-            <div className="cpm-map-empty__title">No places found yet.</div>
-            <p className="cpm-map-empty__body">
-              Filters might be too strict, the API may be temporarily unavailable, or the dataset could be empty.
-            </p>
-            <div className="cpm-map-empty__actions">
-              <button
-                type="button"
-                className="cpm-map-empty__button cpm-map-empty__button--secondary"
-                onClick={() => setFilters(defaultFilterState)}
-              >
-                Reset filters
-              </button>
-              <button
-                type="button"
-                className="cpm-map-empty__button"
-                onClick={() => fetchPlacesRef.current?.()}
-                disabled={false}
-              >
-                Reload
-              </button>
-            </div>
-          </div>
-        )}
         <div
           id="map"
           ref={mapContainerRef}
@@ -1041,16 +1057,7 @@ showHeading={false}
           className="absolute inset-0 w-full"
         />
         <div className="hidden lg:block">
-          {isMobile ? (
-            <MobileBottomSheet
-            place={selectedPlaceForDrawer}
-            isOpen={drawerOpen && Boolean(selectedPlaceId)}
-            onClose={closeDrawer}
-            ref={bottomSheetRef}
-            selectionStatus={selectionStatus}
-          />
-          ) : (
-            <Drawer
+          <Drawer
             place={selectedPlaceForDrawer}
             isOpen={drawerOpen && Boolean(selectedPlaceId)}
             mode={drawerMode}
@@ -1059,11 +1066,20 @@ showHeading={false}
             headerHeight={HEADER_HEIGHT}
             selectionStatus={selectionStatus}
           />
-          )}
-
         </div>
         <div className="lg:hidden">
-
+          <MobileBottomSheet
+            place={selectedPlaceForDrawer}
+            isOpen={drawerOpen && Boolean(selectedPlaceId)}
+            onClose={closeDrawer}
+            ref={bottomSheetRef}
+            selectionStatus={selectionStatus}
+            onStageChange={() => {
+              const map = mapInstanceRef.current;
+              if (!map) return;
+              window.requestAnimationFrame(() => map.invalidateSize({ pan: false }));
+            }}
+          />
         </div>
       </div>
     </div>
