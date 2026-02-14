@@ -92,6 +92,7 @@ export default function MapClient() {
   const [limitNotice, setLimitNotice] = useState<{ count: number; limit: number } | null>(null);
   const [limitedMode, setLimitedMode] = useState(false);
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
+  const [isPlaceOpen, setIsPlaceOpen] = useState(false);
   const selectedPlaceIdRef = useRef<string | null>(null);
   const [selectionHydrated, setSelectionHydrated] = useState(false);
   const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
@@ -115,7 +116,7 @@ export default function MapClient() {
   const invalidateTimeoutRef = useRef<number | null>(null);
   const drawerReasonRef = useRef("initial");
 
-  const isPlaceOpen = mounted && Boolean(selectedPlaceId);
+  const isMobilePlaceOpen = mounted && isPlaceOpen && Boolean(selectedPlaceId);
   const drawerMode: "full" = "full";
 
   const invalidateMapSize = useCallback(() => {
@@ -136,6 +137,9 @@ export default function MapClient() {
   const toggleFilters = useCallback(() => {
     setFiltersOpen((previous) => {
       const next = !previous;
+      if (next && typeof document !== "undefined") {
+        document.documentElement.dataset.cpmMenuOpen = "false";
+      }
       if (process.env.NODE_ENV !== "production") {
         console.debug("[map] filters toggle", { next });
       }
@@ -162,7 +166,7 @@ export default function MapClient() {
     if (typeof document === "undefined") return;
 
     const syncMenuState = () => {
-      setIsMenuOpen(document.documentElement.getAttribute("data-cpm-menu-open") === "1");
+      setIsMenuOpen(document.documentElement.dataset.cpmMenuOpen === "true");
     };
 
     const observer = new MutationObserver(syncMenuState);
@@ -247,6 +251,7 @@ export default function MapClient() {
     drawerReasonRef.current = `marker:${placeId}`;
     skipNextSelectionRef.current = false;
     setSelectedPlaceId(placeId);
+    setIsPlaceOpen(true);
   }, []);
 
   const closeDrawer = useCallback((caller: string) => {
@@ -255,6 +260,7 @@ export default function MapClient() {
     }
     drawerReasonRef.current = `close:${caller}`;
     skipNextSelectionRef.current = true;
+    setIsPlaceOpen(false);
     setSelectedPlaceId(null);
     window.requestAnimationFrame(() => {
       restoreFocus();
@@ -731,7 +737,9 @@ export default function MapClient() {
         drawerReasonRef.current = `search-param:${selectParam}`;
         setSelectedPlaceId(selectParam);
       }
+      setIsPlaceOpen(true);
     } else if (selectedPlaceIdRef.current) {
+      setIsPlaceOpen(false);
       setSelectedPlaceId(null);
     }
 
@@ -786,9 +794,9 @@ export default function MapClient() {
     if (!isMobileViewport) return null;
     const content = (
       <div className="cpm-map-mobile-filters lg:hidden"
-        data-menu-open={isMenuOpen ? "1" : "0"}
-        data-filters-open={filtersOpen ? "1" : "0"}>
-        {filtersOpen && !isMenuOpen && (
+        data-menu-open={isMenuOpen ? "true" : "false"}
+        data-filters-open={filtersOpen ? "true" : "false"}>
+        {filtersOpen && (
           <>
             <button
               type="button"
@@ -1130,7 +1138,7 @@ export default function MapClient() {
         <div className="hidden lg:block">
           <Drawer
             place={selectedPlaceForDrawer}
-            isOpen={isPlaceOpen}
+            isOpen={isPlaceOpen && Boolean(selectedPlaceId)}
             mode={drawerMode}
             onClose={() => closeDrawer("user")}
             ref={drawerRef}
@@ -1142,7 +1150,7 @@ export default function MapClient() {
           {mounted ? (
             <MobileBottomSheet
               place={selectedPlaceForDrawer}
-              isOpen={isPlaceOpen && !isMenuOpen}
+              isOpen={isMobilePlaceOpen}
               onClose={() => closeDrawer("user")}
               ref={bottomSheetRef}
               selectionStatus={selectionStatus}
