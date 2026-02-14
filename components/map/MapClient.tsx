@@ -1139,16 +1139,18 @@ export default function MapClient() {
           />
         </div>
         <div className="lg:hidden">
-          <MobileBottomSheet
-            place={selectedPlaceForDrawer}
-            isOpen={isPlaceOpen && !isMenuOpen}
-            onClose={() => closeDrawer("user")}
-            ref={bottomSheetRef}
-            selectionStatus={selectionStatus}
-            onStageChange={() => {
-              invalidateMapSize();
-            }}
-          />
+          {mounted ? (
+            <MobileBottomSheet
+              place={selectedPlaceForDrawer}
+              isOpen={isPlaceOpen && !isMenuOpen}
+              onClose={() => closeDrawer("user")}
+              ref={bottomSheetRef}
+              selectionStatus={selectionStatus}
+              onStageChange={() => {
+                invalidateMapSize();
+              }}
+            />
+          ) : null}
         </div>
       </div>
     </div>
