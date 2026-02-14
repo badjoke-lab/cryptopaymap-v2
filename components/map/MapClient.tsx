@@ -113,7 +113,6 @@ export default function MapClient() {
   const [mounted, setMounted] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const invalidateTimeoutRef = useRef<number | null>(null);
-  const lastMarkerClickAtRef = useRef(0);
   const drawerReasonRef = useRef("initial");
 
   const isPlaceOpen = mounted && Boolean(selectedPlaceId);
@@ -380,7 +379,6 @@ export default function MapClient() {
           L.DomEvent.stopPropagation(event);
           event.originalEvent?.stopPropagation();
           event.originalEvent?.preventDefault();
-          lastMarkerClickAtRef.current = performance.now();
           openDrawerForPlace(clusterItem.id);
         });
         marker.setZIndexOffset(isSelected ? 1000 : 0);
@@ -705,7 +703,7 @@ export default function MapClient() {
       setSelectionNotice(null);
       return;
     }
-    setSelectionNotice("Selection may be outside current results.");
+    setSelectionNotice("Selected place is outside the current map area or filters.");
   }, [places, placesStatus, selectedPlaceId]);
 
   useEffect(() => {
@@ -1034,58 +1032,6 @@ export default function MapClient() {
   }, []);
 
   useEffect(() => {
-    if (!selectedPlaceId) return;
-
-    const handlePointerDown = (event: PointerEvent) => {
-      if (window.matchMedia("(max-width: 1023px)").matches) {
-        return;
-      }
-      const target = event.target;
-
-      if (target instanceof Element) {
-        if (
-          target.closest(
-            ".leaflet-marker-icon, .cpm-pin, .cluster-marker",
-          )
-        ) {
-          return;
-        }
-
-        if (target.closest(".leaflet-control")) {
-          return;
-        }
-      }
-
-      if (target instanceof Node) {
-        if (drawerRef.current?.contains(target)) {
-          return;
-        }
-
-        if (bottomSheetRef.current?.contains(target)) {
-          return;
-        }
-
-        if (mapContainerRef.current?.contains(target)) {
-          const sinceMarkerClick = performance.now() - lastMarkerClickAtRef.current;
-          if (sinceMarkerClick <= 300) {
-            if (process.env.NODE_ENV !== "production") {
-              console.debug("[map] ignore close from map click", { sinceMarkerClick });
-            }
-            return;
-          }
-          closeDrawer("map-click");
-        }
-      }
-    };
-
-    document.addEventListener("pointerdown", handlePointerDown);
-
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-    };
-  }, [closeDrawer, selectedPlaceId]);
-
-  useEffect(() => {
     if (!isPlaceOpen) return;
     invalidateMapSize();
   }, [invalidateMapSize, isPlaceOpen]);
@@ -1186,7 +1132,7 @@ export default function MapClient() {
             place={selectedPlaceForDrawer}
             isOpen={isPlaceOpen}
             mode={drawerMode}
-            onClose={() => closeDrawer("drawer-close-button")}
+            onClose={() => closeDrawer("user")}
             ref={drawerRef}
             headerHeight={HEADER_HEIGHT}
             selectionStatus={selectionStatus}
@@ -1196,7 +1142,7 @@ export default function MapClient() {
           <MobileBottomSheet
             place={selectedPlaceForDrawer}
             isOpen={isPlaceOpen && !isMenuOpen}
-            onClose={() => closeDrawer("mobile-sheet-close")}
+            onClose={() => closeDrawer("user")}
             ref={bottomSheetRef}
             selectionStatus={selectionStatus}
             onStageChange={() => {
