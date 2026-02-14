@@ -246,12 +246,8 @@ export default function MapClient() {
       console.debug("[map] marker click", { placeId });
     }
     drawerReasonRef.current = `marker:${placeId}`;
-    setSelectedPlaceId((prev) => {
-      if (prev === placeId) {
-        return prev;
-      }
-      return placeId;
-    });
+    skipNextSelectionRef.current = false;
+    setSelectedPlaceId(placeId);
   }, []);
 
   const closeDrawer = useCallback((caller: string) => {
@@ -705,10 +701,12 @@ export default function MapClient() {
   useEffect(() => {
     if (!selectedPlaceId || placesStatus !== "success") return;
     const selectedStillExists = places.some((place) => place.id === selectedPlaceId);
-    if (selectedStillExists) return;
-    closeDrawer("missing-selection-after-fetch");
-    setSelectionNotice("Selected place is outside the current map area or filters.");
-  }, [closeDrawer, places, placesStatus, selectedPlaceId]);
+    if (selectedStillExists) {
+      setSelectionNotice(null);
+      return;
+    }
+    setSelectionNotice("Selection may be outside current results.");
+  }, [places, placesStatus, selectedPlaceId]);
 
   useEffect(() => {
     if (!fetchPlacesRef.current) return;
@@ -789,20 +787,21 @@ export default function MapClient() {
   const renderMobileFilters = () => {
     if (!isMobileViewport) return null;
     const content = (
-      <div className="cpm-map-mobile-filters lg:hidden" data-menu-open={isMenuOpen ? "1" : "0"}>
-        <div className="cpm-map-mobile-filters__sheet-wrap">
-          {filtersOpen && !isMenuOpen && (
-            <>
-              <button
-                type="button"
-                className="cpm-map-mobile-filters__backdrop"
-                onClick={closeFilters}
-                aria-label="Close filters"
-              />
-              <div
-                className="cpm-map-mobile-filters__sheet"
-                data-testid="mobile-filters-sheet"
-              >
+      <div className="cpm-map-mobile-filters lg:hidden"
+        data-menu-open={isMenuOpen ? "1" : "0"}
+        data-filters-open={filtersOpen ? "1" : "0"}>
+        {filtersOpen && !isMenuOpen && (
+          <>
+            <button
+              type="button"
+              className="cpm-map-mobile-filters__backdrop"
+              onClick={closeFilters}
+              aria-label="Close filters"
+            />
+            <div
+              className="cpm-map-mobile-filters__sheet"
+              data-testid="mobile-filters-sheet"
+            >
                 <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
                 <h3 className="text-base font-semibold text-gray-900">Filters</h3>
                 <button
@@ -844,10 +843,9 @@ export default function MapClient() {
                   </div>
               </div>
               </div>
-            </>
-          )}
-        </div>
-        <div className={`cpm-map-mobile-hud-stack ${filtersOpen || isMenuOpen ? "is-hidden" : ""}`}>
+          </>
+        )}
+        <div className="cpm-map-mobile-hud-stack">
           <button
             type="button"
             onClick={handleLocateMe}
@@ -1106,7 +1104,9 @@ export default function MapClient() {
 
   return (
     <div
-      className="relative flex w-full min-h-0 flex-1"
+      className="cpm-map-root relative flex w-full min-h-0 flex-1"
+      data-menu-open={isMenuOpen ? "true" : "false"}
+      data-filters-open={filtersOpen ? "true" : "false"}
       style={{
         height: `calc(100dvh - var(--cpm-header-h, ${HEADER_HEIGHT}px))`,
         minHeight: 0,
