@@ -69,30 +69,16 @@ export default function GlobalHeader() {
       return;
     }
 
-    document.documentElement.dataset.cpmMenuOpen = isMenuOpen ? 'true' : 'false';
-
-    return undefined;
-  }, [isMenuOpen]);
-
-  useEffect(() => {
-    if (typeof document === 'undefined') {
-      return;
+    if (isMenuOpen) {
+      document.documentElement.dataset.cpmMenuOpen = 'true';
+    } else {
+      delete document.documentElement.dataset.cpmMenuOpen;
     }
 
-    const syncMenuState = () => {
-      setIsMenuOpen(document.documentElement.dataset.cpmMenuOpen === 'true');
+    return () => {
+      delete document.documentElement.dataset.cpmMenuOpen;
     };
-
-    const observer = new MutationObserver(syncMenuState);
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['data-cpm-menu-open'],
-    });
-
-    syncMenuState();
-
-    return () => observer.disconnect();
-  }, []);
+  }, [isMenuOpen]);
 
   const setDebugState = (enabled: boolean) => {
     setDebugMode(enabled);

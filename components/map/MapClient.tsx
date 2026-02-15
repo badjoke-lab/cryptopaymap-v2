@@ -137,9 +137,6 @@ export default function MapClient() {
   const toggleFilters = useCallback(() => {
     setFiltersOpen((previous) => {
       const next = !previous;
-      if (next && typeof document !== "undefined") {
-        document.documentElement.dataset.cpmMenuOpen = "false";
-      }
       if (process.env.NODE_ENV !== "production") {
         console.debug("[map] filters toggle", { next });
       }
