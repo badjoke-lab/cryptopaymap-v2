@@ -178,12 +178,11 @@ export default function MapClient() {
   }, [filtersOpen]);
 
   useEffect(() => {
-} catch (_) {}
-    });
-
     if (typeof window === "undefined") return;
+
     const media = window.matchMedia("(max-width: 1023px)");
     const sync = () => setIsMobileViewport(media.matches);
+
     sync();
     media.addEventListener("change", sync);
     return () => media.removeEventListener("change", sync);
