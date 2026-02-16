@@ -178,9 +178,7 @@ export default function MapClient() {
   }, [filtersOpen]);
 
   useEffect(() => {
-    // CPM_VIEWPORT_INIT: force one init tick after mount
-    queueMicrotask(() => {
-      try { updateViewport(); } catch (_) {}
+} catch (_) {}
     });
 
     if (typeof window === "undefined") return;
