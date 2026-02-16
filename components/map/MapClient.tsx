@@ -27,7 +27,6 @@ import {
   FilterState,
   parseFiltersFromSearchParams,
 } from "@/lib/filters";
-import DbStatusIndicator from "@/components/status/DbStatusIndicator";
 import LimitedModeNotice from "@/components/status/LimitedModeNotice";
 import { isLimitedHeader } from "@/lib/clientDataSource";
 import MapFetchStatus from "./MapFetchStatus";
@@ -109,7 +108,6 @@ export default function MapClient() {
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [geolocationError, setGeolocationError] = useState<string | null>(null);
   const [isLocating, setIsLocating] = useState(false);
-  const [showDbStatus, setShowDbStatus] = useState(false);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -160,28 +158,6 @@ export default function MapClient() {
   }, []);
 
   useEffect(() => {
-    if (typeof document === "undefined") return;
-
-    const syncMenuState = () => {
-      setIsMenuOpen(document.documentElement.dataset.cpmMenuOpen === "true");
-    };
-
-    const observer = new MutationObserver(syncMenuState);
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["data-cpm-menu-open"],
-    });
-    syncMenuState();
-
-    return () => observer.disconnect();
-  }, []);
-
-  useEffect(() => {
-    if (!isMenuOpen) return;
-    setFiltersOpen(false);
-  }, [isMenuOpen]);
-
-  useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
     console.debug("[map] placeOpen", {
       open: isPlaceOpen,
@@ -202,33 +178,17 @@ export default function MapClient() {
   }, [filtersOpen]);
 
   useEffect(() => {
+    // CPM_VIEWPORT_INIT: force one init tick after mount
+    queueMicrotask(() => {
+      try { updateViewport(); } catch (_) {}
+    });
+
     if (typeof window === "undefined") return;
     const media = window.matchMedia("(max-width: 1023px)");
     const sync = () => setIsMobileViewport(media.matches);
     sync();
     media.addEventListener("change", sync);
     return () => media.removeEventListener("change", sync);
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const applyDebugValue = () => {
-      const stored = window.localStorage.getItem("cpm:debug-mode");
-      setShowDbStatus(stored === "1");
-    };
-    const onStorage = (event: StorageEvent) => {
-      if (event.key === "cpm:debug-mode") {
-        applyDebugValue();
-      }
-    };
-    const onDebugChange = () => applyDebugValue();
-    applyDebugValue();
-    window.addEventListener("storage", onStorage);
-    window.addEventListener("cpm:debug-mode-change", onDebugChange as EventListener);
-    return () => {
-      window.removeEventListener("storage", onStorage);
-      window.removeEventListener("cpm:debug-mode-change", onDebugChange as EventListener);
-    };
   }, []);
 
   const restoreFocus = useCallback(() => {
@@ -735,12 +695,8 @@ export default function MapClient() {
         setSelectedPlaceId(selectParam);
       }
       setIsPlaceOpen(true);
-    } else if (selectedPlaceIdRef.current) {
-      setIsPlaceOpen(false);
-      setSelectedPlaceId(null);
     }
-
-    if (!selectionHydrated) {
+if (!selectionHydrated) {
       setSelectionHydrated(true);
     }
   }, [searchParams, selectionHydrated]);
@@ -790,9 +746,7 @@ export default function MapClient() {
   const renderMobileFilters = () => {
     if (!isMobileViewport) return null;
     const content = (
-      <div className="cpm-map-mobile-filters lg:hidden"
-        data-menu-open={isMenuOpen ? "true" : "false"}
-        data-filters-open={filtersOpen ? "true" : "false"}>
+      <div className="cpm-map-mobile-filters lg:hidden">
         {filtersOpen && (
           <>
             <button
@@ -1056,8 +1010,6 @@ export default function MapClient() {
   return (
     <div
       className="cpm-map-root relative flex w-full min-h-0 flex-1"
-      data-menu-open={isMenuOpen ? "true" : "false"}
-      data-filters-open={filtersOpen ? "true" : "false"}
       style={{
         height: `calc(100dvh - var(--cpm-header-h, ${HEADER_HEIGHT}px))`,
         minHeight: 0,
@@ -1105,12 +1057,7 @@ export default function MapClient() {
                 {selectionNotice}
               </div>
             )}
-            {showDbStatus ? (
-              <DbStatusIndicator
-                className="cpm-map-db-status hidden lg:flex"
-                showBanner={false}
-              />
-            ) : null}
+            
             {limitedMode ? <LimitedModeNotice className="mt-2 w-full max-w-sm" /> : null}
           </div>
           <MapFetchStatus

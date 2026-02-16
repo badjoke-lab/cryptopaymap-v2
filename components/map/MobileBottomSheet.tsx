@@ -204,7 +204,16 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
           : "Place details are unavailable right now.";
       return (
         <div className={`cpm-bottom-sheet ${isVisible ? "open" : ""}`} ref={ref}>
-          <div
+          
+      {isOpen ? (
+        <button
+          type="button"
+          className="cpm-bottom-sheet__backdrop"
+          aria-label="Close"
+          onClick={onClose}
+        />
+      ) : null}
+<div
             className="cpm-bottom-sheet__panel"
             style={{ height: sheetHeight, transform: `translateY(${isVisible ? "0" : "100%"})` }}
           >
