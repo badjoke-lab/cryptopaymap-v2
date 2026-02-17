@@ -52,6 +52,24 @@ const placeToPin = (place: Place): Pin => ({
   verification: place.verification,
 });
 
+const mergePlaceSummaryAndDetail = (summary: Place | null, detail: Place | null): Place | null => {
+  if (!summary && !detail) return null;
+  if (!summary) return detail;
+  if (!detail) return summary;
+
+  const merged = { ...summary } as Place & Record<string, unknown>;
+  const detailRecord = detail as Record<string, unknown>;
+
+  for (const [key, value] of Object.entries(detailRecord)) {
+    if (value === null || value === undefined) continue;
+    if (typeof value === "string" && value.trim().length === 0) continue;
+    if (Array.isArray(value) && value.length === 0) continue;
+    merged[key] = value;
+  }
+
+  return merged as Place;
+};
+
 export default function MapClient() {
   const router = useRouter();
   const pathname = usePathname();
@@ -615,7 +633,10 @@ export default function MapClient() {
     [places, selectedPlaceId],
   );
   const shouldLoadSelectedPlaceDetail = Boolean(selectedPlaceId) && isPlaceOpen;
-  const selectedPlaceForDrawer = selectedPlaceDetail ?? selectedPlace;
+  const selectedPlaceForDrawer = useMemo(
+    () => mergePlaceSummaryAndDetail(selectedPlace, selectedPlaceDetail),
+    [selectedPlace, selectedPlaceDetail],
+  );
 
   useEffect(() => {
     if (!selectedPlaceId || !shouldLoadSelectedPlaceDetail) {

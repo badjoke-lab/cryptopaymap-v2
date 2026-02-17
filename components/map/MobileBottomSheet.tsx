@@ -34,23 +34,6 @@ const VERIFICATION_LABELS: Record<Place["verification"], string> = {
   unverified: "Unverified",
 };
 
-const buildNavigationLinks = (place: Place | null) => {
-  if (!place) return [] as { label: string; href: string; key: string }[];
-  const destination = `${place.lat},${place.lng}`;
-  return [
-    {
-      key: "google-maps",
-      label: "Google Maps",
-      href: `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}`,
-    },
-    {
-      key: "apple-maps",
-      label: "Apple Maps",
-      href: `http://maps.apple.com/?daddr=${encodeURIComponent(destination)}`,
-    },
-  ];
-};
-
 const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
   ({ place, isOpen, onClose, selectionStatus = "idle", onStageChange }, ref) => {
     const [stage, setStage] = useState<SheetStage>("peek");
@@ -80,7 +63,6 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
     }, [isOpen, place]);
 
     const viewModel = useMemo(() => getPlaceViewModel(renderedPlace), [renderedPlace]);
-    const navigationLinks = useMemo(() => buildNavigationLinks(renderedPlace), [renderedPlace]);
     const photos = viewModel.media;
 
     const isRestricted =
@@ -297,10 +279,28 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
               </section>
             )}
 
+            {showDetails && viewModel.websiteLink && (
+              <section className="cpm-bottom-sheet__section">
+                <div className="cpm-bottom-sheet__section-head">
+                  <h3 className="cpm-bottom-sheet__section-title">Website</h3>
+                </div>
+                <div className="cpm-bottom-sheet__links">
+                  <a
+                    className="cpm-bottom-sheet__link"
+                    href={viewModel.websiteLink.href}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {viewModel.websiteLink.label}
+                  </a>
+                </div>
+              </section>
+            )}
+
             {showDetails && viewModel.socialLinks.length > 0 && (
               <section className="cpm-bottom-sheet__section">
                 <div className="cpm-bottom-sheet__section-head">
-                  <h3 className="cpm-bottom-sheet__section-title">Links</h3>
+                  <h3 className="cpm-bottom-sheet__section-title">SNS</h3>
                 </div>
                 <div className="cpm-bottom-sheet__links">
                   {viewModel.socialLinks.map((social) => (
@@ -318,13 +318,26 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
               </section>
             )}
 
-            {showDetails && !isRestricted && navigationLinks.length > 0 && (
+            {showDetails && viewModel.phoneLink && (
+              <section className="cpm-bottom-sheet__section">
+                <div className="cpm-bottom-sheet__section-head">
+                  <h3 className="cpm-bottom-sheet__section-title">Phone</h3>
+                </div>
+                <div className="cpm-bottom-sheet__links">
+                  <a className="cpm-bottom-sheet__link" href={viewModel.phoneLink.href}>
+                    {viewModel.phoneLink.label}
+                  </a>
+                </div>
+              </section>
+            )}
+
+            {showDetails && viewModel.navigateLinks.length > 0 && (
               <section className="cpm-bottom-sheet__section">
                 <div className="cpm-bottom-sheet__section-head">
                   <h3 className="cpm-bottom-sheet__section-title">Navigate</h3>
                 </div>
                 <div className="cpm-bottom-sheet__nav">
-                  {navigationLinks.map((link) => (
+                  {viewModel.navigateLinks.map((link) => (
                     <a
                       key={link.key}
                       className="cpm-bottom-sheet__nav-link"
