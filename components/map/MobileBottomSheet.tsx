@@ -47,13 +47,77 @@ const formatSupportedCrypto = (place: Place | null) => {
   return Array.from(new Set(sorted));
 };
 
+type NormalizedSheetData = {
+  accepted: string[];
+  fullAddress: string;
+  paymentNote: string | null;
+  socialLinks: { label: string; href: string; key: string }[];
+  media: string[];
+  amenities: string[];
+  amenitiesNotes: string | null;
+};
+
+const normalizeForExpanded = (place: Place | null): NormalizedSheetData => {
+  if (!place) {
+    return {
+      accepted: [],
+      fullAddress: "",
+      paymentNote: null,
+      socialLinks: [],
+      media: [],
+      amenities: [],
+      amenitiesNotes: null,
+    };
+  }
+
+  const raw = place as Place & {
+    payment_note?: string | null;
+    amenities?: string[] | string | null;
+    amenities_notes?: string | null;
+  };
+
+  const accepted = place.accepted?.length
+    ? place.accepted
+    : place.supported_crypto?.length
+      ? place.supported_crypto
+      : [];
+
+  const addressParts = [place.address, place.city, place.country]
+    .map((value) => value?.trim())
+    .filter(Boolean);
+  const fullAddress = place.address_full?.trim() || addressParts.join(" / ");
+
+  const paymentNote = place.paymentNote ?? raw.payment_note ?? null;
+
+  const socialLinks = buildSocialLinks(place);
+
+  const mediaPool = place.images?.length ? place.images : place.photos?.length ? place.photos : [];
+  const media = Array.from(new Set([place.coverImage, ...mediaPool].filter(Boolean) as string[]));
+
+  const amenities = Array.isArray(raw.amenities)
+    ? raw.amenities
+    : typeof raw.amenities === "string"
+      ? [raw.amenities]
+      : [];
+
+  return {
+    accepted: Array.from(new Set(accepted)),
+    fullAddress,
+    paymentNote,
+    socialLinks,
+    media,
+    amenities,
+    amenitiesNotes: raw.amenities_notes ?? null,
+  };
+};
+
 const buildSocialLinks = (place: Place | null) => {
   if (!place) return [] as { label: string; href: string; key: string }[];
 
   const entries: { label: string; href: string; key: string }[] = [];
-  const twitter = place.social_twitter ?? place.twitter;
-  const instagram = place.social_instagram ?? place.instagram;
-  const website = place.social_website ?? place.website;
+  const twitter = place.twitter || place.social_twitter;
+  const instagram = place.instagram || place.social_instagram;
+  const website = place.website || place.social_website;
   const facebook = place.facebook;
 
   if (twitter) {
@@ -69,7 +133,8 @@ const buildSocialLinks = (place: Place | null) => {
     entries.push({ key: "facebook", label: handle, href: `https://facebook.com/${handle}` });
   }
   if (website) {
-    entries.push({ key: "website", label: website.replace(/^https?:\/\//, ""), href: website });
+    const href = /^https?:\/\//i.test(website) ? website : `https://${website}`;
+    entries.push({ key: "website", label: website.replace(/^https?:\/\//, ""), href });
   }
 
   return entries;
@@ -121,12 +186,9 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
     }, [isOpen, place]);
 
     const supportedCrypto = useMemo(() => formatSupportedCrypto(renderedPlace), [renderedPlace]);
-    const socialLinks = useMemo(() => buildSocialLinks(renderedPlace), [renderedPlace]);
+    const normalized = useMemo(() => normalizeForExpanded(renderedPlace), [renderedPlace]);
     const navigationLinks = useMemo(() => buildNavigationLinks(renderedPlace), [renderedPlace]);
-    const photos = useMemo(() => {
-      if (!renderedPlace) return [] as string[];
-      return renderedPlace.photos?.length ? renderedPlace.photos : renderedPlace.images ?? [];
-    }, [renderedPlace]);
+    const photos = normalized.media;
 
     const isRestricted =
       renderedPlace?.verification === "directory" || renderedPlace?.verification === "unverified";
@@ -135,16 +197,13 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       if (!isOpen) return;
       onStageChange?.(stage);
     }, [isOpen, onStageChange, stage]);
-    const canShowPhotos =
-      renderedPlace && (renderedPlace.verification === "owner" || renderedPlace.verification === "community")
-        ? photos.length > 0
-        : false;
+    const canShowPhotos = photos.length > 0;
     const canShowDescription =
       renderedPlace && !isRestricted && (renderedPlace.description ?? renderedPlace.about);
-    const fullAddress = renderedPlace?.address_full ?? renderedPlace?.address ?? "";
+    const fullAddress = normalized.fullAddress;
     const shortAddress = [renderedPlace?.city, renderedPlace?.country].filter(Boolean).join(", ");
-    const amenities = renderedPlace?.amenities ?? [];
-    const paymentNote = renderedPlace?.paymentNote;
+    const amenities = normalized.amenities;
+    const paymentNote = normalized.paymentNote;
     const submitter = renderedPlace?.submitterName ?? renderedPlace?.updatedAt;
 
     useEffect(() => {
@@ -204,16 +263,15 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
           : "Place details are unavailable right now.";
       return (
         <div className={`cpm-bottom-sheet ${isVisible ? "open" : ""}`} ref={ref}>
-          
-      {isOpen ? (
-        <button
-          type="button"
-          className="cpm-bottom-sheet__backdrop"
-          aria-label="Close"
-          onClick={onClose}
-        />
-      ) : null}
-<div
+          {isOpen ? (
+            <button
+              type="button"
+              className="cpm-bottom-sheet__backdrop"
+              aria-label="Close"
+              onClick={onClose}
+            />
+          ) : null}
+          <div
             className="cpm-bottom-sheet__panel"
             style={{ height: sheetHeight, transform: `translateY(${isVisible ? "0" : "100%"})` }}
           >
@@ -302,16 +360,27 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
                 <h3 className="cpm-bottom-sheet__section-title">Accepted payments</h3>
               </div>
               <div className="cpm-bottom-sheet__pill-row">
-                {supportedCrypto.map((item) => (
+                {(normalized.accepted.length ? normalized.accepted : supportedCrypto).map((item) => (
                   <span key={item} className="cpm-bottom-sheet__pill">
                     {item}
                   </span>
                 ))}
-                {supportedCrypto.length === 0 && <span className="cpm-bottom-sheet__muted">Not provided</span>}
+                {normalized.accepted.length === 0 && supportedCrypto.length === 0 && (
+                  <span className="cpm-bottom-sheet__muted">Not provided</span>
+                )}
               </div>
             </section>
 
-            {showDetails && !isRestricted && canShowPhotos && (
+            {showDetails && (
+              <section className="cpm-bottom-sheet__section">
+                <div className="cpm-bottom-sheet__section-head">
+                  <h3 className="cpm-bottom-sheet__section-title">Verification</h3>
+                </div>
+                <p className="cpm-bottom-sheet__body">{VERIFICATION_LABELS[renderedPlace.verification]}</p>
+              </section>
+            )}
+
+            {showDetails && canShowPhotos && (
               <section className="cpm-bottom-sheet__section">
                 <div className="cpm-bottom-sheet__section-head">
                   <h3 className="cpm-bottom-sheet__section-title">Photos</h3>
@@ -335,13 +404,13 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
               </section>
             )}
 
-            {showDetails && !isRestricted && socialLinks.length > 0 && (
+            {showDetails && normalized.socialLinks.length > 0 && (
               <section className="cpm-bottom-sheet__section">
                 <div className="cpm-bottom-sheet__section-head">
                   <h3 className="cpm-bottom-sheet__section-title">Links</h3>
                 </div>
                 <div className="cpm-bottom-sheet__links">
-                  {socialLinks.map((social) => (
+                  {normalized.socialLinks.map((social) => (
                     <a
                       key={social.key}
                       className="cpm-bottom-sheet__link"
@@ -377,7 +446,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
               </section>
             )}
 
-            {showDetails && !isRestricted && paymentNote && (
+            {showDetails && paymentNote && (
               <section className="cpm-bottom-sheet__section">
                 <div className="cpm-bottom-sheet__section-head">
                   <h3 className="cpm-bottom-sheet__section-title">Payment note</h3>
@@ -386,7 +455,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
               </section>
             )}
 
-            {showDetails && !isRestricted && amenities.length > 0 && (
+            {showDetails && (amenities.length > 0 || Boolean(normalized.amenitiesNotes)) && (
               <section className="cpm-bottom-sheet__section">
                 <div className="cpm-bottom-sheet__section-head">
                   <h3 className="cpm-bottom-sheet__section-title">Amenities</h3>
@@ -398,10 +467,13 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
                     </span>
                   ))}
                 </div>
+                {normalized.amenitiesNotes && (
+                  <p className="cpm-bottom-sheet__body muted">{normalized.amenitiesNotes}</p>
+                )}
               </section>
             )}
 
-            {showDetails && !isRestricted && fullAddress && (
+            {showDetails && fullAddress && (
               <section className="cpm-bottom-sheet__section">
                 <div className="cpm-bottom-sheet__section-head">
                   <h3 className="cpm-bottom-sheet__section-title">Address</h3>

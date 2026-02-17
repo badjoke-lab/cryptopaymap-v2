@@ -99,6 +99,7 @@ export default function MapClient() {
   const [selectedPlaceDetailStatus, setSelectedPlaceDetailStatus] = useState<
     "idle" | "loading" | "error"
   >("idle");
+  const [mobileSheetStage, setMobileSheetStage] = useState<"peek" | "expanded">("peek");
   const drawerRef = useRef<HTMLDivElement | null>(null);
   const bottomSheetRef = useRef<HTMLDivElement | null>(null);
   const [filterMeta, setFilterMeta] = useState<FilterMeta | null>(null);
@@ -614,18 +615,17 @@ export default function MapClient() {
         : null,
     [places, selectedPlaceId],
   );
-  const selectedPlaceForDrawer = selectedPlace ?? selectedPlaceDetail;
+  const shouldLoadSelectedPlaceDetail =
+    Boolean(selectedPlaceId) &&
+    (isPlaceOpen || (isMobileViewport && mobileSheetStage === "expanded"));
+  const selectedPlaceForDrawer = selectedPlaceDetail ?? selectedPlace;
 
   useEffect(() => {
-    if (!selectedPlaceId) {
+    if (!selectedPlaceId || !shouldLoadSelectedPlaceDetail) {
       setSelectedPlaceDetail(null);
-      setSelectedPlaceDetailStatus("idle");
-      return;
-    }
-
-    if (selectedPlace) {
-      setSelectedPlaceDetail(null);
-      setSelectedPlaceDetailStatus("idle");
+      if (!selectedPlaceId) {
+        setSelectedPlaceDetailStatus("idle");
+      }
       return;
     }
 
@@ -653,7 +653,7 @@ export default function MapClient() {
       isActive = false;
       controller.abort();
     };
-  }, [selectedPlace, selectedPlaceId]);
+  }, [selectedPlaceId, shouldLoadSelectedPlaceDetail]);
 
 
   useEffect(() => {
@@ -1095,7 +1095,8 @@ if (!selectionHydrated) {
               onClose={() => closeDrawer("user")}
               ref={bottomSheetRef}
               selectionStatus={selectionStatus}
-              onStageChange={() => {
+              onStageChange={(stage) => {
+                setMobileSheetStage(stage);
                 invalidateMapSize();
               }}
             />
