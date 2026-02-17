@@ -3,6 +3,7 @@
 import { forwardRef, useEffect, useMemo } from "react";
 
 import type { Place } from "../../types/places";
+import { getPlaceViewModel } from "./placeViewModel";
 import "./Drawer.css";
 
 type Props = {
@@ -43,40 +44,6 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
       return () => document.removeEventListener("keydown", handleKeyDown);
     }, [isOpen, onClose]);
 
-    const socialLinks = useMemo(() => {
-      if (!place) return [] as { label: string; href: string; key: string }[];
-
-      const entries: { label: string; href: string; key: string }[] = [];
-      const twitter = place.social_twitter ?? place.twitter;
-      const instagram = place.social_instagram ?? place.instagram;
-      const website = place.social_website ?? place.website;
-
-      if (twitter) {
-        const handle = twitter.replace(/^@/, "");
-        entries.push({
-          key: "twitter",
-          label: `@${handle}`,
-          href: `https://twitter.com/${handle}`,
-        });
-      }
-      if (instagram) {
-        const handle = instagram.replace(/^@/, "");
-        entries.push({
-          key: "instagram",
-          label: `@${handle}`,
-          href: `https://instagram.com/${handle}`,
-        });
-      }
-      if (website) {
-        entries.push({
-          key: "website",
-          label: website.replace(/^https?:\/\//, ""),
-          href: website,
-        });
-      }
-      return entries;
-    }, [place]);
-
     const navigationLinks = useMemo(() => {
       if (!place) return [] as { label: string; href: string; key: string }[];
       const destination = `${place.lat},${place.lng}`;
@@ -94,18 +61,7 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
       ];
     }, [place]);
 
-    const supportedCrypto = useMemo(() => {
-      if (!place) return [] as string[];
-      const preferredOrder = ["BTC", "BTC@Lightning", "Lightning", "ETH", "USDT"];
-      const chains = place.supported_crypto?.length
-        ? place.supported_crypto
-        : place.accepted ?? [];
-      const sorted = [
-        ...preferredOrder.filter((item) => chains.includes(item)),
-        ...chains.filter((item) => !preferredOrder.includes(item)).sort((a, b) => a.localeCompare(b)),
-      ];
-      return Array.from(new Set(sorted));
-    }, [place]);
+    const viewModel = useMemo(() => getPlaceViewModel(place), [place]);
 
     if (!place) {
       const emptyMessage =
@@ -150,20 +106,19 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
       );
     }
 
-    const photos = place.photos?.length ? place.photos : place.images ?? [];
+    const photos = viewModel.media;
     const isRestricted =
       place.verification === "directory" || place.verification === "unverified";
-    const canShowPhotos =
-      (place.verification === "owner" || place.verification === "community") && photos.length > 0;
+    const canShowPhotos = photos.length > 0;
     const canShowDescription =
       !isRestricted && Boolean(place.description ?? place.about);
     const shortAddress = [place.city, place.country].filter(Boolean).join(", ");
-    const fullAddress = place.address_full ?? place.address ?? "";
-    const canShowLinks = !isRestricted && socialLinks.length > 0;
+    const fullAddress = viewModel.fullAddress;
+    const canShowLinks = viewModel.socialLinks.length > 0;
     const canShowNavigation = !isRestricted && navigationLinks.length > 0;
-    const canShowFullAddress = !isRestricted && Boolean(fullAddress);
-    const amenities = place.amenities ?? [];
-    const paymentNote = place.paymentNote;
+    const canShowFullAddress = Boolean(fullAddress);
+    const amenities = viewModel.amenities;
+    const paymentNote = viewModel.paymentNote;
     const submitter = place.submitterName ?? place.updatedAt;
 
     return (
@@ -217,15 +172,20 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
 
           <div className="cpm-drawer__content" role="presentation">
             <section className="cpm-drawer__section">
-              <h3 className="cpm-drawer__section-title">Supported crypto</h3>
+              <h3 className="cpm-drawer__section-title">Accepted payments</h3>
               <div className="cpm-drawer__pill-row">
-                {supportedCrypto.map((item) => (
+                {viewModel.accepted.map((item) => (
                   <span key={item} className="cpm-drawer__pill">
                     {item}
                   </span>
                 ))}
-                {supportedCrypto.length === 0 && <span className="cpm-drawer__muted">Not provided</span>}
+                {viewModel.accepted.length === 0 && <span className="cpm-drawer__muted">Not provided</span>}
               </div>
+            </section>
+
+            <section className="cpm-drawer__section">
+              <h3 className="cpm-drawer__section-title">Verification</h3>
+              <p className="cpm-drawer__body">{VERIFICATION_LABELS[place.verification]}</p>
             </section>
 
             {canShowPhotos && (
@@ -252,7 +212,7 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
               <section className="cpm-drawer__section">
                 <h3 className="cpm-drawer__section-title">Links</h3>
                 <div className="cpm-drawer__links">
-                  {socialLinks.map((social) => (
+                  {viewModel.socialLinks.map((social) => (
                     <a
                       key={social.key}
                       className="cpm-drawer__link"
@@ -286,14 +246,14 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
               </section>
             )}
 
-            {!isRestricted && paymentNote && (
+            {paymentNote && (
               <section className="cpm-drawer__section">
                 <h3 className="cpm-drawer__section-title">Payment note</h3>
                 <p className="cpm-drawer__body">{paymentNote}</p>
               </section>
             )}
 
-            {!isRestricted && amenities.length > 0 && (
+            {(amenities.length > 0 || Boolean(viewModel.amenitiesNotes)) && (
               <section className="cpm-drawer__section">
                 <h3 className="cpm-drawer__section-title">Amenities</h3>
                 <div className="cpm-drawer__pill-row">
@@ -303,6 +263,7 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
                     </span>
                   ))}
                 </div>
+                {viewModel.amenitiesNotes && <p className="cpm-drawer__muted">{viewModel.amenitiesNotes}</p>}
               </section>
             )}
 

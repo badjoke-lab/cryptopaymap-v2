@@ -99,7 +99,6 @@ export default function MapClient() {
   const [selectedPlaceDetailStatus, setSelectedPlaceDetailStatus] = useState<
     "idle" | "loading" | "error"
   >("idle");
-  const [mobileSheetStage, setMobileSheetStage] = useState<"peek" | "expanded">("peek");
   const drawerRef = useRef<HTMLDivElement | null>(null);
   const bottomSheetRef = useRef<HTMLDivElement | null>(null);
   const [filterMeta, setFilterMeta] = useState<FilterMeta | null>(null);
@@ -615,9 +614,7 @@ export default function MapClient() {
         : null,
     [places, selectedPlaceId],
   );
-  const shouldLoadSelectedPlaceDetail =
-    Boolean(selectedPlaceId) &&
-    (isPlaceOpen || (isMobileViewport && mobileSheetStage === "expanded"));
+  const shouldLoadSelectedPlaceDetail = Boolean(selectedPlaceId) && isPlaceOpen;
   const selectedPlaceForDrawer = selectedPlaceDetail ?? selectedPlace;
 
   useEffect(() => {
@@ -1095,8 +1092,7 @@ if (!selectionHydrated) {
               onClose={() => closeDrawer("user")}
               ref={bottomSheetRef}
               selectionStatus={selectionStatus}
-              onStageChange={(stage) => {
-                setMobileSheetStage(stage);
+              onStageChange={() => {
                 invalidateMapSize();
               }}
             />

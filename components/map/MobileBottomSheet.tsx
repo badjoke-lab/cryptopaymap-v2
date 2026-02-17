@@ -4,6 +4,7 @@ import type React from "react";
 import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
 
 import type { Place } from "../../types/places";
+import { getPlaceViewModel } from "./placeViewModel";
 import "./MobileBottomSheet.css";
 
 type Props = {
@@ -31,113 +32,6 @@ const VERIFICATION_LABELS: Record<Place["verification"], string> = {
   community: "Community verified",
   directory: "Directory listing",
   unverified: "Unverified",
-};
-
-const formatSupportedCrypto = (place: Place | null) => {
-  if (!place) return [] as string[];
-
-  const preferredOrder = ["BTC", "BTC@Lightning", "Lightning", "ETH", "USDT"];
-  const chains = place.supported_crypto?.length ? place.supported_crypto : place.accepted ?? [];
-
-  const sorted = [
-    ...preferredOrder.filter((item) => chains.includes(item)),
-    ...chains.filter((item) => !preferredOrder.includes(item)).sort((a, b) => a.localeCompare(b)),
-  ];
-
-  return Array.from(new Set(sorted));
-};
-
-type NormalizedSheetData = {
-  accepted: string[];
-  fullAddress: string;
-  paymentNote: string | null;
-  socialLinks: { label: string; href: string; key: string }[];
-  media: string[];
-  amenities: string[];
-  amenitiesNotes: string | null;
-};
-
-const normalizeForExpanded = (place: Place | null): NormalizedSheetData => {
-  if (!place) {
-    return {
-      accepted: [],
-      fullAddress: "",
-      paymentNote: null,
-      socialLinks: [],
-      media: [],
-      amenities: [],
-      amenitiesNotes: null,
-    };
-  }
-
-  const raw = place as Place & {
-    payment_note?: string | null;
-    amenities?: string[] | string | null;
-    amenities_notes?: string | null;
-  };
-
-  const accepted = place.accepted?.length
-    ? place.accepted
-    : place.supported_crypto?.length
-      ? place.supported_crypto
-      : [];
-
-  const addressParts = [place.address, place.city, place.country]
-    .map((value) => value?.trim())
-    .filter(Boolean);
-  const fullAddress = place.address_full?.trim() || addressParts.join(" / ");
-
-  const paymentNote = place.paymentNote ?? raw.payment_note ?? null;
-
-  const socialLinks = buildSocialLinks(place);
-
-  const mediaPool = place.images?.length ? place.images : place.photos?.length ? place.photos : [];
-  const media = Array.from(new Set([place.coverImage, ...mediaPool].filter(Boolean) as string[]));
-
-  const amenities = Array.isArray(raw.amenities)
-    ? raw.amenities
-    : typeof raw.amenities === "string"
-      ? [raw.amenities]
-      : [];
-
-  return {
-    accepted: Array.from(new Set(accepted)),
-    fullAddress,
-    paymentNote,
-    socialLinks,
-    media,
-    amenities,
-    amenitiesNotes: raw.amenities_notes ?? null,
-  };
-};
-
-const buildSocialLinks = (place: Place | null) => {
-  if (!place) return [] as { label: string; href: string; key: string }[];
-
-  const entries: { label: string; href: string; key: string }[] = [];
-  const twitter = place.twitter || place.social_twitter;
-  const instagram = place.instagram || place.social_instagram;
-  const website = place.website || place.social_website;
-  const facebook = place.facebook;
-
-  if (twitter) {
-    const handle = twitter.replace(/^@/, "");
-    entries.push({ key: "twitter", label: `@${handle}`, href: `https://twitter.com/${handle}` });
-  }
-  if (instagram) {
-    const handle = instagram.replace(/^@/, "");
-    entries.push({ key: "instagram", label: `@${handle}`, href: `https://instagram.com/${handle}` });
-  }
-  if (facebook) {
-    const handle = facebook.replace(/^@/, "");
-    entries.push({ key: "facebook", label: handle, href: `https://facebook.com/${handle}` });
-  }
-  if (website) {
-    const href = /^https?:\/\//i.test(website) ? website : `https://${website}`;
-    entries.push({ key: "website", label: website.replace(/^https?:\/\//, ""), href });
-  }
-
-  return entries;
 };
 
 const buildNavigationLinks = (place: Place | null) => {
@@ -185,10 +79,9 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       return undefined;
     }, [isOpen, place]);
 
-    const supportedCrypto = useMemo(() => formatSupportedCrypto(renderedPlace), [renderedPlace]);
-    const normalized = useMemo(() => normalizeForExpanded(renderedPlace), [renderedPlace]);
+    const viewModel = useMemo(() => getPlaceViewModel(renderedPlace), [renderedPlace]);
     const navigationLinks = useMemo(() => buildNavigationLinks(renderedPlace), [renderedPlace]);
-    const photos = normalized.media;
+    const photos = viewModel.media;
 
     const isRestricted =
       renderedPlace?.verification === "directory" || renderedPlace?.verification === "unverified";
@@ -200,10 +93,10 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
     const canShowPhotos = photos.length > 0;
     const canShowDescription =
       renderedPlace && !isRestricted && (renderedPlace.description ?? renderedPlace.about);
-    const fullAddress = normalized.fullAddress;
+    const fullAddress = viewModel.fullAddress;
     const shortAddress = [renderedPlace?.city, renderedPlace?.country].filter(Boolean).join(", ");
-    const amenities = normalized.amenities;
-    const paymentNote = normalized.paymentNote;
+    const amenities = viewModel.amenities;
+    const paymentNote = viewModel.paymentNote;
     const submitter = renderedPlace?.submitterName ?? renderedPlace?.updatedAt;
 
     useEffect(() => {
@@ -360,12 +253,12 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
                 <h3 className="cpm-bottom-sheet__section-title">Accepted payments</h3>
               </div>
               <div className="cpm-bottom-sheet__pill-row">
-                {(normalized.accepted.length ? normalized.accepted : supportedCrypto).map((item) => (
+                {viewModel.accepted.map((item) => (
                   <span key={item} className="cpm-bottom-sheet__pill">
                     {item}
                   </span>
                 ))}
-                {normalized.accepted.length === 0 && supportedCrypto.length === 0 && (
+                {viewModel.accepted.length === 0 && (
                   <span className="cpm-bottom-sheet__muted">Not provided</span>
                 )}
               </div>
@@ -404,13 +297,13 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
               </section>
             )}
 
-            {showDetails && normalized.socialLinks.length > 0 && (
+            {showDetails && viewModel.socialLinks.length > 0 && (
               <section className="cpm-bottom-sheet__section">
                 <div className="cpm-bottom-sheet__section-head">
                   <h3 className="cpm-bottom-sheet__section-title">Links</h3>
                 </div>
                 <div className="cpm-bottom-sheet__links">
-                  {normalized.socialLinks.map((social) => (
+                  {viewModel.socialLinks.map((social) => (
                     <a
                       key={social.key}
                       className="cpm-bottom-sheet__link"
@@ -455,7 +348,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
               </section>
             )}
 
-            {showDetails && (amenities.length > 0 || Boolean(normalized.amenitiesNotes)) && (
+            {showDetails && (amenities.length > 0 || Boolean(viewModel.amenitiesNotes)) && (
               <section className="cpm-bottom-sheet__section">
                 <div className="cpm-bottom-sheet__section-head">
                   <h3 className="cpm-bottom-sheet__section-title">Amenities</h3>
@@ -467,8 +360,8 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
                     </span>
                   ))}
                 </div>
-                {normalized.amenitiesNotes && (
-                  <p className="cpm-bottom-sheet__body muted">{normalized.amenitiesNotes}</p>
+                {viewModel.amenitiesNotes && (
+                  <p className="cpm-bottom-sheet__body muted">{viewModel.amenitiesNotes}</p>
                 )}
               </section>
             )}
