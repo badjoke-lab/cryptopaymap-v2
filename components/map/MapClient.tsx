@@ -110,6 +110,7 @@ export default function MapClient() {
   const [limitedMode, setLimitedMode] = useState(false);
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
   const [isPlaceOpen, setIsPlaceOpen] = useState(false);
+  const isPlaceOpenRef = useRef(false);
   const selectedPlaceIdRef = useRef<string | null>(null);
   const [selectionHydrated, setSelectionHydrated] = useState(false);
   const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
@@ -176,6 +177,7 @@ export default function MapClient() {
   }, []);
 
   useEffect(() => {
+    isPlaceOpenRef.current = isPlaceOpen;
     if (process.env.NODE_ENV === "production") return;
     console.debug("[map] placeOpen", {
       open: isPlaceOpen,
@@ -464,6 +466,34 @@ export default function MapClient() {
       markerLayer.addTo(map);
       markerLayerRef.current = markerLayer;
 
+      const isGuardedMapClickTarget = (target: EventTarget | null) => {
+        if (!(target instanceof Element)) return false;
+        return Boolean(
+          target.closest(
+            [
+              ".leaflet-marker-icon",
+              ".leaflet-marker-shadow",
+              ".leaflet-control-container",
+              ".leaflet-popup",
+              ".cpm-map-overlay",
+              ".cpm-drawer",
+              ".cpm-bottom-sheet",
+            ].join(","),
+          ),
+        );
+      };
+
+      const handleMapClick = (event: import("leaflet").LeafletMouseEvent) => {
+        const clickTarget = event.originalEvent?.target ?? null;
+        if (isGuardedMapClickTarget(clickTarget)) {
+          return;
+        }
+        if (!selectedPlaceIdRef.current || !isPlaceOpenRef.current) {
+          return;
+        }
+        closeDrawer("map-blank-click");
+      };
+
       const buildIndexAndRender = (nextPlaces: Place[]) => {
         const pins = nextPlaces.map(placeToPin);
         clusterIndexRef.current = createSuperclusterIndex(pins);
@@ -599,6 +629,7 @@ export default function MapClient() {
       };
 
       map.on("moveend zoomend", handleMapViewChange);
+      map.on("click", handleMapClick);
       mapInstanceRef.current = map;
 
       fetchPlacesRef.current = () => {
@@ -609,12 +640,20 @@ export default function MapClient() {
         invalidateMapSize();
         scheduleFetchForBounds(map.getBounds(), { force: true });
       });
+
+      return () => {
+        map.off("click", handleMapClick);
+      };
     };
 
-    initializeMap();
+    let disposeMapListeners: (() => void) | undefined;
+    void initializeMap().then((cleanup) => {
+      disposeMapListeners = cleanup;
+    });
 
     return () => {
       isMounted = false;
+      disposeMapListeners?.();
       stopRenderFrame();
       clearFetchTimeout();
       abortControllerRef.current?.abort();
@@ -623,7 +662,7 @@ export default function MapClient() {
         mapInstanceRef.current = null;
       }
     };
-  }, [invalidateMapSize, openDrawerForPlace]);
+  }, [closeDrawer, invalidateMapSize, openDrawerForPlace]);
 
   const selectedPlace = useMemo(
     () =>

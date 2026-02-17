@@ -227,6 +227,14 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
                 {shortAddress && <span className="cpm-bottom-sheet__address">{shortAddress}</span>}
               </div>
             </div>
+            <button
+              type="button"
+              className="cpm-bottom-sheet__close"
+              onClick={onClose}
+              aria-label="Close drawer"
+            >
+              ×
+            </button>
           </header>
 
           <div className="cpm-bottom-sheet__content" role="presentation">
