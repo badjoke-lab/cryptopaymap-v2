@@ -3,7 +3,10 @@ import type { Place } from "../../types/places";
 export type PlaceViewModel = {
   accepted: string[];
   fullAddress: string;
+  navigateLinks: { label: string; href: string; key: string }[];
+  websiteLink: { label: string; href: string; key: string } | null;
   socialLinks: { label: string; href: string; key: string }[];
+  phoneLink: { label: string; href: string; key: string } | null;
   media: string[];
   amenities: string[];
   amenitiesNotes: string | null;
@@ -12,6 +15,22 @@ export type PlaceViewModel = {
 
 const toWebsiteHref = (website: string) =>
   /^https?:\/\//i.test(website) ? website : `https://${website}`;
+
+const normalizeText = (value: string | null | undefined): string | null => {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const toAddressDestination = (place: Place): string | null => {
+  const fullAddress = normalizeText(place.address_full);
+  if (fullAddress) return fullAddress;
+  const assembled = [place.address, place.city, place.country]
+    .map((value) => normalizeText(value))
+    .filter(Boolean)
+    .join(", ");
+  return assembled || null;
+};
 
 const normalizeAccepted = (place: Place) => {
   const preferredOrder = ["BTC", "BTC@Lightning", "Lightning", "ETH", "USDT"];
@@ -29,12 +48,44 @@ const normalizeAccepted = (place: Place) => {
   return Array.from(new Set(sorted));
 };
 
+const normalizeNavigateLinks = (place: Place) => {
+  const hasCoordinates =
+    typeof place.lat === "number" &&
+    Number.isFinite(place.lat) &&
+    typeof place.lng === "number" &&
+    Number.isFinite(place.lng);
+  const destination = hasCoordinates ? `${place.lat},${place.lng}` : toAddressDestination(place);
+  if (!destination) return [] as { label: string; href: string; key: string }[];
+
+  return [
+    {
+      key: "google-maps",
+      label: "Google Maps",
+      href: `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}`,
+    },
+    {
+      key: "apple-maps",
+      label: "Apple Maps",
+      href: `https://maps.apple.com/?daddr=${encodeURIComponent(destination)}`,
+    },
+  ];
+};
+
+const normalizeWebsiteLink = (place: Place) => {
+  const website = normalizeText(place.website) || normalizeText(place.social_website);
+  if (!website) return null;
+  return {
+    key: "website",
+    label: website.replace(/^https?:\/\//i, ""),
+    href: toWebsiteHref(website),
+  };
+};
+
 const normalizeSocialLinks = (place: Place) => {
   const entries: { label: string; href: string; key: string }[] = [];
-  const twitter = place.twitter || place.social_twitter;
-  const instagram = place.instagram || place.social_instagram;
-  const website = place.website || place.social_website;
-  const facebook = place.facebook;
+  const twitter = normalizeText(place.twitter) || normalizeText(place.social_twitter);
+  const instagram = normalizeText(place.instagram) || normalizeText(place.social_instagram);
+  const facebook = normalizeText(place.facebook);
 
   if (twitter) {
     const handle = twitter.replace(/^@/, "");
@@ -48,11 +99,19 @@ const normalizeSocialLinks = (place: Place) => {
     const handle = facebook.replace(/^@/, "");
     entries.push({ key: "facebook", label: handle, href: `https://facebook.com/${handle}` });
   }
-  if (website) {
-    entries.push({ key: "website", label: website.replace(/^https?:\/\//, ""), href: toWebsiteHref(website) });
-  }
 
-  return entries;
+  return Array.from(new Map(entries.map((entry) => [entry.href, entry])).values());
+};
+
+const normalizePhoneLink = (place: Place) => {
+  const phone = normalizeText(place.phone);
+  if (!phone) return null;
+
+  return {
+    key: "phone",
+    label: phone,
+    href: `tel:${phone.replace(/\s+/g, "")}`,
+  };
 };
 
 const normalizeAmenities = (amenities: Place["amenities"] | string | null | undefined): string[] => {
@@ -66,7 +125,10 @@ export const getPlaceViewModel = (place: Place | null): PlaceViewModel => {
     return {
       accepted: [],
       fullAddress: "",
+      navigateLinks: [],
+      websiteLink: null,
       socialLinks: [],
+      phoneLink: null,
       media: [],
       amenities: [],
       amenitiesNotes: null,
@@ -92,7 +154,10 @@ export const getPlaceViewModel = (place: Place | null): PlaceViewModel => {
   return {
     accepted: normalizeAccepted(place),
     fullAddress,
+    navigateLinks: normalizeNavigateLinks(place),
+    websiteLink: normalizeWebsiteLink(place),
     socialLinks: normalizeSocialLinks(place),
+    phoneLink: normalizePhoneLink(place),
     media,
     amenities: normalizeAmenities(raw.amenities),
     amenitiesNotes: raw.amenities_notes ?? null,

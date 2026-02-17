@@ -44,23 +44,6 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
       return () => document.removeEventListener("keydown", handleKeyDown);
     }, [isOpen, onClose]);
 
-    const navigationLinks = useMemo(() => {
-      if (!place) return [] as { label: string; href: string; key: string }[];
-      const destination = `${place.lat},${place.lng}`;
-      return [
-        {
-          key: "google-maps",
-          label: "Google Maps",
-          href: `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}`,
-        },
-        {
-          key: "apple-maps",
-          label: "Apple Maps",
-          href: `http://maps.apple.com/?daddr=${encodeURIComponent(destination)}`,
-        },
-      ];
-    }, [place]);
-
     const viewModel = useMemo(() => getPlaceViewModel(place), [place]);
 
     if (!place) {
@@ -114,8 +97,10 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
       !isRestricted && Boolean(place.description ?? place.about);
     const shortAddress = [place.city, place.country].filter(Boolean).join(", ");
     const fullAddress = viewModel.fullAddress;
-    const canShowLinks = viewModel.socialLinks.length > 0;
-    const canShowNavigation = !isRestricted && navigationLinks.length > 0;
+    const canShowWebsite = Boolean(viewModel.websiteLink);
+    const canShowSocial = viewModel.socialLinks.length > 0;
+    const canShowPhone = Boolean(viewModel.phoneLink);
+    const canShowNavigation = viewModel.navigateLinks.length > 0;
     const canShowFullAddress = Boolean(fullAddress);
     const amenities = viewModel.amenities;
     const paymentNote = viewModel.paymentNote;
@@ -208,9 +193,25 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
               </section>
             )}
 
-            {canShowLinks && (
+            {canShowWebsite && (
               <section className="cpm-drawer__section">
-                <h3 className="cpm-drawer__section-title">Links</h3>
+                <h3 className="cpm-drawer__section-title">Website</h3>
+                <div className="cpm-drawer__links">
+                  <a
+                    className="cpm-drawer__link"
+                    href={viewModel.websiteLink!.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {viewModel.websiteLink!.label}
+                  </a>
+                </div>
+              </section>
+            )}
+
+            {canShowSocial && (
+              <section className="cpm-drawer__section">
+                <h3 className="cpm-drawer__section-title">SNS</h3>
                 <div className="cpm-drawer__links">
                   {viewModel.socialLinks.map((social) => (
                     <a
@@ -227,11 +228,22 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
               </section>
             )}
 
+            {canShowPhone && (
+              <section className="cpm-drawer__section">
+                <h3 className="cpm-drawer__section-title">Phone</h3>
+                <div className="cpm-drawer__links">
+                  <a className="cpm-drawer__link" href={viewModel.phoneLink!.href}>
+                    {viewModel.phoneLink!.label}
+                  </a>
+                </div>
+              </section>
+            )}
+
             {canShowNavigation && (
               <section className="cpm-drawer__section">
                 <h3 className="cpm-drawer__section-title">Navigate</h3>
                 <div className="cpm-drawer__nav">
-                  {navigationLinks.map((link) => (
+                  {viewModel.navigateLinks.map((link) => (
                     <a
                       key={link.key}
                       className="cpm-drawer__nav-link"
