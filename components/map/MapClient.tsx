@@ -614,18 +614,15 @@ export default function MapClient() {
         : null,
     [places, selectedPlaceId],
   );
-  const selectedPlaceForDrawer = selectedPlace ?? selectedPlaceDetail;
+  const shouldLoadSelectedPlaceDetail = Boolean(selectedPlaceId) && isPlaceOpen;
+  const selectedPlaceForDrawer = selectedPlaceDetail ?? selectedPlace;
 
   useEffect(() => {
-    if (!selectedPlaceId) {
+    if (!selectedPlaceId || !shouldLoadSelectedPlaceDetail) {
       setSelectedPlaceDetail(null);
-      setSelectedPlaceDetailStatus("idle");
-      return;
-    }
-
-    if (selectedPlace) {
-      setSelectedPlaceDetail(null);
-      setSelectedPlaceDetailStatus("idle");
+      if (!selectedPlaceId) {
+        setSelectedPlaceDetailStatus("idle");
+      }
       return;
     }
 
@@ -653,7 +650,7 @@ export default function MapClient() {
       isActive = false;
       controller.abort();
     };
-  }, [selectedPlace, selectedPlaceId]);
+  }, [selectedPlaceId, shouldLoadSelectedPlaceDetail]);
 
 
   useEffect(() => {

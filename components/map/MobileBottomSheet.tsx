@@ -4,6 +4,7 @@ import type React from "react";
 import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
 
 import type { Place } from "../../types/places";
+import { getPlaceViewModel } from "./placeViewModel";
 import "./MobileBottomSheet.css";
 
 type Props = {
@@ -31,48 +32,6 @@ const VERIFICATION_LABELS: Record<Place["verification"], string> = {
   community: "Community verified",
   directory: "Directory listing",
   unverified: "Unverified",
-};
-
-const formatSupportedCrypto = (place: Place | null) => {
-  if (!place) return [] as string[];
-
-  const preferredOrder = ["BTC", "BTC@Lightning", "Lightning", "ETH", "USDT"];
-  const chains = place.supported_crypto?.length ? place.supported_crypto : place.accepted ?? [];
-
-  const sorted = [
-    ...preferredOrder.filter((item) => chains.includes(item)),
-    ...chains.filter((item) => !preferredOrder.includes(item)).sort((a, b) => a.localeCompare(b)),
-  ];
-
-  return Array.from(new Set(sorted));
-};
-
-const buildSocialLinks = (place: Place | null) => {
-  if (!place) return [] as { label: string; href: string; key: string }[];
-
-  const entries: { label: string; href: string; key: string }[] = [];
-  const twitter = place.social_twitter ?? place.twitter;
-  const instagram = place.social_instagram ?? place.instagram;
-  const website = place.social_website ?? place.website;
-  const facebook = place.facebook;
-
-  if (twitter) {
-    const handle = twitter.replace(/^@/, "");
-    entries.push({ key: "twitter", label: `@${handle}`, href: `https://twitter.com/${handle}` });
-  }
-  if (instagram) {
-    const handle = instagram.replace(/^@/, "");
-    entries.push({ key: "instagram", label: `@${handle}`, href: `https://instagram.com/${handle}` });
-  }
-  if (facebook) {
-    const handle = facebook.replace(/^@/, "");
-    entries.push({ key: "facebook", label: handle, href: `https://facebook.com/${handle}` });
-  }
-  if (website) {
-    entries.push({ key: "website", label: website.replace(/^https?:\/\//, ""), href: website });
-  }
-
-  return entries;
 };
 
 const buildNavigationLinks = (place: Place | null) => {
@@ -120,13 +79,9 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       return undefined;
     }, [isOpen, place]);
 
-    const supportedCrypto = useMemo(() => formatSupportedCrypto(renderedPlace), [renderedPlace]);
-    const socialLinks = useMemo(() => buildSocialLinks(renderedPlace), [renderedPlace]);
+    const viewModel = useMemo(() => getPlaceViewModel(renderedPlace), [renderedPlace]);
     const navigationLinks = useMemo(() => buildNavigationLinks(renderedPlace), [renderedPlace]);
-    const photos = useMemo(() => {
-      if (!renderedPlace) return [] as string[];
-      return renderedPlace.photos?.length ? renderedPlace.photos : renderedPlace.images ?? [];
-    }, [renderedPlace]);
+    const photos = viewModel.media;
 
     const isRestricted =
       renderedPlace?.verification === "directory" || renderedPlace?.verification === "unverified";
@@ -135,16 +90,13 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       if (!isOpen) return;
       onStageChange?.(stage);
     }, [isOpen, onStageChange, stage]);
-    const canShowPhotos =
-      renderedPlace && (renderedPlace.verification === "owner" || renderedPlace.verification === "community")
-        ? photos.length > 0
-        : false;
+    const canShowPhotos = photos.length > 0;
     const canShowDescription =
       renderedPlace && !isRestricted && (renderedPlace.description ?? renderedPlace.about);
-    const fullAddress = renderedPlace?.address_full ?? renderedPlace?.address ?? "";
+    const fullAddress = viewModel.fullAddress;
     const shortAddress = [renderedPlace?.city, renderedPlace?.country].filter(Boolean).join(", ");
-    const amenities = renderedPlace?.amenities ?? [];
-    const paymentNote = renderedPlace?.paymentNote;
+    const amenities = viewModel.amenities;
+    const paymentNote = viewModel.paymentNote;
     const submitter = renderedPlace?.submitterName ?? renderedPlace?.updatedAt;
 
     useEffect(() => {
@@ -204,16 +156,15 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
           : "Place details are unavailable right now.";
       return (
         <div className={`cpm-bottom-sheet ${isVisible ? "open" : ""}`} ref={ref}>
-          
-      {isOpen ? (
-        <button
-          type="button"
-          className="cpm-bottom-sheet__backdrop"
-          aria-label="Close"
-          onClick={onClose}
-        />
-      ) : null}
-<div
+          {isOpen ? (
+            <button
+              type="button"
+              className="cpm-bottom-sheet__backdrop"
+              aria-label="Close"
+              onClick={onClose}
+            />
+          ) : null}
+          <div
             className="cpm-bottom-sheet__panel"
             style={{ height: sheetHeight, transform: `translateY(${isVisible ? "0" : "100%"})` }}
           >
@@ -302,16 +253,27 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
                 <h3 className="cpm-bottom-sheet__section-title">Accepted payments</h3>
               </div>
               <div className="cpm-bottom-sheet__pill-row">
-                {supportedCrypto.map((item) => (
+                {viewModel.accepted.map((item) => (
                   <span key={item} className="cpm-bottom-sheet__pill">
                     {item}
                   </span>
                 ))}
-                {supportedCrypto.length === 0 && <span className="cpm-bottom-sheet__muted">Not provided</span>}
+                {viewModel.accepted.length === 0 && (
+                  <span className="cpm-bottom-sheet__muted">Not provided</span>
+                )}
               </div>
             </section>
 
-            {showDetails && !isRestricted && canShowPhotos && (
+            {showDetails && (
+              <section className="cpm-bottom-sheet__section">
+                <div className="cpm-bottom-sheet__section-head">
+                  <h3 className="cpm-bottom-sheet__section-title">Verification</h3>
+                </div>
+                <p className="cpm-bottom-sheet__body">{VERIFICATION_LABELS[renderedPlace.verification]}</p>
+              </section>
+            )}
+
+            {showDetails && canShowPhotos && (
               <section className="cpm-bottom-sheet__section">
                 <div className="cpm-bottom-sheet__section-head">
                   <h3 className="cpm-bottom-sheet__section-title">Photos</h3>
@@ -335,13 +297,13 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
               </section>
             )}
 
-            {showDetails && !isRestricted && socialLinks.length > 0 && (
+            {showDetails && viewModel.socialLinks.length > 0 && (
               <section className="cpm-bottom-sheet__section">
                 <div className="cpm-bottom-sheet__section-head">
                   <h3 className="cpm-bottom-sheet__section-title">Links</h3>
                 </div>
                 <div className="cpm-bottom-sheet__links">
-                  {socialLinks.map((social) => (
+                  {viewModel.socialLinks.map((social) => (
                     <a
                       key={social.key}
                       className="cpm-bottom-sheet__link"
@@ -377,7 +339,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
               </section>
             )}
 
-            {showDetails && !isRestricted && paymentNote && (
+            {showDetails && paymentNote && (
               <section className="cpm-bottom-sheet__section">
                 <div className="cpm-bottom-sheet__section-head">
                   <h3 className="cpm-bottom-sheet__section-title">Payment note</h3>
@@ -386,7 +348,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
               </section>
             )}
 
-            {showDetails && !isRestricted && amenities.length > 0 && (
+            {showDetails && (amenities.length > 0 || Boolean(viewModel.amenitiesNotes)) && (
               <section className="cpm-bottom-sheet__section">
                 <div className="cpm-bottom-sheet__section-head">
                   <h3 className="cpm-bottom-sheet__section-title">Amenities</h3>
@@ -398,10 +360,13 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
                     </span>
                   ))}
                 </div>
+                {viewModel.amenitiesNotes && (
+                  <p className="cpm-bottom-sheet__body muted">{viewModel.amenitiesNotes}</p>
+                )}
               </section>
             )}
 
-            {showDetails && !isRestricted && fullAddress && (
+            {showDetails && fullAddress && (
               <section className="cpm-bottom-sheet__section">
                 <div className="cpm-bottom-sheet__section-head">
                   <h3 className="cpm-bottom-sheet__section-title">Address</h3>
