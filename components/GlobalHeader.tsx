@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 
 type GlobalHeaderProps = {
@@ -46,24 +47,36 @@ export default function GlobalHeader({ className }: GlobalHeaderProps) {
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
         <div className="flex items-center gap-3">
           <Link href="/" className="flex items-center gap-2">
+            <Image
+              src="/brand/cryptopaymap-logo.png"
+              alt="CryptoPayMap logo"
+              width={28}
+              height={28}
+            />
             <span className="text-base font-black tracking-tight text-gray-900">
               CryptoPayMap
             </span>
           </Link>
-          <span className="hidden rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs font-semibold text-gray-700 sm:inline">
-            v2
-          </span>
         </div>
 
         <nav className="hidden items-center gap-4 text-sm font-semibold text-gray-700 md:flex">
+          <Link href="/map" className="hover:text-gray-900">
+            Map
+          </Link>
+          <Link href="/about" className="hover:text-gray-900">
+            About
+          </Link>
           <Link href="/submit" className="hover:text-gray-900">
             Submit
           </Link>
           <Link href="/stats" className="hover:text-gray-900">
             Stats
           </Link>
-          <Link href="/about" className="hover:text-gray-900">
-            About
+          <Link href="/discover" className="hover:text-gray-900">
+            Discover
+          </Link>
+          <Link href="/donate" className="hover:text-gray-900">
+            Donate
           </Link>
         </nav>
 
@@ -87,14 +100,23 @@ export default function GlobalHeader({ className }: GlobalHeaderProps) {
           className="border-t border-gray-200 bg-white px-4 py-3 md:hidden"
         >
           <div className="flex flex-col gap-3 text-sm font-semibold text-gray-800">
+            <Link href="/map" onClick={() => setIsMenuOpen(false)}>
+              Map
+            </Link>
+            <Link href="/about" onClick={() => setIsMenuOpen(false)}>
+              About
+            </Link>
             <Link href="/submit" onClick={() => setIsMenuOpen(false)}>
               Submit
             </Link>
             <Link href="/stats" onClick={() => setIsMenuOpen(false)}>
               Stats
             </Link>
-            <Link href="/about" onClick={() => setIsMenuOpen(false)}>
-              About
+            <Link href="/discover" onClick={() => setIsMenuOpen(false)}>
+              Discover
+            </Link>
+            <Link href="/donate" onClick={() => setIsMenuOpen(false)}>
+              Donate
             </Link>
           </div>
         </div>
