@@ -323,3 +323,9 @@
     margin-top: calc(var(--cpm-header-h, 64px) + 8px);
   }
 }
+
+@media (min-width: 1024px) {
+  .cpm-map-controls {
+    margin-top: 72px;
+  }
+}
