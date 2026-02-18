@@ -168,11 +168,6 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
               </div>
             </section>
 
-            <section className="cpm-drawer__section">
-              <h3 className="cpm-drawer__section-title">Verification</h3>
-              <p className="cpm-drawer__body">{VERIFICATION_LABELS[place.verification]}</p>
-            </section>
-
             {canShowPhotos && (
               <section className="cpm-drawer__section">
                 <h3 className="cpm-drawer__section-title">Photos</h3>

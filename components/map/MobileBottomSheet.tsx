@@ -256,15 +256,6 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
               </div>
             </section>
 
-            {showDetails && (
-              <section className="cpm-bottom-sheet__section">
-                <div className="cpm-bottom-sheet__section-head">
-                  <h3 className="cpm-bottom-sheet__section-title">Verification</h3>
-                </div>
-                <p className="cpm-bottom-sheet__body">{VERIFICATION_LABELS[renderedPlace.verification]}</p>
-              </section>
-            )}
-
             {showDetails && canShowPhotos && (
               <section className="cpm-bottom-sheet__section">
                 <div className="cpm-bottom-sheet__section-head">
