@@ -52,6 +52,8 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
         return;
       }
 
+      setRenderedPlace(null);
+
       if (!isOpen) {
         previousPlaceIdRef.current = null;
         setStage("peek");
@@ -74,7 +76,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
     }, [isOpen, onStageChange, stage]);
     const canShowPhotos = photos.length > 0;
     const canShowDescription =
-      renderedPlace && !isRestricted && (renderedPlace.description ?? renderedPlace.about);
+      Boolean(renderedPlace && !isRestricted && (renderedPlace.description ?? renderedPlace.about));
     const fullAddress = viewModel.fullAddress;
     const shortAddress = [renderedPlace?.city, renderedPlace?.country].filter(Boolean).join(", ");
     const amenities = viewModel.amenities;

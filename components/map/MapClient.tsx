@@ -672,8 +672,9 @@ export default function MapClient() {
     [places, selectedPlaceId],
   );
   const shouldLoadSelectedPlaceDetail = Boolean(selectedPlaceId) && isPlaceOpen;
+  const isWaitingForSelectedPlaceDetail = shouldLoadSelectedPlaceDetail && !selectedPlaceDetail;
   const selectedPlaceForDrawer = useMemo(
-    () => mergePlaceSummaryAndDetail(selectedPlace, selectedPlaceDetail),
+    () => (selectedPlaceDetail ? mergePlaceSummaryAndDetail(selectedPlace, selectedPlaceDetail) : null),
     [selectedPlace, selectedPlaceDetail],
   );
 
@@ -780,7 +781,7 @@ if (!selectionHydrated) {
     return () => window.clearTimeout(timeout);
   }, [selectionNotice]);
 
-  const selectionStatus = selectedPlace ? "idle" : selectedPlaceDetailStatus;
+  const selectionStatus = isWaitingForSelectedPlaceDetail ? "loading" : selectedPlaceDetailStatus;
 
   const hasActiveFilters = useMemo(
     () =>
