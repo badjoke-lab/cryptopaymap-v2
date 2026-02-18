@@ -75,8 +75,8 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       onStageChange?.(stage);
     }, [isOpen, onStageChange, stage]);
     const canShowPhotos = photos.length > 0;
-    const canShowDescription =
-      Boolean(renderedPlace && !isRestricted && (renderedPlace.description ?? renderedPlace.about));
+    const descriptionText = renderedPlace?.description ?? renderedPlace?.about_short ?? renderedPlace?.about ?? null;
+    const canShowDescription = Boolean(renderedPlace && !isRestricted && descriptionText);
     const fullAddress = viewModel.fullAddress;
     const shortAddress = [renderedPlace?.city, renderedPlace?.country].filter(Boolean).join(", ");
     const amenities = viewModel.amenities;
@@ -276,7 +276,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
                 <div className="cpm-bottom-sheet__section-head">
                   <h3 className="cpm-bottom-sheet__section-title">Description</h3>
                 </div>
-                <p className="cpm-bottom-sheet__body">{renderedPlace.description ?? renderedPlace.about}</p>
+                <p className="cpm-bottom-sheet__body">{descriptionText}</p>
               </section>
             )}
 

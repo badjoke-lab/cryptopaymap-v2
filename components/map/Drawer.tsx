@@ -93,8 +93,8 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
     const isRestricted =
       place.verification === "directory" || place.verification === "unverified";
     const canShowPhotos = photos.length > 0;
-    const canShowDescription =
-      !isRestricted && Boolean(place.description ?? place.about);
+    const descriptionText = place.description ?? place.about_short ?? place.about ?? null;
+    const canShowDescription = !isRestricted && Boolean(descriptionText);
     const shortAddress = [place.city, place.country].filter(Boolean).join(", ");
     const fullAddress = viewModel.fullAddress;
     const canShowWebsite = Boolean(viewModel.websiteLink);
@@ -184,7 +184,7 @@ const Drawer = forwardRef<HTMLDivElement, Props>(
             {canShowDescription && (
               <section className="cpm-drawer__section">
                 <h3 className="cpm-drawer__section-title">Description</h3>
-                <p className="cpm-drawer__body">{place.description ?? place.about}</p>
+                <p className="cpm-drawer__body">{descriptionText}</p>
               </section>
             )}
 

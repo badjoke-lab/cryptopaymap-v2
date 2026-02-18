@@ -52,6 +52,22 @@ const placeToPin = (place: Place): Pin => ({
   verification: place.verification,
 });
 
+const hasSummaryPlusForDrawer = (place: Place | null): boolean => {
+  if (!place) return false;
+  return Boolean(
+    place.about_short ||
+      place.address_full ||
+      place.paymentNote ||
+      (Array.isArray(place.amenities) && place.amenities.length > 0) ||
+      place.phone ||
+      place.website ||
+      place.twitter ||
+      place.instagram ||
+      place.facebook ||
+      place.coverImage,
+  );
+};
+
 const mergePlaceSummaryAndDetail = (summary: Place | null, detail: Place | null): Place | null => {
   if (!summary && !detail) return null;
   if (!summary) return detail;
@@ -115,6 +131,7 @@ export default function MapClient() {
   const [selectionHydrated, setSelectionHydrated] = useState(false);
   const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
   const [selectedPlaceDetail, setSelectedPlaceDetail] = useState<Place | null>(null);
+  const [selectedPlaceDetailId, setSelectedPlaceDetailId] = useState<string | null>(null);
   const [selectedPlaceDetailStatus, setSelectedPlaceDetailStatus] = useState<
     "idle" | "loading" | "error"
   >("idle");
@@ -671,25 +688,46 @@ export default function MapClient() {
         : null,
     [places, selectedPlaceId],
   );
-  const shouldLoadSelectedPlaceDetail = Boolean(selectedPlaceId) && isPlaceOpen;
-  const isWaitingForSelectedPlaceDetail = shouldLoadSelectedPlaceDetail && !selectedPlaceDetail;
+  const normalizedSelectedPlaceDetail = useMemo(() => {
+    if (!selectedPlaceId || !selectedPlaceDetail || selectedPlaceDetailId !== selectedPlaceId) {
+      return null;
+    }
+    return selectedPlaceDetail;
+  }, [selectedPlaceDetail, selectedPlaceDetailId, selectedPlaceId]);
+
+  const shouldLoadSelectedPlaceDetail =
+    Boolean(selectedPlaceId) &&
+    isPlaceOpen &&
+    (!selectedPlace || !hasSummaryPlusForDrawer(selectedPlace));
+  const isWaitingForSelectedPlaceDetail =
+    shouldLoadSelectedPlaceDetail && selectedPlaceDetailStatus === "loading" && !selectedPlace;
   const selectedPlaceForDrawer = useMemo(
-    () => (selectedPlaceDetail ? mergePlaceSummaryAndDetail(selectedPlace, selectedPlaceDetail) : null),
-    [selectedPlace, selectedPlaceDetail],
+    () =>
+      normalizedSelectedPlaceDetail
+        ? mergePlaceSummaryAndDetail(selectedPlace, normalizedSelectedPlaceDetail)
+        : selectedPlace,
+    [normalizedSelectedPlaceDetail, selectedPlace],
   );
 
   useEffect(() => {
-    if (!selectedPlaceId || !shouldLoadSelectedPlaceDetail) {
+    if (!selectedPlaceId) {
       setSelectedPlaceDetail(null);
-      if (!selectedPlaceId) {
-        setSelectedPlaceDetailStatus("idle");
-      }
+      setSelectedPlaceDetailId(null);
+      setSelectedPlaceDetailStatus("idle");
+      return;
+    }
+
+    if (!shouldLoadSelectedPlaceDetail) {
+      setSelectedPlaceDetailId(null);
+      setSelectedPlaceDetail(null);
+      setSelectedPlaceDetailStatus("idle");
       return;
     }
 
     let isActive = true;
     const controller = new AbortController();
     setSelectedPlaceDetail(null);
+    setSelectedPlaceDetailId(null);
     setSelectedPlaceDetailStatus("loading");
 
     safeFetch<Place>(`/api/places/${selectedPlaceId}`, {
@@ -699,11 +737,13 @@ export default function MapClient() {
       .then((detail) => {
         if (!isActive) return;
         setSelectedPlaceDetail(detail);
+        setSelectedPlaceDetailId(selectedPlaceId);
         setSelectedPlaceDetailStatus("idle");
       })
       .catch(() => {
         if (!isActive) return;
         setSelectedPlaceDetail(null);
+        setSelectedPlaceDetailId(null);
         setSelectedPlaceDetailStatus("error");
       });
 
