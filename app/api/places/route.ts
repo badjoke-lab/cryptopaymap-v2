@@ -80,9 +80,30 @@ type PlaceSummary = {
   accepted: string[];
 };
 
+type PlaceSummaryPlus = PlaceSummary & {
+  address_full: string | null;
+  about_short: string | null;
+  paymentNote: string | null;
+  amenities: string[] | null;
+  phone: string | null;
+  website: string | null;
+  twitter: string | null;
+  instagram: string | null;
+  facebook: string | null;
+  coverImage: string | null;
+};
+
+type DbContact = {
+  website: string | null;
+  phone: string | null;
+  twitter: string | null;
+  instagram: string | null;
+  facebook: string | null;
+};
+
 type CacheEntry = {
   expiresAt: number;
-  data: PlaceSummary[];
+  data: PlaceSummaryPlus[];
   source: "db" | "json";
   limited: boolean;
 };
@@ -120,7 +141,80 @@ const buildAccepted = (place: Place): string[] => {
   return normalizeAccepted([], fallbackAccepted);
 };
 
-const toSummary = (place: Place, accepted: string[]): PlaceSummary => ({
+const normalizeText = (value: unknown): string | null => {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+};
+
+const truncateAbout = (value: unknown, maxLength = 400): string | null => {
+  const text = normalizeText(value);
+  if (!text) return null;
+  if (text.length <= maxLength) return text;
+  return text.slice(0, maxLength).trimEnd();
+};
+
+const normalizeAmenities = (raw: unknown): string[] | null => {
+  if (!raw) return null;
+  if (Array.isArray(raw)) {
+    const items = raw.map((item) => normalizeText(item)).filter((item): item is string => Boolean(item));
+    return items.length ? items : null;
+  }
+
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        const items = parsed.map((item) => normalizeText(item)).filter((item): item is string => Boolean(item));
+        return items.length ? items : null;
+      }
+    } catch {
+      const parts = raw
+        .split(/\r?\n|,/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+      return parts.length ? parts : null;
+    }
+  }
+
+  return null;
+};
+
+const buildAddressFull = (place: {
+  address_full?: string | null;
+  address?: string | null;
+  city?: string | null;
+  country?: string | null;
+}): string | null => {
+  const explicit = normalizeText(place.address_full);
+  if (explicit) return explicit;
+
+  const parts = [place.address, place.city, place.country]
+    .map((value) => normalizeText(value))
+    .filter((value): value is string => Boolean(value));
+  return parts.length ? parts.join(", ") : null;
+};
+
+const pickCoverImage = (place: {
+  coverImage?: string | null;
+  images?: string[] | null;
+  photos?: string[] | null;
+  media?: string[] | null;
+}): string | null => {
+  const candidates = [
+    normalizeText(place.coverImage),
+    normalizeText(place.images?.[0]),
+    normalizeText(place.photos?.[0]),
+    normalizeText(place.media?.[0]),
+  ];
+  return candidates.find((value): value is string => Boolean(value)) ?? null;
+};
+
+const toSummaryPlus = (
+  place: Place,
+  accepted: string[],
+  contact?: DbContact,
+): PlaceSummaryPlus => ({
   id: place.id,
   name: place.name,
   lat: Number(place.lat),
@@ -130,6 +224,16 @@ const toSummary = (place: Place, accepted: string[]): PlaceSummary => ({
   city: place.city ?? "",
   country: place.country ?? "",
   accepted,
+  address_full: buildAddressFull(place),
+  about_short: truncateAbout(place.about),
+  paymentNote: normalizeText(place.paymentNote),
+  amenities: normalizeAmenities(place.amenities),
+  phone: normalizeText(contact?.phone ?? place.phone),
+  website: normalizeText(contact?.website ?? place.website ?? place.social_website),
+  twitter: normalizeText(contact?.twitter ?? place.twitter ?? place.social_twitter),
+  instagram: normalizeText(contact?.instagram ?? place.instagram ?? place.social_instagram),
+  facebook: normalizeText(contact?.facebook ?? place.facebook),
+  coverImage: pickCoverImage(place),
 });
 
 const buildCacheKey = (params: URLSearchParams): string => {
@@ -185,7 +289,7 @@ const loadPlacesFromDb = async (
     limit: number;
     offset: number;
   },
-): Promise<PlaceSummary[] | null> => {
+): Promise<PlaceSummaryPlus[] | null> => {
   if (!hasDatabaseUrl()) return null;
   const route = "api_places";
 
@@ -196,11 +300,15 @@ const loadPlacesFromDb = async (
       present: string | null;
       verifications: string | null;
       payments: string | null;
+      socials: string | null;
+      media: string | null;
     }>(
       `SELECT
         to_regclass('public.places') AS present,
         to_regclass('public.verifications') AS verifications,
-        to_regclass('public.payment_accepts') AS payments`,
+        to_regclass('public.payment_accepts') AS payments,
+        to_regclass('public.socials') AS socials,
+        to_regclass('public.media') AS media`,
       [],
       { route },
     );
@@ -265,12 +373,16 @@ const loadPlacesFromDb = async (
        FROM information_schema.columns
        WHERE table_schema = 'public'
          AND table_name = 'places'
-         AND column_name IN ('geom', 'updated_at')`,
+         AND column_name IN ('geom', 'updated_at', 'address', 'about', 'amenities', 'payment_note')`,
       [],
       { route },
     );
     const hasGeom = placeColumns.rows.some((row) => row.column_name === "geom");
     const hasUpdatedAt = placeColumns.rows.some((row) => row.column_name === "updated_at");
+    const hasAddress = placeColumns.rows.some((row) => row.column_name === "address");
+    const hasAbout = placeColumns.rows.some((row) => row.column_name === "about");
+    const hasAmenities = placeColumns.rows.some((row) => row.column_name === "amenities");
+    const hasPaymentNote = placeColumns.rows.some((row) => row.column_name === "payment_note");
 
     if (filters.bbox?.length) {
       const bboxClauses: string[] = [];
@@ -332,7 +444,12 @@ const loadPlacesFromDb = async (
       ? "ORDER BY p.updated_at DESC NULLS LAST, p.id ASC"
       : "ORDER BY p.id ASC";
 
-    const query = `SELECT p.id, p.name, p.category, p.city, p.country, p.lat, p.lng${verificationSelect}${reviewSelect}
+    const addressSelect = hasAddress ? "p.address" : "NULL::text AS address";
+    const aboutSelect = hasAbout ? "p.about" : "NULL::text AS about";
+    const amenitiesSelect = hasAmenities ? "p.amenities" : "NULL::text[] AS amenities";
+    const paymentNoteSelect = hasPaymentNote ? "p.payment_note" : "NULL::text AS payment_note";
+
+    const query = `SELECT p.id, p.name, p.category, p.city, p.country, p.lat, p.lng, ${addressSelect}, ${aboutSelect}, ${amenitiesSelect}, ${paymentNoteSelect}${verificationSelect}${reviewSelect}
       FROM places p${joinVerification}
       ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
       ${orderBy}
@@ -349,6 +466,10 @@ const loadPlacesFromDb = async (
       country: string | null;
       lat: number;
       lng: number;
+      address: string | null;
+      about: string | null;
+      amenities: string[] | string | null;
+      payment_note: string | null;
       verification: string | null;
       review_status: string | null;
     }>(query, params, { route });
@@ -399,6 +520,68 @@ const loadPlacesFromDb = async (
       }
     }
 
+    const socialsByPlace = new Map<string, DbContact>();
+    if (placeIds.length && tableChecks[0]?.socials) {
+      const { rows: socialRows } = await dbQuery<{
+        place_id: string;
+        platform: string | null;
+        url: string | null;
+        handle: string | null;
+      }>(
+        `SELECT place_id, platform, url, handle
+         FROM socials
+         WHERE place_id = ANY($1::text[])
+         ORDER BY id ASC`,
+        [placeIds],
+        { route },
+      );
+
+      for (const social of socialRows) {
+        const placeContact = socialsByPlace.get(social.place_id) ?? {
+          website: null,
+          phone: null,
+          twitter: null,
+          instagram: null,
+          facebook: null,
+        };
+        const platform = (social.platform ?? "").toLowerCase();
+        const value = normalizeText(social.url) ?? normalizeText(social.handle);
+        if (!value) {
+          socialsByPlace.set(social.place_id, placeContact);
+          continue;
+        }
+        if (platform === "website") placeContact.website = placeContact.website ?? value;
+        if (platform === "phone") placeContact.phone = placeContact.phone ?? value;
+        if (platform === "twitter" || platform === "x") placeContact.twitter = placeContact.twitter ?? value;
+        if (platform === "instagram") placeContact.instagram = placeContact.instagram ?? value;
+        if (platform === "facebook") placeContact.facebook = placeContact.facebook ?? value;
+        socialsByPlace.set(social.place_id, placeContact);
+      }
+    }
+
+    const coverImageByPlace = new Map<string, string>();
+    if (placeIds.length && tableChecks[0]?.media) {
+      const { rows: mediaRows } = await dbQuery<{
+        place_id: string;
+        url: string | null;
+      }>(
+        `SELECT place_id, url
+         FROM media
+         WHERE place_id = ANY($1::text[])
+         ORDER BY id ASC`,
+        [placeIds],
+        { route },
+      );
+
+      for (const media of mediaRows) {
+        const url = normalizeText(media.url);
+        if (!url) continue;
+        if (!coverImageByPlace.has(media.place_id)) {
+          coverImageByPlace.set(media.place_id, url);
+        }
+      }
+    }
+
     const mapped = rows.map((row) => {
       const payments = paymentsByPlace.get(row.id) ?? [];
       const fallback = fallbackPlacesById.get(row.id);
@@ -417,9 +600,48 @@ const loadPlacesFromDb = async (
         lng: Number(row.lng),
         country: row.country ?? "",
         city: row.city ?? "",
+        address: row.address ?? undefined,
+        about: row.about ?? null,
+        paymentNote: row.payment_note ?? null,
+        amenities: normalizeAmenities(row.amenities),
+        images: coverImageByPlace.get(row.id) ? [coverImageByPlace.get(row.id)!] : [],
       };
 
-      return toSummary(base, accepted);
+      const contact = socialsByPlace.get(row.id);
+      const fallbackCoverImage = fallback?.coverImage ?? fallback?.images?.[0] ?? fallback?.photos?.[0] ?? null;
+      const summary = toSummaryPlus(base, accepted, contact);
+      if (!summary.coverImage) {
+        summary.coverImage = normalizeText(fallbackCoverImage);
+      }
+      if (!summary.address_full && fallback) {
+        summary.address_full = buildAddressFull(fallback);
+      }
+      if (!summary.about_short) {
+        summary.about_short = truncateAbout(fallback?.about);
+      }
+      if (!summary.paymentNote) {
+        summary.paymentNote = normalizeText(fallback?.paymentNote);
+      }
+      if (!summary.amenities) {
+        summary.amenities = normalizeAmenities(fallback?.amenities);
+      }
+      if (!summary.website) {
+        summary.website = normalizeText(fallback?.website ?? fallback?.social_website);
+      }
+      if (!summary.phone) {
+        summary.phone = normalizeText(fallback?.phone);
+      }
+      if (!summary.twitter) {
+        summary.twitter = normalizeText(fallback?.twitter ?? fallback?.social_twitter);
+      }
+      if (!summary.instagram) {
+        summary.instagram = normalizeText(fallback?.instagram ?? fallback?.social_instagram);
+      }
+      if (!summary.facebook) {
+        summary.facebook = normalizeText(fallback?.facebook);
+      }
+
+      return summary;
     });
 
     return mapped;
@@ -470,6 +692,16 @@ export async function GET(request: NextRequest) {
           city: "",
           country: "",
           accepted: [],
+          address_full: null,
+          about_short: null,
+          paymentNote: null,
+          amenities: null,
+          phone: null,
+          website: null,
+          twitter: null,
+          instagram: null,
+          facebook: null,
+          coverImage: null,
         },
       ],
       { headers: buildDataSourceHeaders("json", true) },
@@ -518,7 +750,7 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  let dbPlaces: PlaceSummary[] | null = null;
+  let dbPlaces: PlaceSummaryPlus[] | null = null;
 
   if (shouldAttemptDb) {
     try {
@@ -658,7 +890,7 @@ export async function GET(request: NextRequest) {
   const ordered = [...filtered].sort((a, b) => a.id.localeCompare(b.id));
   const paged = ordered
     .slice(offset, offset + limit)
-    .map((place) => toSummary(place, buildAccepted(place)))
+    .map((place) => toSummaryPlus(place, buildAccepted(place)))
     .map(sanitizeOptionalStrings);
   placesCache.set(cacheKey, {
     data: paged,

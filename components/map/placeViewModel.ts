@@ -81,6 +81,27 @@ const normalizeWebsiteLink = (place: Place) => {
   };
 };
 
+const normalizeSocialHref = (value: string, baseUrl: string) => {
+  if (/^https?:\/\//i.test(value)) {
+    return value;
+  }
+  const handle = value.replace(/^@/, "");
+  return `${baseUrl}${handle}`;
+};
+
+const normalizeSocialLabel = (value: string, prefixAt = true) => {
+  if (/^https?:\/\//i.test(value)) {
+    try {
+      const url = new URL(value);
+      return url.hostname.replace(/^www\./, "") + url.pathname;
+    } catch {
+      return value;
+    }
+  }
+  const handle = value.replace(/^@/, "");
+  return prefixAt ? `@${handle}` : handle;
+};
+
 const normalizeSocialLinks = (place: Place) => {
   const entries: { label: string; href: string; key: string }[] = [];
   const twitter = normalizeText(place.twitter) || normalizeText(place.social_twitter);
@@ -88,16 +109,25 @@ const normalizeSocialLinks = (place: Place) => {
   const facebook = normalizeText(place.facebook);
 
   if (twitter) {
-    const handle = twitter.replace(/^@/, "");
-    entries.push({ key: "twitter", label: `@${handle}`, href: `https://twitter.com/${handle}` });
+    entries.push({
+      key: "twitter",
+      label: normalizeSocialLabel(twitter, true),
+      href: normalizeSocialHref(twitter, "https://twitter.com/"),
+    });
   }
   if (instagram) {
-    const handle = instagram.replace(/^@/, "");
-    entries.push({ key: "instagram", label: `@${handle}`, href: `https://instagram.com/${handle}` });
+    entries.push({
+      key: "instagram",
+      label: normalizeSocialLabel(instagram, true),
+      href: normalizeSocialHref(instagram, "https://instagram.com/"),
+    });
   }
   if (facebook) {
-    const handle = facebook.replace(/^@/, "");
-    entries.push({ key: "facebook", label: handle, href: `https://facebook.com/${handle}` });
+    entries.push({
+      key: "facebook",
+      label: normalizeSocialLabel(facebook, false),
+      href: normalizeSocialHref(facebook, "https://facebook.com/"),
+    });
   }
 
   return Array.from(new Map(entries.map((entry) => [entry.href, entry])).values());

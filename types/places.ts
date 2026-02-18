@@ -29,5 +29,6 @@ export type Place = {
   updatedAt?: string;
   coverImage?: string | null;
   about?: string | null;
+  about_short?: string | null;
   paymentNote?: string | null;
 };
