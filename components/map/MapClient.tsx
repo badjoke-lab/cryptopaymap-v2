@@ -152,8 +152,15 @@ export default function MapClient() {
 
   const isMobilePlaceOpen = mounted && isPlaceOpen && Boolean(selectedPlaceId);
   const drawerMode: "full" = "full";
+  const debugSheetEnabled = searchParams.get("debugSheet") === "1";
+  const debugNoHeightAnim = debugSheetEnabled && searchParams.get("noHeightAnim") === "1";
+  const debugNoTransformAnim = debugSheetEnabled && searchParams.get("noTransformAnim") === "1";
+  const debugNoInvalidate = debugSheetEnabled && searchParams.get("noInvalidate") === "1";
+  const debugNoPlaceholderExpand =
+    debugSheetEnabled && searchParams.get("noPlaceholderExpand") === "1";
 
   const invalidateMapSize = useCallback(() => {
+    if (debugNoInvalidate) return;
     const map = mapInstanceRef.current;
     if (!map) return;
     if (invalidateTimeoutRef.current !== null) {
@@ -166,7 +173,7 @@ export default function MapClient() {
         invalidateTimeoutRef.current = null;
       }, 120);
     });
-  }, []);
+  }, [debugNoInvalidate]);
 
   const toggleFilters = useCallback(() => {
     setFiltersOpen((previous) => {
@@ -1193,6 +1200,12 @@ if (!selectionHydrated) {
               onClose={() => closeDrawer("user")}
               ref={bottomSheetRef}
               selectionStatus={selectionStatus}
+              debugOptions={{
+                enabled: debugSheetEnabled,
+                noHeightAnim: debugNoHeightAnim,
+                noTransformAnim: debugNoTransformAnim,
+                noPlaceholderExpand: debugNoPlaceholderExpand,
+              }}
               onStageChange={() => {
                 invalidateMapSize();
               }}
