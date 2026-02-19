@@ -99,7 +99,7 @@ export default function AboutPage() {
 
           <hr className="my-6 border-gray-200" />
 
-          <h2 className="text-xl font-semibold text-gray-900">Images &amp; Privacy</h2>
+          <h2 id="privacy" className="text-xl font-semibold text-gray-900">Images &amp; Privacy</h2>
           <p className="mt-2 text-sm leading-6 text-gray-700">We separate images strictly by purpose:</p>
           <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-6 text-gray-700">
             <li>
@@ -119,7 +119,7 @@ export default function AboutPage() {
 
           <hr className="my-6 border-gray-200" />
 
-          <h2 className="text-xl font-semibold text-gray-900">Disclaimer</h2>
+          <h2 id="disclaimer" className="text-xl font-semibold text-gray-900">Disclaimer</h2>
           <p className="mt-2 text-sm leading-6 text-gray-700">
             We work to keep data accurate, but acceptance can change at any time. Before visiting, consider confirming
             via the venue’s official channels or on-site signage.
@@ -156,7 +156,7 @@ export default function AboutPage() {
         </section>
 
         <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-semibold text-gray-900">Contact</h2>
+          <h2 id="contact" className="text-xl font-semibold text-gray-900">Contact</h2>
           <p className="mt-2 text-sm text-gray-600">
             Found an incorrect listing, a closed venue, or a misleading claim? Use the contact form for quick reports
             and questions. For bugs and feature requests, GitHub Issues helps us track and discuss changes publicly.

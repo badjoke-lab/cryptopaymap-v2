@@ -2,7 +2,6 @@ import './globals.css';
 import type { Metadata } from 'next';
 import Script from 'next/script';
 import { ReactNode } from 'react';
-import GlobalHeader from '@/components/GlobalHeader';
 
 const description = 'CryptoPayMap — find crypto-friendly places worldwide, with verification levels to judge listing reliability.';
 const siteUrl = 'https://www.cryptopaymap.com';
@@ -86,10 +85,7 @@ gtag('config', 'G-0D84H0D66W');`}
             ],
           })}
         </Script>
-        <div className="flex min-h-screen flex-col">
-          <GlobalHeader />
-          <main className="flex-1">{children}</main>
-        </div>
+        {children}
       </body>
     </html>
   );

@@ -1,15 +1,7 @@
-import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import GlobalHeader from '@/components/GlobalHeader';
 
-export const metadata: Metadata = {
-  robots: {
-    index: false,
-    follow: false,
-  },
-};
-
-export default function InternalLayout({ children }: { children: ReactNode }) {
+export default function MapLayout({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-screen flex-col">
       <GlobalHeader />

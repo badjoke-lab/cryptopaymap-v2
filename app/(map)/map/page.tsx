@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import MapClient from '../../components/map/MapClient';
+import MapClient from '@/components/map/MapClient';
 
 export const metadata: Metadata = {
   title: 'Map',
