@@ -22,6 +22,30 @@
   touch-action: pan-y;
 }
 
+.cpm-bottom-sheet__panel--no-height-anim {
+  transition: transform 0.25s ease;
+}
+
+.cpm-bottom-sheet__panel--no-transform-anim {
+  transition: height 0.25s ease;
+}
+
+.cpm-bottom-sheet__panel--no-height-anim.cpm-bottom-sheet__panel--no-transform-anim {
+  transition: none;
+}
+
+.cpm-bottom-sheet__debug-hud {
+  margin: 8px 12px 0;
+  padding: 8px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.95);
+  color: #e2e8f0;
+  font-size: 11px;
+  line-height: 1.35;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  word-break: break-word;
+}
+
 .cpm-bottom-sheet.open .cpm-bottom-sheet__panel {
   transform: translateY(0);
 }

@@ -13,6 +13,12 @@ type Props = {
   onClose: () => void;
   selectionStatus?: "idle" | "loading" | "error";
   onStageChange?: (stage: SheetStage) => void;
+  debugOptions?: {
+    enabled: boolean;
+    noHeightAnim: boolean;
+    noTransformAnim: boolean;
+    noPlaceholderExpand: boolean;
+  };
 };
 
 type SheetStage = "peek" | "expanded";
@@ -35,12 +41,80 @@ const VERIFICATION_LABELS: Record<Place["verification"], string> = {
 };
 
 const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
-  ({ place, isOpen, onClose, selectionStatus = "idle", onStageChange }, ref) => {
+  ({ place, isOpen, onClose, selectionStatus = "idle", onStageChange, debugOptions }, ref) => {
+    const debugEnabled = Boolean(debugOptions?.enabled);
     const [stage, setStage] = useState<SheetStage>("peek");
     const [renderedPlace, setRenderedPlace] = useState<Place | null>(null);
+    const [debugMetrics, setDebugMetrics] = useState({
+      computedHeight: "",
+      computedTransform: "",
+      computedTransition: "",
+      panelClassName: "",
+      timestamp: "",
+      contentResizeCount: 0,
+      lastContentResizeDelta: 0,
+    });
     const touchStartY = useRef<number | null>(null);
     const touchCurrentY = useRef<number | null>(null);
     const previousPlaceIdRef = useRef<string | null>(null);
+    const panelElementRef = useRef<HTMLDivElement | null>(null);
+    const contentElementRef = useRef<HTMLDivElement | null>(null);
+    const previousContentHeightRef = useRef<number | null>(null);
+    const rafLogTokenRef = useRef(0);
+    const mountCountRef = useRef(0);
+    const panelMountCountRef = useRef(0);
+
+    if (mountCountRef.current === 0) {
+      mountCountRef.current = 1;
+      if (typeof window !== "undefined") {
+        const current = (window as Window & { __cpmSheetMountCount?: number }).__cpmSheetMountCount ?? 0;
+        (window as Window & { __cpmSheetMountCount?: number }).__cpmSheetMountCount = current + 1;
+      }
+    }
+
+    const updateDebugMetrics = () => {
+      if (!debugEnabled || !panelElementRef.current) return;
+      const computed = window.getComputedStyle(panelElementRef.current);
+      setDebugMetrics((prev) => ({
+        ...prev,
+        computedHeight: computed.height,
+        computedTransform: computed.transform,
+        computedTransition: computed.transition,
+        panelClassName: panelElementRef.current?.className ?? "",
+        timestamp: performance.now().toFixed(2),
+      }));
+    };
+
+    const logThreeFrames = (reason: string) => {
+      if (!debugEnabled || !panelElementRef.current) return;
+      const token = rafLogTokenRef.current + 1;
+      rafLogTokenRef.current = token;
+      let frame = 0;
+
+      const tick = () => {
+        if (rafLogTokenRef.current !== token || !panelElementRef.current) return;
+        const computed = window.getComputedStyle(panelElementRef.current);
+        frame += 1;
+        console.log("[debugSheet][3frames]", {
+          reason,
+          frame,
+          height: computed.height,
+          transform: computed.transform,
+          transition: computed.transition,
+          stage,
+          effectiveStage,
+          showPlaceholder,
+          placeId: place?.id ?? null,
+          renderedPlaceId: renderedPlace?.id ?? null,
+        });
+        updateDebugMetrics();
+        if (frame < 3) {
+          window.requestAnimationFrame(tick);
+        }
+      };
+
+      window.requestAnimationFrame(tick);
+    };
 
     useEffect(() => {
       if (place) {
@@ -123,15 +197,95 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       touchCurrentY.current = null;
     };
 
-    if (!renderedPlace && !isOpen) {
-      return null;
-    }
-
     const showPlaceholder = isOpen && !renderedPlace;
-    const effectiveStage = stage;
+    const effectiveStage =
+      debugEnabled && showPlaceholder && !debugOptions?.noPlaceholderExpand ? "expanded" : stage;
     const sheetHeight = effectiveStage === "expanded" ? `${EXPANDED_HEIGHT}vh` : `${PEEK_HEIGHT}vh`;
     const showDetails = effectiveStage === "expanded";
     const isVisible = isOpen && (Boolean(renderedPlace) || showPlaceholder);
+    const panelClassNames = [
+      "cpm-bottom-sheet__panel",
+      debugEnabled && debugOptions?.noHeightAnim ? "cpm-bottom-sheet__panel--no-height-anim" : "",
+      debugEnabled && debugOptions?.noTransformAnim ? "cpm-bottom-sheet__panel--no-transform-anim" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    useEffect(() => {
+      if (!debugEnabled || !contentElementRef.current) return;
+
+      const observer = new ResizeObserver((entries) => {
+        const entry = entries[0];
+        if (!entry) return;
+        const nextHeight = entry.contentRect.height;
+        const prevHeight = previousContentHeightRef.current;
+        previousContentHeightRef.current = nextHeight;
+        const delta = prevHeight === null ? 0 : nextHeight - prevHeight;
+        setDebugMetrics((prev) => ({
+          ...prev,
+          contentResizeCount: prev.contentResizeCount + 1,
+          lastContentResizeDelta: Number(delta.toFixed(2)),
+        }));
+      });
+
+      observer.observe(contentElementRef.current);
+      return () => observer.disconnect();
+    }, [debugEnabled, renderedPlace?.id, showPlaceholder]);
+
+    useEffect(() => {
+      if (!debugEnabled) return;
+      updateDebugMetrics();
+    }, [debugEnabled, isOpen, stage, effectiveStage, showPlaceholder, renderedPlace?.id]);
+
+    useEffect(() => {
+      if (!debugEnabled) return;
+      logThreeFrames("open-change");
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [debugEnabled, isOpen]);
+
+    useEffect(() => {
+      if (!debugEnabled) return;
+      logThreeFrames("place-change");
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [debugEnabled, place?.id]);
+
+    const handlePanelRef = (node: HTMLDivElement | null) => {
+      panelElementRef.current = node;
+      if (!node) return;
+      panelMountCountRef.current += 1;
+      if (typeof window !== "undefined") {
+        const current = (window as Window & { __cpmPanelMountCount?: number }).__cpmPanelMountCount ?? 0;
+        (window as Window & { __cpmPanelMountCount?: number }).__cpmPanelMountCount = current + 1;
+      }
+      updateDebugMetrics();
+    };
+
+    const debugHud = debugEnabled ? (
+      <div className="cpm-bottom-sheet__debug-hud" aria-live="polite">
+        <div>isOpen: {String(isOpen)}</div>
+        <div>stage/effective: {stage} / {effectiveStage}</div>
+        <div>showPlaceholder: {String(showPlaceholder)}</div>
+        <div>selectionStatus: {selectionStatus}</div>
+        <div>place/rendered: {place?.id ?? "-"} / {renderedPlace?.id ?? "-"}</div>
+        <div>
+          mountCount/panelMountCount: {((typeof window !== "undefined" &&
+            (window as Window & { __cpmSheetMountCount?: number }).__cpmSheetMountCount) ||
+            mountCountRef.current)
+            .toString()} /
+          {((typeof window !== "undefined" &&
+            (window as Window & { __cpmPanelMountCount?: number }).__cpmPanelMountCount) ||
+            panelMountCountRef.current)
+            .toString()}
+        </div>
+        <div>height: {debugMetrics.computedHeight || "-"}</div>
+        <div>transform: {debugMetrics.computedTransform || "-"}</div>
+        <div>transition: {debugMetrics.computedTransition || "-"}</div>
+        <div>className: {debugMetrics.panelClassName || "-"}</div>
+        <div>contentResizeCount: {debugMetrics.contentResizeCount}</div>
+        <div>lastContentResizeDelta: {debugMetrics.lastContentResizeDelta}px</div>
+        <div>ts: {debugMetrics.timestamp || "-"}</div>
+      </div>
+    ) : null;
 
     if (showPlaceholder) {
       const placeholderMessage =
@@ -149,9 +303,11 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
             />
           ) : null}
           <div
-            className="cpm-bottom-sheet__panel"
+            className={panelClassNames}
+            ref={handlePanelRef}
             style={{ height: sheetHeight, transform: `translateY(${isVisible ? "0" : "100%"})` }}
           >
+            {debugHud}
             <div className="cpm-bottom-sheet__handle">
               <span className="cpm-bottom-sheet__handle-bar" aria-hidden />
             </div>
@@ -170,7 +326,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
                 ×
               </button>
             </header>
-            <div className="cpm-bottom-sheet__content" role="presentation">
+            <div className="cpm-bottom-sheet__content" role="presentation" ref={contentElementRef}>
               <section className="cpm-bottom-sheet__section">
                 <div className="cpm-bottom-sheet__section-head">
                   <h3 className="cpm-bottom-sheet__section-title">Status</h3>
@@ -190,9 +346,11 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
     return (
       <div className={`cpm-bottom-sheet ${isVisible ? "open" : ""}`} ref={ref}>
         <div
-          className="cpm-bottom-sheet__panel"
+          className={panelClassNames}
+          ref={handlePanelRef}
           style={{ height: sheetHeight, transform: `translateY(${isVisible ? "0" : "100%"})` }}
         >
+          {debugHud}
           <div
             className="cpm-bottom-sheet__handle"
             onTouchStart={handleTouchStart}
@@ -239,7 +397,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
             </button>
           </header>
 
-          <div className="cpm-bottom-sheet__content" role="presentation">
+          <div className="cpm-bottom-sheet__content" role="presentation" ref={contentElementRef}>
             <section className="cpm-bottom-sheet__section">
               <div className="cpm-bottom-sheet__section-head">
                 <h3 className="cpm-bottom-sheet__section-title">Accepted payments</h3>
