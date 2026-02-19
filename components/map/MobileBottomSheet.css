@@ -292,3 +292,31 @@
   border: none;
   background: rgba(15, 23, 42, 0.32);
 }
+
+.cpm-bottom-sheet__debug-hud {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  max-height: 48vh;
+  overflow: auto;
+  padding: 8px;
+  background: rgba(15, 23, 42, 0.88);
+  color: #f8fafc;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 11px;
+  line-height: 1.35;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.cpm-bottom-sheet__debug-log {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.cpm-bottom-sheet__debug-log li {
+  margin: 2px 0;
+}
