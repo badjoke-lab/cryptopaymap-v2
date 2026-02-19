@@ -128,7 +128,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
     }
 
     const showPlaceholder = isOpen && !renderedPlace;
-    const effectiveStage = showPlaceholder ? "expanded" : stage;
+    const effectiveStage = stage;
     const sheetHeight = effectiveStage === "expanded" ? `${EXPANDED_HEIGHT}vh` : `${PEEK_HEIGHT}vh`;
     const showDetails = effectiveStage === "expanded";
     const isVisible = isOpen && (Boolean(renderedPlace) || showPlaceholder);
