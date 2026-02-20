@@ -50,6 +50,15 @@ type DomSizeChange = {
   prev: number | null;
   next: number | null;
 };
+type InvalidateStats = {
+  pendingInvalidate: number;
+  requestedLast2s: number;
+  executedLast2s: number;
+  lastRequestedReason: string;
+  lastExecutedReason: string;
+  lastExecutedAt: string;
+};
+
 
 const PEEK_HEIGHT = 35;
 const EXPANDED_HEIGHT = 88;
@@ -136,6 +145,14 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       panelDisplay: "n/a",
       panelTransform: "n/a",
       overlayLayout: null,
+    });
+    const [invalidateStats, setInvalidateStats] = useState<InvalidateStats>({
+      pendingInvalidate: 0,
+      requestedLast2s: 0,
+      executedLast2s: 0,
+      lastRequestedReason: "none",
+      lastExecutedReason: "none",
+      lastExecutedAt: "n/a",
     });
 
     const pushDebugEvent = (entry: string, broadcast = true) => {
@@ -290,13 +307,38 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
         }
       };
       update();
+      const onInvalidateStats = (event: Event) => {
+        const detail = (event as CustomEvent<Partial<InvalidateStats>>).detail;
+        if (!detail || typeof detail !== "object") return;
+        setInvalidateStats((current) => ({
+          pendingInvalidate:
+            typeof detail.pendingInvalidate === "number" ? detail.pendingInvalidate : current.pendingInvalidate,
+          requestedLast2s:
+            typeof detail.requestedLast2s === "number" ? detail.requestedLast2s : current.requestedLast2s,
+          executedLast2s:
+            typeof detail.executedLast2s === "number" ? detail.executedLast2s : current.executedLast2s,
+          lastRequestedReason:
+            typeof detail.lastRequestedReason === "string"
+              ? detail.lastRequestedReason
+              : current.lastRequestedReason,
+          lastExecutedReason:
+            typeof detail.lastExecutedReason === "string"
+              ? detail.lastExecutedReason
+              : current.lastExecutedReason,
+          lastExecutedAt:
+            typeof detail.lastExecutedAt === "string" ? detail.lastExecutedAt : current.lastExecutedAt,
+        }));
+      };
+
       window.addEventListener("storage", update);
       window.addEventListener("cpm-debug-hud-changed", update as EventListener);
       window.addEventListener("cpm-debug-event", onExternalDebugEvent as EventListener);
+      window.addEventListener("cpm-map-invalidate-stats", onInvalidateStats as EventListener);
       return () => {
         window.removeEventListener("storage", update);
         window.removeEventListener("cpm-debug-hud-changed", update as EventListener);
         window.removeEventListener("cpm-debug-event", onExternalDebugEvent as EventListener);
+        window.removeEventListener("cpm-map-invalidate-stats", onInvalidateStats as EventListener);
       };
     }, []);
 
@@ -676,6 +718,12 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
         <div>header rect: {viewportMetrics.headerRect ? `top=${viewportMetrics.headerRect.top}, h=${viewportMetrics.headerRect.height}` : "n/a"}</div>
         <div>leaflet resize count: {resizeEvents.length}</div>
         <div>leaflet resize timestamps: {resizeEventTimestamps.join(", ") || "none"}</div>
+        <div>pendingInvalidate: {invalidateStats.pendingInvalidate}</div>
+        <div>requested(last2s): {invalidateStats.requestedLast2s}</div>
+        <div>executed(last2s): {invalidateStats.executedLast2s}</div>
+        <div>lastRequestedReason: {invalidateStats.lastRequestedReason}</div>
+        <div>lastExecutedReason: {invalidateStats.lastExecutedReason}</div>
+        <div>lastExecutedAt: {invalidateStats.lastExecutedAt}</div>
         <div>js activity(500ms): raf={jsActivityCounts.raf500ms}, timeout={jsActivityCounts.timeout500ms}</div>
         <div>sheet wrapper position: {sheetLayoutInfo.wrapperPosition}</div>
         <div>sheet panel position/display: {sheetLayoutInfo.panelPosition} / {sheetLayoutInfo.panelDisplay}</div>

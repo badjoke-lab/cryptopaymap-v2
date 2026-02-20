@@ -147,18 +147,22 @@ export default function MapClient() {
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const invalidateTimeoutRef = useRef<number | null>(null);
-  const openInvalidateTimeoutRef = useRef<number | null>(null);
+  const pendingInvalidateTimeoutRef = useRef<number | null>(null);
+  const pendingInvalidateReasonRef = useRef<string | null>(null);
+  const pendingInvalidateDelayRef = useRef<number>(0);
+  const pendingInvalidateHadPendingRef = useRef(0);
+  const requestedInvalidateAtRef = useRef<number[]>([]);
+  const executedInvalidateAtRef = useRef<number[]>([]);
+  const lastRequestedInvalidateReasonRef = useRef<string>("none");
+  const lastExecutedInvalidateReasonRef = useRef<string>("none");
+  const lastExecutedInvalidateAtRef = useRef<string>("n/a");
   const drawerReasonRef = useRef("initial");
   const viewportSnapshotRef = useRef<{ center: [number, number]; zoom: number } | null>(null);
   const prevMobileSheetStageRef = useRef<"peek" | "expanded" | null>(null);
-  const sheetStageInvalidateDebounceRef = useRef<number | null>(null);
   const lastMobileOpenAtRef = useRef<number>(0);
   const prevIsMobilePlaceOpenRef = useRef(false);
   const lastUserStageReasonAtRef = useRef<number>(0);
   const disableSheetStageInvalidateRef = useRef(false);
-  const invalidateReasonRef = useRef<string | null>(null);
-  const viewportResizeInvalidateAtRef = useRef<number>(0);
 
   const isMobilePlaceOpen = mounted && isPlaceOpen && Boolean(selectedPlaceId);
   const drawerMode: "full" = "full";
@@ -222,53 +226,105 @@ export default function MapClient() {
     };
   }, [logDebugEvent]);
 
-  const invalidateMapSize = useCallback((reason: string) => {
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(
+      new CustomEvent("cpm-map-invalidate-stats", {
+        detail: {
+          pendingInvalidate: 0,
+          requestedLast2s: 0,
+          executedLast2s: 0,
+          lastRequestedReason: lastRequestedInvalidateReasonRef.current,
+          lastExecutedReason: lastExecutedInvalidateReasonRef.current,
+          lastExecutedAt: lastExecutedInvalidateAtRef.current,
+        },
+      }),
+    );
+  }, []);
+
+  const requestMapInvalidate = useCallback((reason: "open" | "sheetStageChange" | "viewportSync" | "ready" | "close") => {
     const map = mapInstanceRef.current;
     if (!map) return;
 
-    if (reason === "viewportSync") {
-      logDebugEvent("[map] invalidateMapSize skipped reason=viewportSync");
-      return;
-    }
-
-    if (reason === "open") {
-      lastMobileOpenAtRef.current = Date.now();
-      logDebugEvent("[map] invalidateMapSize scheduled reason=open delay=300ms");
-      if (openInvalidateTimeoutRef.current !== null) {
-        window.clearTimeout(openInvalidateTimeoutRef.current);
-      }
-      openInvalidateTimeoutRef.current = window.setTimeout(() => {
-        map.invalidateSize({ pan: false });
-        logDebugEvent("[map] invalidateMapSize reason=open");
-        openInvalidateTimeoutRef.current = null;
-      }, 300);
-      return;
-    }
-
-    const debounceMs = 150;
     const now = Date.now();
-    if (reason === "visualViewportResize" && now - viewportResizeInvalidateAtRef.current < debounceMs) {
-      logDebugEvent("[map] invalidateMapSize deduped reason=visualViewportResize");
-      return;
+    requestedInvalidateAtRef.current = [...requestedInvalidateAtRef.current, now].filter((at) => now - at <= 2000);
+    lastRequestedInvalidateReasonRef.current = reason;
+
+    const reasonPriority: Record<string, number> = {
+      open: 3,
+      sheetStageChange: 2,
+      viewportSync: 1,
+      ready: 0,
+      close: 0,
+    };
+
+    const currentPendingReason = pendingInvalidateReasonRef.current;
+    const selectedReason =
+      currentPendingReason && reasonPriority[currentPendingReason] > reasonPriority[reason]
+        ? currentPendingReason
+        : reason;
+
+    const selectedDelay = selectedReason === "open" ? 300 : selectedReason === "sheetStageChange" ? 260 : 150;
+    const hadPending = pendingInvalidateTimeoutRef.current !== null ? 1 : 0;
+
+    if (pendingInvalidateTimeoutRef.current !== null) {
+      window.clearTimeout(pendingInvalidateTimeoutRef.current);
     }
 
-    invalidateReasonRef.current = reason;
-    if (invalidateTimeoutRef.current !== null) {
-      logDebugEvent(`[map] invalidateMapSize deduped reason=${reason}`);
-      window.clearTimeout(invalidateTimeoutRef.current);
+    pendingInvalidateReasonRef.current = selectedReason;
+    pendingInvalidateDelayRef.current = selectedDelay;
+    pendingInvalidateHadPendingRef.current = hadPending;
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("cpm-map-invalidate-stats", {
+          detail: {
+            pendingInvalidate: 1,
+            requestedLast2s: requestedInvalidateAtRef.current.length,
+            executedLast2s: executedInvalidateAtRef.current.filter((at) => now - at <= 2000).length,
+            lastRequestedReason: lastRequestedInvalidateReasonRef.current,
+            lastExecutedReason: lastExecutedInvalidateReasonRef.current,
+            lastExecutedAt: lastExecutedInvalidateAtRef.current,
+          },
+        }),
+      );
     }
 
-    logDebugEvent(`[map] invalidateMapSize scheduled reason=${reason} delay=${debounceMs}ms`);
-    invalidateTimeoutRef.current = window.setTimeout(() => {
-      const latestReason = invalidateReasonRef.current ?? reason;
+    pendingInvalidateTimeoutRef.current = window.setTimeout(() => {
+      const executeAt = Date.now();
+      const executeReason = pendingInvalidateReasonRef.current ?? selectedReason;
+      const executeDelay = pendingInvalidateDelayRef.current || selectedDelay;
+      const pendingBefore = pendingInvalidateHadPendingRef.current;
+
       map.invalidateSize({ pan: false });
-      logDebugEvent(`[map] invalidateMapSize reason=${latestReason}`);
-      if (latestReason === "visualViewportResize") {
-        viewportResizeInvalidateAtRef.current = Date.now();
+      logDebugEvent(
+        `[map] invalidate EXEC reason=${executeReason} scheduled=${executeDelay} pendingBefore=${pendingBefore}`,
+      );
+
+      executedInvalidateAtRef.current = [...executedInvalidateAtRef.current, executeAt].filter((at) => executeAt - at <= 2000);
+      lastExecutedInvalidateReasonRef.current = executeReason;
+      lastExecutedInvalidateAtRef.current = new Date(executeAt).toISOString();
+
+      pendingInvalidateTimeoutRef.current = null;
+      pendingInvalidateReasonRef.current = null;
+      pendingInvalidateDelayRef.current = 0;
+      pendingInvalidateHadPendingRef.current = 0;
+
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("cpm-map-invalidate-stats", {
+            detail: {
+              pendingInvalidate: 0,
+              requestedLast2s: requestedInvalidateAtRef.current.filter((at) => executeAt - at <= 2000).length,
+              executedLast2s: executedInvalidateAtRef.current.length,
+              lastRequestedReason: lastRequestedInvalidateReasonRef.current,
+              lastExecutedReason: lastExecutedInvalidateReasonRef.current,
+              lastExecutedAt: lastExecutedInvalidateAtRef.current,
+            },
+          }),
+        );
       }
-      invalidateTimeoutRef.current = null;
-      invalidateReasonRef.current = null;
-    }, debounceMs);
+    }, selectedDelay);
   }, [logDebugEvent]);
 
   const handleMobileSheetStageChange = useCallback(
@@ -308,19 +364,9 @@ export default function MapClient() {
         logDebugEvent("[map] invalidateMapSize skipped reason=sheetStageChange disabled");
         return;
       }
-      const delayMs = 260;
-      if (sheetStageInvalidateDebounceRef.current !== null) {
-        logDebugEvent("[map] invalidateMapSize deduped reason=sheetStageChange");
-        window.clearTimeout(sheetStageInvalidateDebounceRef.current);
-      }
-
-      logDebugEvent(`[map] invalidateMapSize scheduled reason=sheetStageChange delay=${delayMs}ms`);
-      sheetStageInvalidateDebounceRef.current = window.setTimeout(() => {
-        invalidateMapSize("sheetStageChange");
-        sheetStageInvalidateDebounceRef.current = null;
-      }, delayMs);
+      requestMapInvalidate("sheetStageChange");
     },
-    [invalidateMapSize, isMobilePlaceOpen, logDebugEvent],
+    [isMobilePlaceOpen, logDebugEvent, requestMapInvalidate],
   );
 
   const toggleFilters = useCallback(() => {
@@ -384,6 +430,7 @@ export default function MapClient() {
       }
       timer = window.setTimeout(() => {
         setAppVh();
+        requestMapInvalidate("viewportSync");
         timer = null;
       }, 120);
     };
@@ -399,7 +446,7 @@ export default function MapClient() {
       window.removeEventListener("resize", scheduleSetAppVh);
       window.visualViewport?.removeEventListener("resize", scheduleSetAppVh);
     };
-  }, []);
+  }, [requestMapInvalidate]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -890,7 +937,7 @@ export default function MapClient() {
         scheduleFetchForBounds(mapInstanceRef.current.getBounds(), { force: true });
       };
       map.whenReady(() => {
-        invalidateMapSize("ready");
+        requestMapInvalidate("ready");
         logViewportSyncIfChanged("ready");
         scheduleFetchForBounds(map.getBounds(), { force: true });
       });
@@ -920,7 +967,7 @@ export default function MapClient() {
         mapInstanceRef.current = null;
       }
     };
-  }, [closeDrawer, invalidateMapSize, logDebugEvent, openDrawerForPlace]);
+  }, [closeDrawer, logDebugEvent, openDrawerForPlace, requestMapInvalidate]);
 
   const selectedPlace = useMemo(
     () =>
@@ -1328,8 +1375,8 @@ if (!selectionHydrated) {
 
   useEffect(() => {
     if (!isPlaceOpen) return;
-    invalidateMapSize(isPlaceOpen ? "open" : "close");
-  }, [invalidateMapSize, isPlaceOpen]);
+    requestMapInvalidate(isPlaceOpen ? "open" : "close");
+  }, [isPlaceOpen, requestMapInvalidate]);
 
   useEffect(() => {
     if (process.env.NODE_ENV !== "production") {
@@ -1339,14 +1386,8 @@ if (!selectionHydrated) {
 
   useEffect(() => {
     return () => {
-      if (invalidateTimeoutRef.current !== null) {
-        window.clearTimeout(invalidateTimeoutRef.current);
-      }
-      if (openInvalidateTimeoutRef.current !== null) {
-        window.clearTimeout(openInvalidateTimeoutRef.current);
-      }
-      if (sheetStageInvalidateDebounceRef.current !== null) {
-        window.clearTimeout(sheetStageInvalidateDebounceRef.current);
+      if (pendingInvalidateTimeoutRef.current !== null) {
+        window.clearTimeout(pendingInvalidateTimeoutRef.current);
       }
     };
   }, []);
