@@ -41,6 +41,10 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
     const touchStartY = useRef<number | null>(null);
     const touchCurrentY = useRef<number | null>(null);
     const previousPlaceIdRef = useRef<string | null>(null);
+    const mountCountRef = useRef(0);
+    const eventLogRef = useRef<string[]>([]);
+    const [debugHudEnabled, setDebugHudEnabled] = useState(false);
+    const [debugLogVersion, setDebugLogVersion] = useState(0);
 
     useEffect(() => {
       if (place) {
@@ -64,6 +68,31 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       return undefined;
     }, [isOpen, place]);
 
+
+    useEffect(() => {
+      mountCountRef.current += 1;
+    }, []);
+
+    useEffect(() => {
+      if (typeof window === "undefined") return;
+      const key = "cpm_debugHud";
+      const update = () => {
+        setDebugHudEnabled(window.localStorage.getItem(key) === "1");
+      };
+      update();
+      window.addEventListener("storage", update);
+      window.addEventListener("cpm-debug-hud-changed", update as EventListener);
+      return () => {
+        window.removeEventListener("storage", update);
+        window.removeEventListener("cpm-debug-hud-changed", update as EventListener);
+      };
+    }, []);
+
+    const pushDebugEvent = (entry: string) => {
+      eventLogRef.current = [...eventLogRef.current, `${new Date().toISOString()} ${entry}`].slice(-30);
+      setDebugLogVersion((value) => value + 1);
+    };
+
     const viewModel = useMemo(() => getPlaceViewModel(renderedPlace), [renderedPlace]);
     const photos = viewModel.media;
 
@@ -74,6 +103,18 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       if (!isOpen) return;
       onStageChange?.(stage);
     }, [isOpen, onStageChange, stage]);
+
+    useEffect(() => {
+      pushDebugEvent(isOpen ? "open" : "close");
+    }, [isOpen]);
+
+    useEffect(() => {
+      pushDebugEvent(`stage change: ${stage}`);
+    }, [stage]);
+
+    useEffect(() => {
+      pushDebugEvent(`renderedPlace set: ${renderedPlace ? renderedPlace.id : "null"}`);
+    }, [renderedPlace]);
     const canShowPhotos = photos.length > 0;
     const descriptionText = renderedPlace?.description ?? renderedPlace?.about_short ?? renderedPlace?.about ?? null;
     const canShowDescription = Boolean(renderedPlace && !isRestricted && descriptionText);
@@ -133,6 +174,42 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
     const showDetails = effectiveStage === "expanded";
     const isVisible = isOpen && (Boolean(renderedPlace) || showPlaceholder);
 
+    const panelHeightPx =
+      typeof window !== "undefined" ? Math.round(window.innerHeight * (effectiveStage === "expanded" ? EXPANDED_HEIGHT : PEEK_HEIGHT) / 100) : null;
+    const panelTransform = `translateY(${isVisible ? "0" : "100%"})`;
+
+    const debugHudContent = debugHudEnabled ? (
+      <section
+        style={{
+          margin: "8px 12px 0",
+          borderRadius: "8px",
+          border: "1px solid #fca5a5",
+          background: "rgba(127, 29, 29, 0.92)",
+          color: "#fee2e2",
+          padding: "8px",
+          fontSize: "11px",
+          fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+          maxHeight: "180px",
+          overflow: "auto",
+        }}
+      >
+        <div>isOpen: {String(isOpen)}</div>
+        <div>stage: {stage}</div>
+        <div>effectiveStage: {effectiveStage}</div>
+        <div>showPlaceholder: {String(showPlaceholder)}</div>
+        <div>renderedPlace: {renderedPlace ? `yes (${renderedPlace.id})` : "no"}</div>
+        <div>place prop: {place ? `yes (${place.id})` : "no"}</div>
+        <div>panel height(px): {panelHeightPx ?? "n/a"}</div>
+        <div>panel transform: {panelTransform}</div>
+        <div>mountCount: {mountCountRef.current}</div>
+        <div style={{ marginTop: "6px", fontWeight: 700 }}>events (latest 30)</div>
+        {eventLogRef.current.length === 0 ? <div>none</div> : null}
+        {eventLogRef.current.map((entry, index) => (
+          <div key={`${index}-${debugLogVersion}`}>{entry}</div>
+        ))}
+      </section>
+    ) : null;
+
     if (showPlaceholder) {
       const placeholderMessage =
         selectionStatus === "loading"
@@ -150,7 +227,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
           ) : null}
           <div
             className="cpm-bottom-sheet__panel"
-            style={{ height: sheetHeight, transform: `translateY(${isVisible ? "0" : "100%"})` }}
+            style={{ height: sheetHeight, transform: panelTransform }}
           >
             <div className="cpm-bottom-sheet__handle">
               <span className="cpm-bottom-sheet__handle-bar" aria-hidden />
@@ -170,6 +247,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
                 ×
               </button>
             </header>
+            {debugHudContent}
             <div className="cpm-bottom-sheet__content" role="presentation">
               <section className="cpm-bottom-sheet__section">
                 <div className="cpm-bottom-sheet__section-head">
@@ -191,7 +269,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       <div className={`cpm-bottom-sheet ${isVisible ? "open" : ""}`} ref={ref}>
         <div
           className="cpm-bottom-sheet__panel"
-          style={{ height: sheetHeight, transform: `translateY(${isVisible ? "0" : "100%"})` }}
+          style={{ height: sheetHeight, transform: panelTransform }}
         >
           <div
             className="cpm-bottom-sheet__handle"
@@ -238,6 +316,8 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
               ×
             </button>
           </header>
+
+          {debugHudContent}
 
           <div className="cpm-bottom-sheet__content" role="presentation">
             <section className="cpm-bottom-sheet__section">
