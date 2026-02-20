@@ -604,17 +604,20 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
 
     const showPlaceholder = isOpen && !renderedPlace;
     const effectiveStage = stage;
-    const sheetHeight = effectiveStage === "expanded" ? `${EXPANDED_HEIGHT}vh` : `${PEEK_HEIGHT}vh`;
+    const sheetHeight = `${EXPANDED_HEIGHT}vh`;
     const showDetails = effectiveStage === "expanded";
     const isVisible = isOpen && (Boolean(renderedPlace) || showPlaceholder);
 
     const panelHeightPx =
       typeof window !== "undefined"
-        ? Math.round(
-            (window.innerHeight * (effectiveStage === "expanded" ? EXPANDED_HEIGHT : PEEK_HEIGHT)) / 100,
-          )
+        ? Math.round((window.innerHeight * EXPANDED_HEIGHT) / 100)
         : null;
-    const panelTransform = `translateY(${isVisible ? "0" : "100%"})`;
+    const peekOffset = `calc(${EXPANDED_HEIGHT}vh - ${PEEK_HEIGHT}vh)`;
+    const panelTransform = !isVisible
+      ? "translateY(100%)"
+      : effectiveStage === "expanded"
+        ? "translateY(0)"
+        : `translateY(${peekOffset})`;
 
     const categorizedEvents = eventLogRef.current.map((eventItem) => {
       const logLine = `${eventItem.timestamp} ${eventItem.entry}`;
