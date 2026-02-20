@@ -301,6 +301,10 @@ export default function MapClient() {
     pendingInvalidateDelayRef.current = selectedDelay;
     pendingInvalidateHadPendingRef.current = hadPending;
 
+    logDebugEvent(
+      `[map] invalidate REQUEST reason=${reason} selected=${selectedReason} delay=${selectedDelay} hadPending=${hadPending}`,
+    );
+
     emitMapInvalidateStats(now, 1);
 
     pendingInvalidateTimeoutRef.current = window.setTimeout(() => {
@@ -577,11 +581,12 @@ export default function MapClient() {
     if (process.env.NODE_ENV !== "production") {
       console.debug("[map] marker click", { placeId });
     }
+    logDebugEvent(`[map] markerSelect placeId=${placeId}`);
     drawerReasonRef.current = `marker:${placeId}`;
     skipNextSelectionRef.current = false;
     setSelectedPlaceId(placeId);
     setIsPlaceOpen(true);
-  }, []);
+  }, [logDebugEvent]);
 
   const closeDrawer = useCallback((caller: string) => {
     if (process.env.NODE_ENV !== "production") {

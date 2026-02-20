@@ -66,6 +66,17 @@ type InvalidateStats = {
   invalidateSuppressedReason: string;
 };
 
+type ProbePointType = "center" | "input" | "mapCenter";
+type ProbeEntry = {
+  timestamp: string;
+  trigger: string;
+  offset: string;
+  pointType: ProbePointType;
+  x: number;
+  y: number;
+  topSummary: string;
+};
+
 
 const PEEK_HEIGHT = 35;
 const EXPANDED_HEIGHT = 88;
@@ -168,6 +179,148 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       openInvalidateCanceledCount: 0,
       invalidateSuppressedReason: "none",
     });
+    const lastInputPointRef = useRef<{ x: number; y: number } | null>(null);
+    const probeGenerationRef = useRef(0);
+    const probeTimeoutsRef = useRef<number[]>([]);
+    const probeRafRef = useRef<number | null>(null);
+    const [probeEntries, setProbeEntries] = useState<ProbeEntry[]>([]);
+
+    const parseColor = (value: string): { r: number; g: number; b: number; a: number } | null => {
+      const trimmed = value.trim().toLowerCase();
+      if (!trimmed || trimmed === "transparent") return null;
+      const rgba = trimmed.match(/rgba?\(([^)]+)\)/);
+      if (rgba) {
+        const parts = rgba[1].split(",").map((part) => Number(part.trim()));
+        if (parts.length >= 3) {
+          return { r: parts[0] ?? 0, g: parts[1] ?? 0, b: parts[2] ?? 0, a: parts[3] ?? 1 };
+        }
+      }
+      if (trimmed.startsWith("#")) {
+        const hex = trimmed.slice(1);
+        const expanded =
+          hex.length === 3
+            ? hex
+                .split("")
+                .map((char) => `${char}${char}`)
+                .join("")
+            : hex;
+        if (expanded.length === 6) {
+          return {
+            r: parseInt(expanded.slice(0, 2), 16),
+            g: parseInt(expanded.slice(2, 4), 16),
+            b: parseInt(expanded.slice(4, 6), 16),
+            a: 1,
+          };
+        }
+      }
+      return null;
+    };
+
+    const shortSelector = (element: Element | null): string => {
+      if (!element) return "none";
+      const el = element as HTMLElement;
+      if (el.id) return `#${el.id}`;
+      const classes = (el.className || "").toString().split(" ").filter(Boolean).slice(0, 3);
+      return `${el.tagName.toLowerCase()}${classes.length ? `.${classes.join(".")}` : ""}`;
+    };
+
+    const runProbeSample = (
+      trigger: string,
+      offset: string,
+      pointType: ProbePointType,
+      x: number,
+      y: number,
+    ) => {
+      const clampedX = Math.max(0, Math.min(window.innerWidth - 1, Math.round(x)));
+      const clampedY = Math.max(0, Math.min(window.innerHeight - 1, Math.round(y)));
+      const top = document.elementFromPoint(clampedX, clampedY) as HTMLElement | null;
+      const computed = top ? window.getComputedStyle(top) : null;
+      const rect = top?.getBoundingClientRect() ?? null;
+      const rectWidth = rect?.width ?? 0;
+      const rectHeight = rect?.height ?? 0;
+      const coversViewport =
+        Boolean(rect) &&
+        rectWidth >= window.innerWidth * 0.9 &&
+        rectHeight >= window.innerHeight * 0.9;
+      const color = parseColor(computed?.backgroundColor ?? "");
+      const luminance =
+        color !== null ? (0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b) / 255 : 1;
+      const darkScore = Math.max(0, Math.min(1, 1 - luminance));
+      const opacity = Number(computed?.opacity ?? "1") || 1;
+      const effectiveDarkScore = Number((darkScore * Math.min(1, Math.max(0, opacity))).toFixed(2));
+      const parentLines: string[] = [];
+      let parent: HTMLElement | null = top?.parentElement ?? null;
+      for (let depth = 1; depth <= 3 && parent; depth += 1) {
+        const parentComputed = window.getComputedStyle(parent);
+        parentLines.push(
+          `p${depth}=${shortSelector(parent)} pos=${parentComputed.position} z=${parentComputed.zIndex} op=${parentComputed.opacity} bg=${parentComputed.backgroundColor} flt=${parentComputed.filter} bdf=${parentComputed.backdropFilter}`,
+        );
+        parent = parent.parentElement;
+      }
+
+      const summary =
+        `${trigger} +${offset} ${pointType} top=${shortSelector(top)} ` +
+        `z=${computed?.zIndex ?? "n/a"} op=${computed?.opacity ?? "n/a"} bg=${computed?.backgroundColor ?? "n/a"} ` +
+        `bdf=${computed?.backdropFilter ?? "none"} flt=${computed?.filter ?? "none"} ` +
+        `covers=${String(coversViewport)} score=${effectiveDarkScore}`;
+      const detail =
+        `${summary} x=${clampedX},y=${clampedY} rect=${
+          rect
+            ? `${Math.round(rect.left)},${Math.round(rect.top)},${Math.round(rect.width)}x${Math.round(rect.height)}`
+            : "n/a"
+        } display=${computed?.display ?? "n/a"} visibility=${computed?.visibility ?? "n/a"} pointer=${computed?.pointerEvents ?? "n/a"} mix=${computed?.mixBlendMode ?? "n/a"} transform=${computed?.transform ?? "n/a"} ${parentLines.join(" | ")}`;
+
+      const timestamp = new Date().toISOString();
+      setProbeEntries((current) => [
+        ...current,
+        { timestamp, trigger, offset, pointType, x: clampedX, y: clampedY, topSummary: summary },
+      ].slice(-10));
+      pushDebugEvent(`[probe] ${detail}`);
+    };
+
+    const triggerDarkFlashProbe = (
+      trigger: string,
+      inputPoint?: { x: number; y: number } | null,
+    ) => {
+      if (typeof window === "undefined") return;
+      const generation = probeGenerationRef.current + 1;
+      probeGenerationRef.current = generation;
+      probeTimeoutsRef.current.forEach((id) => window.clearTimeout(id));
+      probeTimeoutsRef.current = [];
+      if (probeRafRef.current !== null) {
+        window.cancelAnimationFrame(probeRafRef.current);
+        probeRafRef.current = null;
+      }
+
+      const mapRect = document.getElementById("map")?.getBoundingClientRect() ?? null;
+      const points: Array<{ type: ProbePointType; x: number; y: number }> = [
+        { type: "center", x: window.innerWidth / 2, y: window.innerHeight / 2 },
+        {
+          type: "mapCenter",
+          x: mapRect ? mapRect.left + mapRect.width / 2 : window.innerWidth / 2,
+          y: mapRect ? mapRect.top + mapRect.height / 2 : window.innerHeight / 2,
+        },
+      ];
+      const effectiveInputPoint = inputPoint ?? lastInputPointRef.current;
+      if (effectiveInputPoint) {
+        points.push({ type: "input", x: effectiveInputPoint.x, y: effectiveInputPoint.y });
+      }
+
+      points.forEach((point) => runProbeSample(trigger, "0ms", point.type, point.x, point.y));
+
+      probeRafRef.current = window.requestAnimationFrame(() => {
+        if (probeGenerationRef.current !== generation) return;
+        points.forEach((point) => runProbeSample(trigger, "rAF", point.type, point.x, point.y));
+      });
+
+      [50, 150, 300].forEach((delay) => {
+        const timeoutId = window.setTimeout(() => {
+          if (probeGenerationRef.current !== generation) return;
+          points.forEach((point) => runProbeSample(trigger, `${delay}ms`, point.type, point.x, point.y));
+        }, delay);
+        probeTimeoutsRef.current.push(timeoutId);
+      });
+    };
 
     const pushDebugEvent = (entry: string, broadcast = true) => {
       const timestamp = new Date().toISOString();
@@ -178,9 +331,19 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       }
     };
 
-    const markInput = (scope: "root" | "handle", eventName: "pointerdown" | "pointerup" | "click" | "touchstart" | "touchend") => {
+    const markInput = (
+      scope: "root" | "handle",
+      eventName: "pointerdown" | "pointerup" | "click" | "touchstart" | "touchend",
+      point?: { x: number; y: number } | null,
+    ) => {
       lastInputAtRef.current = Date.now();
+      if (point) {
+        lastInputPointRef.current = point;
+      }
       pushDebugEvent(`[input:${scope}] ${eventName}`);
+      if (eventName === "pointerdown" || eventName === "click" || eventName === "touchstart") {
+        triggerDarkFlashProbe(`input:${scope}:${eventName}`, point);
+      }
     };
 
     const setStageWithReason = (nextStage: SheetStage, reason: StageReason) => {
@@ -270,6 +433,15 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
         }
         if (typeof detail?.entry === "string") {
           pushDebugEvent(detail.entry, false);
+
+          if (
+            detail.entry.startsWith("[map] click") ||
+            detail.entry.startsWith("[map] markerSelect") ||
+            detail.entry.includes("invalidate REQUEST") ||
+            detail.entry.includes("invalidate EXEC")
+          ) {
+            triggerDarkFlashProbe(`map:${detail.entry.replace(/^\[map\]\s*/, "")}`);
+          }
 
           if (detail.entry.startsWith("[map] resize")) {
             const before = latestLayoutSnapshotRef.current;
@@ -451,6 +623,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
           `[dom-size] target=${target} prev=${prev ?? "n/a"} next=${next ?? "n/a"} prevMeta={${prevMeta}} nextMeta={${nextMeta}}`,
           false,
         );
+        triggerDarkFlashProbe(`dom-size:${target}`);
       };
 
       const syncMetrics = () => {
@@ -518,6 +691,12 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
         window.clearInterval(interval);
         window.removeEventListener("resize", onResize);
         window.visualViewport?.removeEventListener("resize", onResize);
+        probeTimeoutsRef.current.forEach((id) => window.clearTimeout(id));
+        probeTimeoutsRef.current = [];
+        if (probeRafRef.current !== null) {
+          window.cancelAnimationFrame(probeRafRef.current);
+          probeRafRef.current = null;
+        }
       };
     }, [debugLogVersion, isOpen, stage]);
 
@@ -589,6 +768,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       const prevIsOpen = prevIsOpenRef.current;
       if (!prevIsOpen && isOpen) {
         pushDebugEvent("open");
+        triggerDarkFlashProbe("sheet:open");
         if (!place) {
           stageReasonRef.current = "placeholder";
         }
@@ -605,6 +785,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       const now = Date.now();
       const recentInput = lastInputAtRef.current !== null && now - lastInputAtRef.current <= 200;
       pushDebugEvent(`[stage-change] ${stage} reason=${stageReasonRef.current} recentInput200ms=${recentInput}`);
+      triggerDarkFlashProbe(`sheet:stage-change:${stage}`);
     }, [stage]);
 
     useEffect(() => {
@@ -638,7 +819,11 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
     }, [isOpen, onClose, renderedPlace]);
 
     const handleTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
-      markInput("handle", "touchstart");
+      const point = {
+        x: event.touches[0]?.clientX ?? window.innerWidth / 2,
+        y: event.touches[0]?.clientY ?? window.innerHeight / 2,
+      };
+      markInput("handle", "touchstart", point);
       touchStartY.current = event.touches[0]?.clientY ?? null;
       touchCurrentY.current = touchStartY.current;
     };
@@ -647,8 +832,11 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       touchCurrentY.current = event.touches[0]?.clientY ?? null;
     };
 
-    const handleTouchEnd = () => {
-      markInput("handle", "touchend");
+    const handleTouchEnd = (event: React.TouchEvent<HTMLDivElement>) => {
+      const point = event.changedTouches[0]
+        ? { x: event.changedTouches[0].clientX, y: event.changedTouches[0].clientY }
+        : null;
+      markInput("handle", "touchend", point);
       if (touchStartY.current === null || touchCurrentY.current === null) {
         return;
       }
@@ -666,16 +854,32 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       touchCurrentY.current = null;
     };
 
-    const handleSheetRootPointerDown = () => markInput("root", "pointerdown");
-    const handleSheetRootPointerUp = () => markInput("root", "pointerup");
-    const handleSheetRootClick = () => markInput("root", "click");
-    const handleSheetRootTouchStart = () => markInput("root", "touchstart");
-    const handleSheetRootTouchEnd = () => markInput("root", "touchend");
+    const handleSheetRootPointerDown = (event: React.PointerEvent<HTMLDivElement>) =>
+      markInput("root", "pointerdown", { x: event.clientX, y: event.clientY });
+    const handleSheetRootPointerUp = (event: React.PointerEvent<HTMLDivElement>) =>
+      markInput("root", "pointerup", { x: event.clientX, y: event.clientY });
+    const handleSheetRootClick = (event: React.MouseEvent<HTMLDivElement>) =>
+      markInput("root", "click", { x: event.clientX, y: event.clientY });
+    const handleSheetRootTouchStart = (event: React.TouchEvent<HTMLDivElement>) =>
+      markInput("root", "touchstart", {
+        x: event.touches[0]?.clientX ?? window.innerWidth / 2,
+        y: event.touches[0]?.clientY ?? window.innerHeight / 2,
+      });
+    const handleSheetRootTouchEnd = (event: React.TouchEvent<HTMLDivElement>) =>
+      markInput(
+        "root",
+        "touchend",
+        event.changedTouches[0]
+          ? { x: event.changedTouches[0].clientX, y: event.changedTouches[0].clientY }
+          : null,
+      );
 
-    const handleGripPointerDown = () => markInput("handle", "pointerdown");
-    const handleGripPointerUp = () => markInput("handle", "pointerup");
-    const handleGripClick = () => {
-      markInput("handle", "click");
+    const handleGripPointerDown = (event: React.PointerEvent<HTMLDivElement>) =>
+      markInput("handle", "pointerdown", { x: event.clientX, y: event.clientY });
+    const handleGripPointerUp = (event: React.PointerEvent<HTMLDivElement>) =>
+      markInput("handle", "pointerup", { x: event.clientX, y: event.clientY });
+    const handleGripClick = (event: React.MouseEvent<HTMLDivElement>) => {
+      markInput("handle", "click", { x: event.clientX, y: event.clientY });
       setStageWithReason(stage === "peek" ? "expanded" : "peek", "handleTap");
     };
 
@@ -770,6 +974,19 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
         <div>openInvalidateToken: {invalidateStats.openInvalidateToken}</div>
         <div>openInvalidateCanceledCount: {invalidateStats.openInvalidateCanceledCount}</div>
         <div>invalidateSuppressedReason: {invalidateStats.invalidateSuppressedReason}</div>
+        <div style={{ marginTop: "6px", fontWeight: 700 }}>dark flash probe (latest 10)</div>
+        {probeEntries.length === 0 ? (
+          <div>none</div>
+        ) : (
+          probeEntries
+            .slice()
+            .reverse()
+            .map((probe, index) => (
+              <div key={`${probe.timestamp}-${probe.pointType}-${index}`}>
+                {probe.timestamp.split("T")[1]?.replace("Z", "") ?? probe.timestamp} {probe.topSummary}
+              </div>
+            ))
+        )}
         <div>js activity(500ms): raf={jsActivityCounts.raf500ms}, timeout={jsActivityCounts.timeout500ms}</div>
         <div>sheet wrapper position: {sheetLayoutInfo.wrapperPosition}</div>
         <div>sheet panel position/display: {sheetLayoutInfo.panelPosition} / {sheetLayoutInfo.panelDisplay}</div>
