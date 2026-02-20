@@ -41,6 +41,35 @@ const VERIFICATION_LABELS: Record<Place["verification"], string> = {
   unverified: "Unverified",
 };
 
+
+const areStringArraysEqual = (a?: string[] | null, b?: string[] | null) => {
+  if (a === b) return true;
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  if (a.length !== b.length) return false;
+  return a.every((value, index) => value === b[index]);
+};
+
+const hasMeaningfulPlaceDiff = (prev: Place, next: Place) => {
+  return (
+    prev.name !== next.name ||
+    prev.category !== next.category ||
+    prev.verification !== next.verification ||
+    prev.country !== next.country ||
+    prev.city !== next.city ||
+    prev.address_full !== next.address_full ||
+    prev.description !== next.description ||
+    prev.about !== next.about ||
+    prev.about_short !== next.about_short ||
+    prev.paymentNote !== next.paymentNote ||
+    prev.updatedAt !== next.updatedAt ||
+    prev.submitterName !== next.submitterName ||
+    !areStringArraysEqual(prev.photos, next.photos) ||
+    !areStringArraysEqual(prev.images, next.images) ||
+    !areStringArraysEqual(prev.accepted, next.accepted) ||
+    !areStringArraysEqual(prev.supported_crypto, next.supported_crypto)
+  );
+};
 const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
   ({ place, isOpen, onClose, selectionStatus = "idle", onStageChange }, ref) => {
     const [stage, setStage] = useState<SheetStage>("peek");
@@ -51,6 +80,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
     const stageReasonRef = useRef<StageReason>("programmatic");
     const renderedPlaceReasonRef = useRef<RenderedPlaceReason>("openFromPlaceProp");
     const lastInputAtRef = useRef<number | null>(null);
+    const prevIsOpenRef = useRef(isOpen);
     const mountCountRef = useRef(0);
     const eventLogRef = useRef<string[]>([]);
     const [debugHudEnabled, setDebugHudEnabled] = useState(false);
@@ -84,7 +114,14 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
         const currentId = current?.id ?? null;
         const nextId = nextPlace?.id ?? null;
         const sameId = currentId !== null && currentId === nextId;
-        pushDebugEvent(`[renderedPlace-intent] ${currentId ?? "null"} -> ${nextId ?? "null"} reason=${reason}${sameId ? " (sameId)" : ""}`);
+        const hasDiff = Boolean(current && nextPlace && hasMeaningfulPlaceDiff(current, nextPlace));
+        const shouldSkip = sameId && !hasDiff;
+        pushDebugEvent(
+          `[renderedPlace-intent] ${currentId ?? "null"} -> ${nextId ?? "null"} reason=${reason}${sameId ? " (sameId)" : ""}${shouldSkip ? " [skip-set]" : ""}`,
+        );
+        if (shouldSkip) {
+          return current;
+        }
         return nextPlace;
       });
     };
@@ -151,11 +188,20 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
     }, [isOpen, onStageChange, stage]);
 
     useEffect(() => {
-      pushDebugEvent(isOpen ? "open" : "close");
-      if (isOpen && !renderedPlace) {
-        stageReasonRef.current = "placeholder";
+      const prevIsOpen = prevIsOpenRef.current;
+      if (!prevIsOpen && isOpen) {
+        pushDebugEvent("open");
+        if (!place) {
+          stageReasonRef.current = "placeholder";
+        }
       }
-    }, [isOpen, renderedPlace]);
+
+      if (prevIsOpen && !isOpen) {
+        pushDebugEvent("close");
+      }
+
+      prevIsOpenRef.current = isOpen;
+    }, [isOpen, place]);
 
     useEffect(() => {
       const now = Date.now();
