@@ -16,6 +16,13 @@ type Props = {
 };
 
 type SheetStage = "peek" | "expanded";
+type StageReason = "handleTap" | "dragUp" | "dragDown" | "openInit" | "closeReset" | "placeholder" | "programmatic";
+type RenderedPlaceReason =
+  | "openFromPlaceProp"
+  | "placePropChanged"
+  | "detailMerged"
+  | "closeReset"
+  | "rerenderGuardHit";
 
 const PEEK_HEIGHT = 35;
 const EXPANDED_HEIGHT = 88;
@@ -41,36 +48,80 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
     const touchStartY = useRef<number | null>(null);
     const touchCurrentY = useRef<number | null>(null);
     const previousPlaceIdRef = useRef<string | null>(null);
+    const stageReasonRef = useRef<StageReason>("programmatic");
+    const renderedPlaceReasonRef = useRef<RenderedPlaceReason>("openFromPlaceProp");
+    const lastInputAtRef = useRef<number | null>(null);
     const mountCountRef = useRef(0);
     const eventLogRef = useRef<string[]>([]);
     const [debugHudEnabled, setDebugHudEnabled] = useState(false);
     const [debugLogVersion, setDebugLogVersion] = useState(0);
 
+    const pushDebugEvent = (entry: string) => {
+      eventLogRef.current = [...eventLogRef.current, `${new Date().toISOString()} ${entry}`].slice(-30);
+      setDebugLogVersion((value) => value + 1);
+    };
+
+    const markInput = (scope: "root" | "handle", eventName: "pointerdown" | "pointerup" | "click" | "touchstart" | "touchend") => {
+      lastInputAtRef.current = Date.now();
+      pushDebugEvent(`[input:${scope}] ${eventName}`);
+    };
+
+    const setStageWithReason = (nextStage: SheetStage, reason: StageReason) => {
+      stageReasonRef.current = reason;
+      setStage((current) => {
+        if (current === nextStage) {
+          pushDebugEvent(`[stage-intent] ${current} -> ${nextStage} reason=${reason} (no-op)`);
+          return current;
+        }
+        pushDebugEvent(`[stage-intent] ${current} -> ${nextStage} reason=${reason}`);
+        return nextStage;
+      });
+    };
+
+    const setRenderedPlaceWithReason = (nextPlace: Place | null, reason: RenderedPlaceReason) => {
+      renderedPlaceReasonRef.current = reason;
+      setRenderedPlace((current) => {
+        const currentId = current?.id ?? null;
+        const nextId = nextPlace?.id ?? null;
+        const sameId = currentId !== null && currentId === nextId;
+        pushDebugEvent(`[renderedPlace-intent] ${currentId ?? "null"} -> ${nextId ?? "null"} reason=${reason}${sameId ? " (sameId)" : ""}`);
+        return nextPlace;
+      });
+    };
+
     useEffect(() => {
       if (place) {
+        const hasPrevious = previousPlaceIdRef.current !== null;
+        const sameAsPrevious = previousPlaceIdRef.current === place.id;
+        const reason: RenderedPlaceReason = !hasPrevious
+          ? "openFromPlaceProp"
+          : sameAsPrevious
+            ? "detailMerged"
+            : "placePropChanged";
+
         previousPlaceIdRef.current = place.id;
-        setRenderedPlace(place);
+        setRenderedPlaceWithReason(place, reason);
         if (!isOpen) {
-          setStage("peek");
+          setStageWithReason("peek", "openInit");
         }
         return;
       }
 
-      setRenderedPlace(null);
+      setRenderedPlaceWithReason(null, "closeReset");
 
       if (!isOpen) {
         previousPlaceIdRef.current = null;
-        setStage("peek");
-        const timeout = window.setTimeout(() => setRenderedPlace(null), 220);
+        setStageWithReason("peek", "closeReset");
+        const timeout = window.setTimeout(() => setRenderedPlaceWithReason(null, "rerenderGuardHit"), 220);
         return () => window.clearTimeout(timeout);
       }
 
       return undefined;
     }, [isOpen, place]);
 
-
     useEffect(() => {
       mountCountRef.current += 1;
+      pushDebugEvent("[mount] MobileBottomSheet");
     }, []);
 
     useEffect(() => {
@@ -88,11 +139,6 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       };
     }, []);
 
-    const pushDebugEvent = (entry: string) => {
-      eventLogRef.current = [...eventLogRef.current, `${new Date().toISOString()} ${entry}`].slice(-30);
-      setDebugLogVersion((value) => value + 1);
-    };
-
     const viewModel = useMemo(() => getPlaceViewModel(renderedPlace), [renderedPlace]);
     const photos = viewModel.media;
 
@@ -106,15 +152,25 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
 
     useEffect(() => {
       pushDebugEvent(isOpen ? "open" : "close");
-    }, [isOpen]);
+      if (isOpen && !renderedPlace) {
+        stageReasonRef.current = "placeholder";
+      }
+    }, [isOpen, renderedPlace]);
 
     useEffect(() => {
-      pushDebugEvent(`stage change: ${stage}`);
+      const now = Date.now();
+      const recentInput = lastInputAtRef.current !== null && now - lastInputAtRef.current <= 200;
+      pushDebugEvent(`[stage-change] ${stage} reason=${stageReasonRef.current} recentInput200ms=${recentInput}`);
     }, [stage]);
 
     useEffect(() => {
-      pushDebugEvent(`renderedPlace set: ${renderedPlace ? renderedPlace.id : "null"}`);
+      const now = Date.now();
+      const recentInput = lastInputAtRef.current !== null && now - lastInputAtRef.current <= 200;
+      pushDebugEvent(
+        `[renderedPlace-set] ${renderedPlace ? renderedPlace.id : "null"} reason=${renderedPlaceReasonRef.current} recentInput200ms=${recentInput}`,
+      );
     }, [renderedPlace]);
+
     const canShowPhotos = photos.length > 0;
     const descriptionText = renderedPlace?.description ?? renderedPlace?.about_short ?? renderedPlace?.about ?? null;
     const canShowDescription = Boolean(renderedPlace && !isRestricted && descriptionText);
@@ -138,6 +194,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
     }, [isOpen, onClose, renderedPlace]);
 
     const handleTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+      markInput("handle", "touchstart");
       touchStartY.current = event.touches[0]?.clientY ?? null;
       touchCurrentY.current = touchStartY.current;
     };
@@ -147,6 +204,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
     };
 
     const handleTouchEnd = () => {
+      markInput("handle", "touchend");
       if (touchStartY.current === null || touchCurrentY.current === null) {
         return;
       }
@@ -155,13 +213,26 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       const threshold = 40;
 
       if (deltaY < -threshold) {
-        setStage("expanded");
+        setStageWithReason("expanded", "dragUp");
       } else if (deltaY > threshold && stage === "expanded") {
-        setStage("peek");
+        setStageWithReason("peek", "dragDown");
       }
 
       touchStartY.current = null;
       touchCurrentY.current = null;
+    };
+
+    const handleSheetRootPointerDown = () => markInput("root", "pointerdown");
+    const handleSheetRootPointerUp = () => markInput("root", "pointerup");
+    const handleSheetRootClick = () => markInput("root", "click");
+    const handleSheetRootTouchStart = () => markInput("root", "touchstart");
+    const handleSheetRootTouchEnd = () => markInput("root", "touchend");
+
+    const handleGripPointerDown = () => markInput("handle", "pointerdown");
+    const handleGripPointerUp = () => markInput("handle", "pointerup");
+    const handleGripClick = () => {
+      markInput("handle", "click");
+      setStageWithReason(stage === "peek" ? "expanded" : "peek", "handleTap");
     };
 
     if (!renderedPlace && !isOpen) {
@@ -175,7 +246,11 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
     const isVisible = isOpen && (Boolean(renderedPlace) || showPlaceholder);
 
     const panelHeightPx =
-      typeof window !== "undefined" ? Math.round(window.innerHeight * (effectiveStage === "expanded" ? EXPANDED_HEIGHT : PEEK_HEIGHT) / 100) : null;
+      typeof window !== "undefined"
+        ? Math.round(
+            (window.innerHeight * (effectiveStage === "expanded" ? EXPANDED_HEIGHT : PEEK_HEIGHT)) / 100,
+          )
+        : null;
     const panelTransform = `translateY(${isVisible ? "0" : "100%"})`;
 
     const debugHudContent = debugHudEnabled ? (
@@ -216,7 +291,15 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
           ? "Loading place details..."
           : "Place details are unavailable right now.";
       return (
-        <div className={`cpm-bottom-sheet ${isVisible ? "open" : ""}`} ref={ref}>
+        <div
+          className={`cpm-bottom-sheet ${isVisible ? "open" : ""}`}
+          ref={ref}
+          onPointerDown={handleSheetRootPointerDown}
+          onPointerUp={handleSheetRootPointerUp}
+          onClick={handleSheetRootClick}
+          onTouchStart={handleSheetRootTouchStart}
+          onTouchEnd={handleSheetRootTouchEnd}
+        >
           {isOpen ? (
             <button
               type="button"
@@ -266,7 +349,15 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
     }
 
     return (
-      <div className={`cpm-bottom-sheet ${isVisible ? "open" : ""}`} ref={ref}>
+      <div
+        className={`cpm-bottom-sheet ${isVisible ? "open" : ""}`}
+        ref={ref}
+        onPointerDown={handleSheetRootPointerDown}
+        onPointerUp={handleSheetRootPointerUp}
+        onClick={handleSheetRootClick}
+        onTouchStart={handleSheetRootTouchStart}
+        onTouchEnd={handleSheetRootTouchEnd}
+      >
         <div
           className="cpm-bottom-sheet__panel"
           style={{ height: sheetHeight, transform: panelTransform }}
@@ -276,7 +367,9 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
             onTouchStart={handleTouchStart}
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
-            onClick={() => setStage((prev) => (prev === "peek" ? "expanded" : "peek"))}
+            onPointerDown={handleGripPointerDown}
+            onPointerUp={handleGripPointerUp}
+            onClick={handleGripClick}
           >
             <span className="cpm-bottom-sheet__handle-bar" aria-hidden />
           </div>
@@ -481,7 +574,8 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
         </div>
       </div>
     );
-});
+  },
+);
 
 MobileBottomSheet.displayName = "MobileBottomSheet";
 
