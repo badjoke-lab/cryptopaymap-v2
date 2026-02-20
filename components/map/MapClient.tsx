@@ -170,6 +170,11 @@ export default function MapClient() {
   const lastViewportSyncTriggerRef = useRef<string>("initial");
   const appVhRafRef = useRef<number | null>(null);
   const appVhPendingTriggerRef = useRef<string>("initial");
+  const openInvalidateTokenRef = useRef(0);
+  const openInvalidateCanceledCountRef = useRef(0);
+  const activeOpenInvalidateTokenRef = useRef<number | null>(null);
+  const cleanupOpenInvalidateRef = useRef<(() => void) | null>(null);
+  const lastInvalidateSuppressedReasonRef = useRef<string>("none");
 
   const isMobilePlaceOpen = mounted && isPlaceOpen && Boolean(selectedPlaceId);
   const drawerMode: "full" = "full";
@@ -199,6 +204,9 @@ export default function MapClient() {
             appVhUpdatedAt: appVhUpdatedAtRef.current,
             appVhUpdatesLast2s: appVhUpdatesAtRef.current.filter((at) => now - at <= 2000).length,
             lastViewportSyncTrigger: lastViewportSyncTriggerRef.current,
+            openInvalidateToken: openInvalidateTokenRef.current,
+            openInvalidateCanceledCount: openInvalidateCanceledCountRef.current,
+            invalidateSuppressedReason: lastInvalidateSuppressedReasonRef.current,
           },
         }),
       );
@@ -282,7 +290,7 @@ export default function MapClient() {
         ? currentPendingReason
         : reason;
 
-    const selectedDelay = selectedReason === "open" ? 300 : selectedReason === "sheetStageChange" ? 260 : 150;
+    const selectedDelay = selectedReason === "sheetStageChange" ? 260 : 150;
     const hadPending = pendingInvalidateTimeoutRef.current !== null ? 1 : 0;
 
     if (pendingInvalidateTimeoutRef.current !== null) {
@@ -356,10 +364,86 @@ export default function MapClient() {
         logDebugEvent("[map] invalidateMapSize skipped reason=sheetStageChange disabled");
         return;
       }
+      if (nextStage !== "expanded") {
+        lastInvalidateSuppressedReasonRef.current = "peek";
+        emitMapInvalidateStats(now, pendingInvalidateTimeoutRef.current !== null ? 1 : 0);
+        logDebugEvent("[map] invalidateSuppressedReason=peek stage=peek");
+        return;
+      }
+      lastInvalidateSuppressedReasonRef.current = "none";
       requestMapInvalidate("sheetStageChange");
     },
-    [isMobilePlaceOpen, logDebugEvent, requestMapInvalidate],
+    [emitMapInvalidateStats, isMobilePlaceOpen, logDebugEvent, requestMapInvalidate],
   );
+
+  const scheduleOpenInvalidate = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    if (cleanupOpenInvalidateRef.current) {
+      cleanupOpenInvalidateRef.current();
+      cleanupOpenInvalidateRef.current = null;
+      openInvalidateCanceledCountRef.current += 1;
+    }
+
+    const token = openInvalidateTokenRef.current + 1;
+    openInvalidateTokenRef.current = token;
+    activeOpenInvalidateTokenRef.current = token;
+    emitMapInvalidateStats(Date.now(), pendingInvalidateTimeoutRef.current !== null ? 1 : 0);
+
+    const panel = document.querySelector(".cpm-bottom-sheet__panel") as HTMLElement | null;
+    let fallbackTimeout: number | null = null;
+    const rafIds: number[] = [];
+    let settled = false;
+
+    const cleanup = () => {
+      if (fallbackTimeout !== null) {
+        window.clearTimeout(fallbackTimeout);
+        fallbackTimeout = null;
+      }
+      rafIds.forEach((id) => window.cancelAnimationFrame(id));
+      if (panel) {
+        panel.removeEventListener("transitionend", onTransitionEnd);
+      }
+    };
+
+    const runInvalidate = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      cleanupOpenInvalidateRef.current = null;
+      if (activeOpenInvalidateTokenRef.current !== token) {
+        return;
+      }
+      requestMapInvalidate("open");
+    };
+
+    const onTransitionEnd = (event: Event) => {
+      const transitionEvent = event as TransitionEvent;
+      if (transitionEvent.propertyName !== "transform") return;
+      runInvalidate();
+    };
+
+    if (panel) {
+      panel.addEventListener("transitionend", onTransitionEnd);
+      fallbackTimeout = window.setTimeout(runInvalidate, 700);
+    } else {
+      const raf1 = window.requestAnimationFrame(() => {
+        const raf2 = window.requestAnimationFrame(() => {
+          const raf3 = window.requestAnimationFrame(() => {
+            runInvalidate();
+          });
+          rafIds.push(raf3);
+        });
+        rafIds.push(raf2);
+      });
+      rafIds.push(raf1);
+      fallbackTimeout = window.setTimeout(runInvalidate, 200);
+    }
+
+    cleanupOpenInvalidateRef.current = cleanup;
+  }, [emitMapInvalidateStats, requestMapInvalidate]);
 
   const toggleFilters = useCallback(() => {
     setFiltersOpen((previous) => {
@@ -1394,8 +1478,8 @@ if (!selectionHydrated) {
 
   useEffect(() => {
     if (!isPlaceOpen) return;
-    requestMapInvalidate(isPlaceOpen ? "open" : "close");
-  }, [isPlaceOpen, requestMapInvalidate]);
+    scheduleOpenInvalidate();
+  }, [isPlaceOpen, scheduleOpenInvalidate]);
 
   useEffect(() => {
     if (process.env.NODE_ENV !== "production") {
@@ -1407,6 +1491,10 @@ if (!selectionHydrated) {
     return () => {
       if (pendingInvalidateTimeoutRef.current !== null) {
         window.clearTimeout(pendingInvalidateTimeoutRef.current);
+      }
+      if (cleanupOpenInvalidateRef.current) {
+        cleanupOpenInvalidateRef.current();
+        cleanupOpenInvalidateRef.current = null;
       }
     };
   }, []);

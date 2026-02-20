@@ -61,6 +61,9 @@ type InvalidateStats = {
   appVhUpdatedAt: string;
   appVhUpdatesLast2s: number;
   lastViewportSyncTrigger: string;
+  openInvalidateToken: number;
+  openInvalidateCanceledCount: number;
+  invalidateSuppressedReason: string;
 };
 
 
@@ -161,6 +164,9 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       appVhUpdatedAt: "n/a",
       appVhUpdatesLast2s: 0,
       lastViewportSyncTrigger: "initial",
+      openInvalidateToken: 0,
+      openInvalidateCanceledCount: 0,
+      invalidateSuppressedReason: "none",
     });
 
     const pushDebugEvent = (entry: string, broadcast = true) => {
@@ -348,6 +354,18 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
             typeof detail.lastViewportSyncTrigger === "string"
               ? detail.lastViewportSyncTrigger
               : current.lastViewportSyncTrigger,
+          openInvalidateToken:
+            typeof detail.openInvalidateToken === "number"
+              ? detail.openInvalidateToken
+              : current.openInvalidateToken,
+          openInvalidateCanceledCount:
+            typeof detail.openInvalidateCanceledCount === "number"
+              ? detail.openInvalidateCanceledCount
+              : current.openInvalidateCanceledCount,
+          invalidateSuppressedReason:
+            typeof detail.invalidateSuppressedReason === "string"
+              ? detail.invalidateSuppressedReason
+              : current.invalidateSuppressedReason,
         }));
       };
 
@@ -749,6 +767,9 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
         <div>appVhUpdatedAt: {invalidateStats.appVhUpdatedAt}</div>
         <div>appVhUpdates(last2s): {invalidateStats.appVhUpdatesLast2s}</div>
         <div>lastViewportSyncTrigger: {invalidateStats.lastViewportSyncTrigger}</div>
+        <div>openInvalidateToken: {invalidateStats.openInvalidateToken}</div>
+        <div>openInvalidateCanceledCount: {invalidateStats.openInvalidateCanceledCount}</div>
+        <div>invalidateSuppressedReason: {invalidateStats.invalidateSuppressedReason}</div>
         <div>js activity(500ms): raf={jsActivityCounts.raf500ms}, timeout={jsActivityCounts.timeout500ms}</div>
         <div>sheet wrapper position: {sheetLayoutInfo.wrapperPosition}</div>
         <div>sheet panel position/display: {sheetLayoutInfo.panelPosition} / {sheetLayoutInfo.panelDisplay}</div>
