@@ -77,6 +77,11 @@ type ProbeEntry = {
   topSummary: string;
 };
 
+type OverlayWatchEntry = {
+  timestamp: string;
+  summary: string;
+};
+
 
 const PEEK_HEIGHT = 35;
 const EXPANDED_HEIGHT = 88;
@@ -185,6 +190,14 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
     const probeTimeoutsRef = useRef<number[]>([]);
     const probeRafRef = useRef<number | null>(null);
     const [probeEntries, setProbeEntries] = useState<ProbeEntry[]>([]);
+    const [overlayWatchEntries, setOverlayWatchEntries] = useState<OverlayWatchEntry[]>([]);
+    const filterOverlaySelectorRef = useRef<string>("unidentified");
+    const filterOverlayElRef = useRef<HTMLElement | null>(null);
+    const overlayLastTriggerRef = useRef<string>("none");
+    const overlayPrevClassListRef = useRef<string[]>([]);
+    const overlayWatchGenerationRef = useRef(0);
+    const overlayWatchTimeoutsRef = useRef<number[]>([]);
+    const overlayWatchRafRef = useRef<number | null>(null);
 
     const parseColor = (value: string): { r: number; g: number; b: number; a: number } | null => {
       const trimmed = value.trim().toLowerCase();
@@ -223,6 +236,133 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       if (el.id) return `#${el.id}`;
       const classes = (el.className || "").toString().split(" ").filter(Boolean).slice(0, 3);
       return `${el.tagName.toLowerCase()}${classes.length ? `.${classes.join(".")}` : ""}`;
+    };
+
+    const appendOverlayWatch = (summary: string) => {
+      const timestamp = new Date().toISOString();
+      setOverlayWatchEntries((current) => [...current, { timestamp, summary }].slice(-60));
+      pushDebugEvent(`[overlay-watch] ${summary}`);
+    };
+
+    const getClassDiff = (next: string[]) => {
+      const prev = overlayPrevClassListRef.current;
+      const added = next.filter((item) => !prev.includes(item));
+      const removed = prev.filter((item) => !next.includes(item));
+      overlayPrevClassListRef.current = next;
+      return {
+        added,
+        removed,
+      };
+    };
+
+    const ensureFilterOverlayTarget = (source: string) => {
+      const candidateSelectors = [
+        ".cpm-map-mobile-filters__backdrop",
+        ".cpm-bottom-sheet__backdrop",
+        ".cpm-map-mobile-filters",
+      ];
+      const scored = candidateSelectors
+        .map((selector) => {
+          const element = document.querySelector(selector) as HTMLElement | null;
+          if (!element) return null;
+          const rect = element.getBoundingClientRect();
+          const computed = window.getComputedStyle(element);
+          const covers = rect.width >= window.innerWidth * 0.9 && rect.height >= window.innerHeight * 0.9;
+          const opacity = Number(computed.opacity || "0") || 0;
+          const bg = computed.backgroundColor;
+          const dark = bg.includes("0, 0, 0") || bg.includes("10, 10, 10");
+          const score = (covers ? 3 : 0) + (opacity > 0.05 ? 2 : 0) + (dark ? 1 : 0);
+          return {
+            selector,
+            element,
+            score,
+            covers,
+            opacity,
+            bg,
+            zIndex: computed.zIndex,
+          };
+        })
+        .filter((item): item is NonNullable<typeof item> => item !== null)
+        .sort((a, b) => b.score - a.score);
+
+      if (scored.length > 0) {
+        const selected = scored[0];
+        filterOverlaySelectorRef.current = selected.selector;
+        filterOverlayElRef.current = selected.element;
+        appendOverlayWatch(
+          `identify source=${source} selected=${selected.selector} covers=${String(selected.covers)} op=${selected.opacity} bg=${selected.bg} z=${selected.zIndex} candidates=${scored
+            .map((item) => `${item.selector}:${item.score}`)
+            .join(",")}`,
+        );
+      } else {
+        appendOverlayWatch(`identify source=${source} selected=none candidates=0`);
+      }
+    };
+
+    const dumpOverlayState = (trigger: string, offset: string) => {
+      const target = filterOverlayElRef.current;
+      if (!target || !target.isConnected) {
+        appendOverlayWatch(
+          `${trigger} +${offset} exists=false selector=${filterOverlaySelectorRef.current} lastTrigger=${overlayLastTriggerRef.current}`,
+        );
+        return;
+      }
+      const computed = window.getComputedStyle(target);
+      const rect = target.getBoundingClientRect();
+      const covers = rect.width >= window.innerWidth * 0.9 && rect.height >= window.innerHeight * 0.9;
+      const classes = Array.from(target.classList).slice(0, 8);
+      const classDiff = getClassDiff(classes);
+      appendOverlayWatch(
+        `${trigger} +${offset} exists=true selector=${filterOverlaySelectorRef.current} op=${computed.opacity} bg=${computed.backgroundColor} display=${computed.display} visibility=${computed.visibility} pointer=${computed.pointerEvents} z=${computed.zIndex} covers=${String(covers)} rect=${Math.round(rect.left)},${Math.round(rect.top)},${Math.round(rect.width)}x${Math.round(rect.height)} classDiff=+${classDiff.added.join("|") || "-"}/-${classDiff.removed.join("|") || "-"}`,
+      );
+    };
+
+    const scheduleOverlayWatch = (trigger: string) => {
+      overlayLastTriggerRef.current = trigger;
+      const generation = overlayWatchGenerationRef.current + 1;
+      overlayWatchGenerationRef.current = generation;
+      overlayWatchTimeoutsRef.current.forEach((id) => window.clearTimeout(id));
+      overlayWatchTimeoutsRef.current = [];
+      if (overlayWatchRafRef.current !== null) {
+        window.cancelAnimationFrame(overlayWatchRafRef.current);
+        overlayWatchRafRef.current = null;
+      }
+
+      dumpOverlayState(trigger, "0ms");
+      overlayWatchRafRef.current = window.requestAnimationFrame(() => {
+        if (overlayWatchGenerationRef.current !== generation) return;
+        dumpOverlayState(trigger, "rAF");
+      });
+      [50, 150].forEach((delay) => {
+        const id = window.setTimeout(() => {
+          if (overlayWatchGenerationRef.current !== generation) return;
+          dumpOverlayState(trigger, `${delay}ms`);
+        }, delay);
+        overlayWatchTimeoutsRef.current.push(id);
+      });
+    };
+
+    const attachOverlayTransitionWatch = () => {
+      const target = filterOverlayElRef.current;
+      if (!target) return () => undefined;
+      const onTransitionStart = (event: Event) => {
+        const transitionEvent = event as TransitionEvent;
+        appendOverlayWatch(
+          `transitionstart property=${transitionEvent.propertyName || "n/a"} lastTrigger=${overlayLastTriggerRef.current}`,
+        );
+      };
+      const onTransitionEnd = (event: Event) => {
+        const transitionEvent = event as TransitionEvent;
+        appendOverlayWatch(
+          `transitionend property=${transitionEvent.propertyName || "n/a"} lastTrigger=${overlayLastTriggerRef.current}`,
+        );
+      };
+      target.addEventListener("transitionstart", onTransitionStart);
+      target.addEventListener("transitionend", onTransitionEnd);
+      return () => {
+        target.removeEventListener("transitionstart", onTransitionStart);
+        target.removeEventListener("transitionend", onTransitionEnd);
+      };
     };
 
     const runProbeSample = (
@@ -468,6 +608,29 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
             detail.entry.includes("invalidate EXEC")
           ) {
             triggerDarkFlashProbe(`map:${detail.entry.replace(/^\[map\]\s*/, "")}`);
+          }
+          if (detail.entry.startsWith("[map] markerSelect")) {
+            scheduleOverlayWatch(`markerSelect:${detail.entry.replace(/^\[map\]\s*/, "")}`);
+          }
+          if (
+            detail.entry.includes("invalidate REQUEST reason=open") ||
+            detail.entry.includes("invalidate REQUEST reason=sheetStageChange") ||
+            detail.entry.includes("invalidate EXEC reason=open") ||
+            detail.entry.includes("invalidate EXEC reason=sheetStageChange")
+          ) {
+            scheduleOverlayWatch(`invalidate:${detail.entry.replace(/^\[map\]\s*/, "")}`);
+          }
+          if (detail.entry.includes("filtersOpen changed next=true")) {
+            ensureFilterOverlayTarget("filtersOpen:true");
+            const detach = attachOverlayTransitionWatch();
+            const detachId = window.setTimeout(() => {
+              detach();
+            }, 2500);
+            overlayWatchTimeoutsRef.current.push(detachId);
+            scheduleOverlayWatch("filtersOpen:true");
+          }
+          if (detail.entry.includes("filtersOpen changed next=false")) {
+            scheduleOverlayWatch("filtersOpen:false");
           }
 
           if (detail.entry.startsWith("[map] resize")) {
@@ -724,6 +887,12 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
           window.cancelAnimationFrame(probeRafRef.current);
           probeRafRef.current = null;
         }
+        overlayWatchTimeoutsRef.current.forEach((id) => window.clearTimeout(id));
+        overlayWatchTimeoutsRef.current = [];
+        if (overlayWatchRafRef.current !== null) {
+          window.cancelAnimationFrame(overlayWatchRafRef.current);
+          overlayWatchRafRef.current = null;
+        }
       };
     }, [debugLogVersion, isOpen, stage]);
 
@@ -821,6 +990,9 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       pushDebugEvent(
         `[renderedPlace-set] ${renderedPlace ? renderedPlace.id : "null"} reason=${renderedPlaceReasonRef.current} recentInput200ms=${recentInput}`,
       );
+      if (renderedPlaceReasonRef.current === "openFromPlaceProp") {
+        scheduleOverlayWatch("renderedPlace-set:openFromPlaceProp");
+      }
     }, [renderedPlace]);
 
     const canShowPhotos = photos.length > 0;
@@ -1011,6 +1183,19 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
             .map((probe, index) => (
               <div key={`${probe.timestamp}-${probe.pointType}-${index}`}>
                 {probe.timestamp.split("T")[1]?.replace("Z", "") ?? probe.timestamp} {probe.topSummary}
+              </div>
+            ))
+        )}
+        <div style={{ marginTop: "6px", fontWeight: 700 }}>filter overlay watch (latest 60)</div>
+        {overlayWatchEntries.length === 0 ? (
+          <div>none</div>
+        ) : (
+          overlayWatchEntries
+            .slice()
+            .reverse()
+            .map((item, index) => (
+              <div key={`${item.timestamp}-${index}`}>
+                {item.timestamp.split("T")[1]?.replace("Z", "") ?? item.timestamp} {item.summary}
               </div>
             ))
         )}
