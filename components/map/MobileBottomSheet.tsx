@@ -145,6 +145,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
     const panelRef = useRef<HTMLDivElement | null>(null);
     const eventLogRef = useRef<DebugEventEntry[]>([]);
     const [debugHudEnabled, setDebugHudEnabled] = useState(false);
+    const debugHudEnabledRef = useRef(false);
     const [debugLogVersion, setDebugLogVersion] = useState(0);
     const [debugEventCategory, setDebugEventCategory] = useState<DebugEventCategory>("ALL");
     const [disableSheetStageInvalidate, setDisableSheetStageInvalidate] = useState(false);
@@ -490,6 +491,12 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
     };
 
     const pushDebugEvent = (entry: string, broadcast = true) => {
+      if (!debugHudEnabledRef.current) {
+        if (broadcast && typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("cpm-debug-event", { detail: { source: "sheet", entry } }));
+        }
+        return;
+      }
       const timestamp = new Date().toISOString();
       eventLogRef.current = [...eventLogRef.current, { timestamp, entry }].slice(-200);
       setDebugLogVersion((value) => value + 1);
@@ -580,10 +587,14 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
 
     useEffect(() => {
       if (typeof window === "undefined") return;
-      const key = "cpm_debugHud";
+      const key = "cpm_debug";
       const disableKey = "cpm_disableSheetStageInvalidate";
+      const isDebugEnabled = () =>
+        window.localStorage.getItem(key) === "1" || window.location.hash.includes("debug");
       const update = () => {
-        setDebugHudEnabled(window.localStorage.getItem(key) === "1");
+        const enabled = isDebugEnabled();
+        setDebugHudEnabled(enabled);
+        debugHudEnabledRef.current = enabled;
         setDisableSheetStageInvalidate(window.localStorage.getItem(disableKey) === "1");
       };
       const formatRect = (rect: RectSnapshot | null) =>
@@ -732,12 +743,14 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       };
 
       window.addEventListener("storage", update);
-      window.addEventListener("cpm-debug-hud-changed", update as EventListener);
+      window.addEventListener("hashchange", update);
+      window.addEventListener("cpm-debug-changed", update as EventListener);
       window.addEventListener("cpm-debug-event", onExternalDebugEvent as EventListener);
       window.addEventListener("cpm-map-invalidate-stats", onInvalidateStats as EventListener);
       return () => {
         window.removeEventListener("storage", update);
-        window.removeEventListener("cpm-debug-hud-changed", update as EventListener);
+        window.removeEventListener("hashchange", update);
+        window.removeEventListener("cpm-debug-changed", update as EventListener);
         window.removeEventListener("cpm-debug-event", onExternalDebugEvent as EventListener);
         window.removeEventListener("cpm-map-invalidate-stats", onInvalidateStats as EventListener);
       };

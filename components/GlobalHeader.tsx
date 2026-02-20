@@ -14,13 +14,23 @@ export default function GlobalHeader({ className }: GlobalHeaderProps) {
   const logoTapTimeoutRef = useRef<number | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [showPreviewDebugButton, setShowPreviewDebugButton] = useState(false);
+  const [debugToast, setDebugToast] = useState<string | null>(null);
+  const debugToastTimeoutRef = useRef<number | null>(null);
 
   const toggleDebugHud = () => {
     if (typeof window === "undefined") return;
-    const key = "cpm_debugHud";
+    const key = "cpm_debug";
     const nextValue = window.localStorage.getItem(key) === "1" ? "0" : "1";
     window.localStorage.setItem(key, nextValue);
-    window.dispatchEvent(new CustomEvent("cpm-debug-hud-changed", { detail: nextValue }));
+    window.dispatchEvent(new CustomEvent("cpm-debug-changed", { detail: nextValue }));
+    if (debugToastTimeoutRef.current !== null) {
+      window.clearTimeout(debugToastTimeoutRef.current);
+    }
+    setDebugToast(nextValue === "1" ? "Debug: ON" : "Debug: OFF");
+    debugToastTimeoutRef.current = window.setTimeout(() => {
+      setDebugToast(null);
+      debugToastTimeoutRef.current = null;
+    }, 1400);
   };
 
   useEffect(() => {
@@ -57,11 +67,17 @@ export default function GlobalHeader({ className }: GlobalHeaderProps) {
       if (logoTapTimeoutRef.current !== null) {
         window.clearTimeout(logoTapTimeoutRef.current);
       }
+      if (debugToastTimeoutRef.current !== null) {
+        window.clearTimeout(debugToastTimeoutRef.current);
+      }
     },
     [],
   );
 
   const handleLogoTap = () => {
+    if (typeof window === "undefined") return;
+    if (window.matchMedia("(min-width: 768px)").matches) return;
+
     logoTapCountRef.current += 1;
 
     if (logoTapTimeoutRef.current !== null) {
@@ -73,7 +89,7 @@ export default function GlobalHeader({ className }: GlobalHeaderProps) {
       logoTapTimeoutRef.current = null;
     }, 1200);
 
-    if (logoTapCountRef.current >= 5) {
+    if (logoTapCountRef.current >= 7) {
       logoTapCountRef.current = 0;
       if (logoTapTimeoutRef.current !== null) {
         window.clearTimeout(logoTapTimeoutRef.current);
@@ -91,6 +107,11 @@ export default function GlobalHeader({ className }: GlobalHeaderProps) {
         className ?? "",
       ].join(" ")}
     >
+      {debugToast ? (
+        <div className="pointer-events-none fixed left-1/2 top-20 z-[90] -translate-x-1/2 rounded-md bg-gray-900/90 px-3 py-1.5 text-xs font-semibold text-white shadow">
+          {debugToast}
+        </div>
+      ) : null}
       {showPreviewDebugButton ? (
         <button
           type="button"
