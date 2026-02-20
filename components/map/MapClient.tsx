@@ -154,6 +154,9 @@ export default function MapClient() {
   const prevMobileSheetStageRef = useRef<"peek" | "expanded" | null>(null);
   const sheetStageInvalidateDebounceRef = useRef<number | null>(null);
   const lastSheetStageInvalidateAtRef = useRef<number>(0);
+  const lastMobileOpenAtRef = useRef<number>(0);
+  const prevIsMobilePlaceOpenRef = useRef(false);
+  const lastUserStageReasonAtRef = useRef<number>(0);
 
   const isMobilePlaceOpen = mounted && isPlaceOpen && Boolean(selectedPlaceId);
   const drawerMode: "full" = "full";
@@ -167,6 +170,36 @@ export default function MapClient() {
     }
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onDebugEvent = (event: Event) => {
+      const detail = (event as CustomEvent<{ source?: string; entry?: string } | string>).detail;
+      if (typeof detail === "string") return;
+      if (detail?.source !== "sheet" || typeof detail.entry !== "string") return;
+      if (!detail.entry.startsWith("[stage-change]")) return;
+      if (
+        detail.entry.includes("reason=handleTap") ||
+        detail.entry.includes("reason=dragUp") ||
+        detail.entry.includes("reason=dragDown")
+      ) {
+        lastUserStageReasonAtRef.current = Date.now();
+      }
+    };
+
+    window.addEventListener("cpm-debug-event", onDebugEvent as EventListener);
+    return () => {
+      window.removeEventListener("cpm-debug-event", onDebugEvent as EventListener);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isMobilePlaceOpen && !prevIsMobilePlaceOpenRef.current) {
+      lastMobileOpenAtRef.current = Date.now();
+      prevMobileSheetStageRef.current = null;
+    }
+    prevIsMobilePlaceOpenRef.current = isMobilePlaceOpen;
+  }, [isMobilePlaceOpen]);
+
   const invalidateMapSize = useCallback((reason: string) => {
     const map = mapInstanceRef.current;
     if (!map) return;
@@ -177,6 +210,7 @@ export default function MapClient() {
     }
 
     if (reason === "open") {
+      lastMobileOpenAtRef.current = Date.now();
       logDebugEvent("[map] invalidateMapSize scheduled reason=open delay=300ms");
       if (openInvalidateTimeoutRef.current !== null) {
         window.clearTimeout(openInvalidateTimeoutRef.current);
@@ -201,8 +235,33 @@ export default function MapClient() {
 
   const handleMobileSheetStageChange = useCallback(
     (nextStage: "peek" | "expanded") => {
+      const now = Date.now();
+      if (isMobilePlaceOpen && nextStage === "peek" && now - lastMobileOpenAtRef.current <= 800) {
+        logDebugEvent(
+          `[map] sheetStageChange ignored openPeekGuard elapsedMs=${now - lastMobileOpenAtRef.current}`,
+        );
+        prevMobileSheetStageRef.current = nextStage;
+        return;
+      }
+
       if (prevMobileSheetStageRef.current === nextStage) {
         logDebugEvent(`[map] sheetStageChange ignored sameStage=${nextStage}`);
+        return;
+      }
+
+      if (isMobilePlaceOpen && prevMobileSheetStageRef.current === null && nextStage === "peek") {
+        logDebugEvent("[map] sheetStageChange ignored initialPeekOnOpen");
+        prevMobileSheetStageRef.current = nextStage;
+        return;
+      }
+
+      const withinOpenGuard = now - lastMobileOpenAtRef.current <= 600;
+      const hasRecentUserStageReason = now - lastUserStageReasonAtRef.current <= 350;
+      if (withinOpenGuard && !hasRecentUserStageReason) {
+        logDebugEvent(
+          `[map] sheetStageChange ignored duringOpenGuard stage=${nextStage} elapsedMs=${now - lastMobileOpenAtRef.current}`,
+        );
+        prevMobileSheetStageRef.current = nextStage;
         return;
       }
 
@@ -224,7 +283,7 @@ export default function MapClient() {
         sheetStageInvalidateDebounceRef.current = null;
       }, 300);
     },
-    [invalidateMapSize, logDebugEvent],
+    [invalidateMapSize, isMobilePlaceOpen, logDebugEvent],
   );
 
   const toggleFilters = useCallback(() => {
