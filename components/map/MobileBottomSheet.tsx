@@ -66,7 +66,7 @@ type InvalidateStats = {
   invalidateSuppressedReason: string;
 };
 
-type ProbePointType = "center" | "input" | "mapCenter";
+type ProbePointType = "center" | "input" | "mapCenter" | "mapSafe1" | "mapSafe2" | "mapSafe3";
 type ProbeEntry = {
   timestamp: string;
   trigger: string;
@@ -181,6 +181,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
     });
     const lastInputPointRef = useRef<{ x: number; y: number } | null>(null);
     const probeGenerationRef = useRef(0);
+    const markerProbeGenerationRef = useRef(0);
     const probeTimeoutsRef = useRef<number[]>([]);
     const probeRafRef = useRef<number | null>(null);
     const [probeEntries, setProbeEntries] = useState<ProbeEntry[]>([]);
@@ -274,7 +275,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       setProbeEntries((current) => [
         ...current,
         { timestamp, trigger, offset, pointType, x: clampedX, y: clampedY, topSummary: summary },
-      ].slice(-10));
+      ].slice(-60));
       pushDebugEvent(`[probe] ${detail}`);
     };
 
@@ -283,13 +284,20 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       inputPoint?: { x: number; y: number } | null,
     ) => {
       if (typeof window === "undefined") return;
-      const generation = probeGenerationRef.current + 1;
-      probeGenerationRef.current = generation;
-      probeTimeoutsRef.current.forEach((id) => window.clearTimeout(id));
-      probeTimeoutsRef.current = [];
-      if (probeRafRef.current !== null) {
-        window.cancelAnimationFrame(probeRafRef.current);
-        probeRafRef.current = null;
+      const isMarkerSelectTrigger = trigger.includes("markerSelect");
+      const generation = isMarkerSelectTrigger
+        ? markerProbeGenerationRef.current + 1
+        : probeGenerationRef.current + 1;
+      if (isMarkerSelectTrigger) {
+        markerProbeGenerationRef.current = generation;
+      } else {
+        probeGenerationRef.current = generation;
+        probeTimeoutsRef.current.forEach((id) => window.clearTimeout(id));
+        probeTimeoutsRef.current = [];
+        if (probeRafRef.current !== null) {
+          window.cancelAnimationFrame(probeRafRef.current);
+          probeRafRef.current = null;
+        }
       }
 
       const mapRect = document.getElementById("map")?.getBoundingClientRect() ?? null;
@@ -300,6 +308,21 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
           x: mapRect ? mapRect.left + mapRect.width / 2 : window.innerWidth / 2,
           y: mapRect ? mapRect.top + mapRect.height / 2 : window.innerHeight / 2,
         },
+        {
+          type: "mapSafe1",
+          x: mapRect ? mapRect.left + mapRect.width * 0.5 : window.innerWidth / 2,
+          y: mapRect ? mapRect.top + mapRect.height * 0.35 : window.innerHeight * 0.35,
+        },
+        {
+          type: "mapSafe2",
+          x: mapRect ? mapRect.left + mapRect.width * 0.2 : window.innerWidth * 0.2,
+          y: mapRect ? mapRect.top + mapRect.height * 0.2 : window.innerHeight * 0.2,
+        },
+        {
+          type: "mapSafe3",
+          x: mapRect ? mapRect.left + mapRect.width * 0.8 : window.innerWidth * 0.8,
+          y: mapRect ? mapRect.top + mapRect.height * 0.2 : window.innerHeight * 0.2,
+        },
       ];
       const effectiveInputPoint = inputPoint ?? lastInputPointRef.current;
       if (effectiveInputPoint) {
@@ -309,16 +332,20 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       points.forEach((point) => runProbeSample(trigger, "0ms", point.type, point.x, point.y));
 
       probeRafRef.current = window.requestAnimationFrame(() => {
-        if (probeGenerationRef.current !== generation) return;
+        if (!isMarkerSelectTrigger && probeGenerationRef.current !== generation) return;
+        if (isMarkerSelectTrigger && markerProbeGenerationRef.current !== generation) return;
         points.forEach((point) => runProbeSample(trigger, "rAF", point.type, point.x, point.y));
       });
 
       [50, 150, 300].forEach((delay) => {
         const timeoutId = window.setTimeout(() => {
-          if (probeGenerationRef.current !== generation) return;
+          if (!isMarkerSelectTrigger && probeGenerationRef.current !== generation) return;
+          if (isMarkerSelectTrigger && markerProbeGenerationRef.current !== generation) return;
           points.forEach((point) => runProbeSample(trigger, `${delay}ms`, point.type, point.x, point.y));
         }, delay);
-        probeTimeoutsRef.current.push(timeoutId);
+        if (!isMarkerSelectTrigger) {
+          probeTimeoutsRef.current.push(timeoutId);
+        }
       });
     };
 
@@ -974,7 +1001,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
         <div>openInvalidateToken: {invalidateStats.openInvalidateToken}</div>
         <div>openInvalidateCanceledCount: {invalidateStats.openInvalidateCanceledCount}</div>
         <div>invalidateSuppressedReason: {invalidateStats.invalidateSuppressedReason}</div>
-        <div style={{ marginTop: "6px", fontWeight: 700 }}>dark flash probe (latest 10)</div>
+        <div style={{ marginTop: "6px", fontWeight: 700 }}>dark flash probe (latest 60)</div>
         {probeEntries.length === 0 ? (
           <div>none</div>
         ) : (
