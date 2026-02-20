@@ -148,25 +148,180 @@ export default function MapClient() {
   const [mounted, setMounted] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const invalidateTimeoutRef = useRef<number | null>(null);
+  const openInvalidateTimeoutRef = useRef<number | null>(null);
   const drawerReasonRef = useRef("initial");
+  const viewportSnapshotRef = useRef<{ center: [number, number]; zoom: number } | null>(null);
+  const prevMobileSheetStageRef = useRef<"peek" | "expanded" | null>(null);
+  const sheetStageInvalidateDebounceRef = useRef<number | null>(null);
+  const lastMobileOpenAtRef = useRef<number>(0);
+  const prevIsMobilePlaceOpenRef = useRef(false);
+  const lastUserStageReasonAtRef = useRef<number>(0);
+  const disableSheetStageInvalidateRef = useRef(false);
+  const invalidateReasonRef = useRef<string | null>(null);
+  const viewportResizeInvalidateAtRef = useRef<number>(0);
 
   const isMobilePlaceOpen = mounted && isPlaceOpen && Boolean(selectedPlaceId);
   const drawerMode: "full" = "full";
 
-  const invalidateMapSize = useCallback(() => {
+  const logDebugEvent = useCallback((entry: string) => {
+    if (process.env.NODE_ENV !== "production") {
+      console.debug(entry);
+    }
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("cpm-debug-event", { detail: { source: "map", entry } }));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onDebugEvent = (event: Event) => {
+      const detail = (event as CustomEvent<{ source?: string; entry?: string } | string>).detail;
+      if (typeof detail === "string") return;
+      if (detail?.source !== "sheet" || typeof detail.entry !== "string") return;
+      if (!detail.entry.startsWith("[stage-change]")) return;
+      if (
+        detail.entry.includes("reason=handleTap") ||
+        detail.entry.includes("reason=dragUp") ||
+        detail.entry.includes("reason=dragDown")
+      ) {
+        lastUserStageReasonAtRef.current = Date.now();
+      }
+    };
+
+    window.addEventListener("cpm-debug-event", onDebugEvent as EventListener);
+    return () => {
+      window.removeEventListener("cpm-debug-event", onDebugEvent as EventListener);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isMobilePlaceOpen && !prevIsMobilePlaceOpenRef.current) {
+      lastMobileOpenAtRef.current = Date.now();
+      prevMobileSheetStageRef.current = null;
+    }
+    prevIsMobilePlaceOpenRef.current = isMobilePlaceOpen;
+  }, [isMobilePlaceOpen]);
+
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const key = "cpm_disableSheetStageInvalidate";
+    const sync = () => {
+      disableSheetStageInvalidateRef.current = window.localStorage.getItem(key) === "1";
+      logDebugEvent(
+        `[map] sheetStageInvalidateDisabled=${String(disableSheetStageInvalidateRef.current)}`,
+      );
+    };
+    const onToggle = () => sync();
+    sync();
+    window.addEventListener("storage", sync);
+    window.addEventListener("cpm-sheet-invalidate-toggle", onToggle as EventListener);
+    return () => {
+      window.removeEventListener("storage", sync);
+      window.removeEventListener("cpm-sheet-invalidate-toggle", onToggle as EventListener);
+    };
+  }, [logDebugEvent]);
+
+  const invalidateMapSize = useCallback((reason: string) => {
     const map = mapInstanceRef.current;
     if (!map) return;
+
+    if (reason === "viewportSync") {
+      logDebugEvent("[map] invalidateMapSize skipped reason=viewportSync");
+      return;
+    }
+
+    if (reason === "open") {
+      lastMobileOpenAtRef.current = Date.now();
+      logDebugEvent("[map] invalidateMapSize scheduled reason=open delay=300ms");
+      if (openInvalidateTimeoutRef.current !== null) {
+        window.clearTimeout(openInvalidateTimeoutRef.current);
+      }
+      openInvalidateTimeoutRef.current = window.setTimeout(() => {
+        map.invalidateSize({ pan: false });
+        logDebugEvent("[map] invalidateMapSize reason=open");
+        openInvalidateTimeoutRef.current = null;
+      }, 300);
+      return;
+    }
+
+    const debounceMs = 150;
+    const now = Date.now();
+    if (reason === "visualViewportResize" && now - viewportResizeInvalidateAtRef.current < debounceMs) {
+      logDebugEvent("[map] invalidateMapSize deduped reason=visualViewportResize");
+      return;
+    }
+
+    invalidateReasonRef.current = reason;
     if (invalidateTimeoutRef.current !== null) {
+      logDebugEvent(`[map] invalidateMapSize deduped reason=${reason}`);
       window.clearTimeout(invalidateTimeoutRef.current);
     }
-    window.requestAnimationFrame(() => {
+
+    logDebugEvent(`[map] invalidateMapSize scheduled reason=${reason} delay=${debounceMs}ms`);
+    invalidateTimeoutRef.current = window.setTimeout(() => {
+      const latestReason = invalidateReasonRef.current ?? reason;
       map.invalidateSize({ pan: false });
-      invalidateTimeoutRef.current = window.setTimeout(() => {
-        map.invalidateSize({ pan: false });
-        invalidateTimeoutRef.current = null;
-      }, 120);
-    });
-  }, []);
+      logDebugEvent(`[map] invalidateMapSize reason=${latestReason}`);
+      if (latestReason === "visualViewportResize") {
+        viewportResizeInvalidateAtRef.current = Date.now();
+      }
+      invalidateTimeoutRef.current = null;
+      invalidateReasonRef.current = null;
+    }, debounceMs);
+  }, [logDebugEvent]);
+
+  const handleMobileSheetStageChange = useCallback(
+    (nextStage: "peek" | "expanded") => {
+      const now = Date.now();
+      if (isMobilePlaceOpen && nextStage === "peek" && now - lastMobileOpenAtRef.current <= 800) {
+        logDebugEvent(
+          `[map] sheetStageChange ignored openPeekGuard elapsedMs=${now - lastMobileOpenAtRef.current}`,
+        );
+        prevMobileSheetStageRef.current = nextStage;
+        return;
+      }
+
+      if (prevMobileSheetStageRef.current === nextStage) {
+        logDebugEvent(`[map] sheetStageChange ignored sameStage=${nextStage}`);
+        return;
+      }
+
+      if (isMobilePlaceOpen && prevMobileSheetStageRef.current === null && nextStage === "peek") {
+        logDebugEvent("[map] sheetStageChange ignored initialPeekOnOpen");
+        prevMobileSheetStageRef.current = nextStage;
+        return;
+      }
+
+      const withinOpenGuard = now - lastMobileOpenAtRef.current <= 600;
+      const hasRecentUserStageReason = now - lastUserStageReasonAtRef.current <= 350;
+      if (withinOpenGuard && !hasRecentUserStageReason) {
+        logDebugEvent(
+          `[map] sheetStageChange ignored duringOpenGuard stage=${nextStage} elapsedMs=${now - lastMobileOpenAtRef.current}`,
+        );
+        prevMobileSheetStageRef.current = nextStage;
+        return;
+      }
+
+      prevMobileSheetStageRef.current = nextStage;
+      if (disableSheetStageInvalidateRef.current) {
+        logDebugEvent("[map] invalidateMapSize skipped reason=sheetStageChange disabled");
+        return;
+      }
+      const delayMs = 260;
+      if (sheetStageInvalidateDebounceRef.current !== null) {
+        logDebugEvent("[map] invalidateMapSize deduped reason=sheetStageChange");
+        window.clearTimeout(sheetStageInvalidateDebounceRef.current);
+      }
+
+      logDebugEvent(`[map] invalidateMapSize scheduled reason=sheetStageChange delay=${delayMs}ms`);
+      sheetStageInvalidateDebounceRef.current = window.setTimeout(() => {
+        invalidateMapSize("sheetStageChange");
+        sheetStageInvalidateDebounceRef.current = null;
+      }, delayMs);
+    },
+    [invalidateMapSize, isMobilePlaceOpen, logDebugEvent],
+  );
 
   const toggleFilters = useCallback(() => {
     setFiltersOpen((previous) => {
@@ -213,6 +368,38 @@ export default function MapClient() {
       }
     };
   }, [filtersOpen]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const setAppVh = () => {
+      const vh = window.innerHeight * 0.01;
+      document.documentElement.style.setProperty("--cpm-app-vh", `${vh}px`);
+    };
+
+    let timer: number | null = null;
+    const scheduleSetAppVh = () => {
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
+      timer = window.setTimeout(() => {
+        setAppVh();
+        timer = null;
+      }, 120);
+    };
+
+    setAppVh();
+    window.addEventListener("resize", scheduleSetAppVh);
+    window.visualViewport?.addEventListener("resize", scheduleSetAppVh);
+
+    return () => {
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
+      window.removeEventListener("resize", scheduleSetAppVh);
+      window.visualViewport?.removeEventListener("resize", scheduleSetAppVh);
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -640,26 +827,80 @@ export default function MapClient() {
         }, 120);
       };
 
-      const handleMapViewChange = () => {
+      const logViewportSyncIfChanged = (source: string) => {
+        const center = map.getCenter();
+        const zoom = map.getZoom();
+        const nextCenter: [number, number] = [
+          Number(center.lat.toFixed(6)),
+          Number(center.lng.toFixed(6)),
+        ];
+        const previous = viewportSnapshotRef.current;
+        const changed =
+          !previous ||
+          previous.zoom !== zoom ||
+          previous.center[0] !== nextCenter[0] ||
+          previous.center[1] !== nextCenter[1];
+        if (changed) {
+          viewportSnapshotRef.current = { center: nextCenter, zoom };
+          logDebugEvent(
+            `[map] viewportSync source=${source} center=${nextCenter[0]},${nextCenter[1]} zoom=${zoom}`,
+          );
+        }
+      };
+
+      const handleMapViewChange = (eventName: "moveend" | "zoomend") => {
+        logDebugEvent(`[map] ${eventName}`);
+        logViewportSyncIfChanged(eventName);
         scheduleFetchForBounds(map.getBounds(), { force: true });
         updateVisibleMarkers();
       };
 
-      map.on("moveend zoomend", handleMapViewChange);
-      map.on("click", handleMapClick);
+      const handleMapResize = () => {
+        logDebugEvent("[map] resize");
+      };
+
+      const handleMapClickWithLog = (event: import("leaflet").LeafletMouseEvent) => {
+        logDebugEvent("[map] click");
+        handleMapClick(event);
+      };
+
+      const handleMoveEnd = () => handleMapViewChange("moveend");
+      const handleZoomEnd = () => handleMapViewChange("zoomend");
+
+      map.on("moveend", handleMoveEnd);
+      map.on("zoomend", handleZoomEnd);
+      map.on("resize", handleMapResize);
+      map.on("click", handleMapClickWithLog);
       mapInstanceRef.current = map;
+
+      const mapContainer = map.getContainer();
+      let previousMapContainerHeight = Math.round(mapContainer.getBoundingClientRect().height);
+      logDebugEvent(`[map] containerHeight=${previousMapContainerHeight}`);
+      const mapContainerObserver = new ResizeObserver(() => {
+        const nextHeight = Math.round(mapContainer.getBoundingClientRect().height);
+        if (nextHeight !== previousMapContainerHeight) {
+          previousMapContainerHeight = nextHeight;
+          logDebugEvent(`[map] containerHeight=${nextHeight}`);
+        }
+      });
+      mapContainerObserver.observe(mapContainer);
 
       fetchPlacesRef.current = () => {
         if (!mapInstanceRef.current) return;
         scheduleFetchForBounds(mapInstanceRef.current.getBounds(), { force: true });
       };
       map.whenReady(() => {
-        invalidateMapSize();
+        invalidateMapSize("ready");
+        logViewportSyncIfChanged("ready");
         scheduleFetchForBounds(map.getBounds(), { force: true });
       });
 
       return () => {
-        map.off("click", handleMapClick);
+        mapContainerObserver.disconnect();
+        map.off("moveend", handleMoveEnd);
+        map.off("zoomend", handleZoomEnd);
+        map.off("resize", handleMapResize);
+        map.off("click", handleMapClickWithLog);
       };
     };
 
@@ -679,7 +920,7 @@ export default function MapClient() {
         mapInstanceRef.current = null;
       }
     };
-  }, [closeDrawer, invalidateMapSize, openDrawerForPlace]);
+  }, [closeDrawer, invalidateMapSize, logDebugEvent, openDrawerForPlace]);
 
   const selectedPlace = useMemo(
     () =>
@@ -1087,17 +1328,25 @@ if (!selectionHydrated) {
 
   useEffect(() => {
     if (!isPlaceOpen) return;
-    invalidateMapSize();
+    invalidateMapSize(isPlaceOpen ? "open" : "close");
   }, [invalidateMapSize, isPlaceOpen]);
 
   useEffect(() => {
-    invalidateMapSize();
-  }, [filtersOpen, invalidateMapSize]);
+    if (process.env.NODE_ENV !== "production") {
+      logDebugEvent(`[map] filtersOpen changed next=${filtersOpen}`);
+    }
+  }, [filtersOpen, logDebugEvent]);
 
   useEffect(() => {
     return () => {
       if (invalidateTimeoutRef.current !== null) {
         window.clearTimeout(invalidateTimeoutRef.current);
+      }
+      if (openInvalidateTimeoutRef.current !== null) {
+        window.clearTimeout(openInvalidateTimeoutRef.current);
+      }
+      if (sheetStageInvalidateDebounceRef.current !== null) {
+        window.clearTimeout(sheetStageInvalidateDebounceRef.current);
       }
     };
   }, []);
@@ -1106,7 +1355,7 @@ if (!selectionHydrated) {
     <div
       className="cpm-map-root relative flex w-full min-h-0 flex-1"
       style={{
-        height: `calc(100dvh - var(--cpm-header-h, ${HEADER_HEIGHT}px))`,
+        height: `calc(var(--cpm-app-vh, 1vh) * 100 - var(--cpm-header-h, ${HEADER_HEIGHT}px))`,
         minHeight: 0,
         ["--header-height" as string]: `var(--cpm-header-h, ${HEADER_HEIGHT}px)`,
       }}
@@ -1193,9 +1442,7 @@ if (!selectionHydrated) {
               onClose={() => closeDrawer("user")}
               ref={bottomSheetRef}
               selectionStatus={selectionStatus}
-              onStageChange={() => {
-                invalidateMapSize();
-              }}
+              onStageChange={handleMobileSheetStageChange}
             />
           ) : null}
         </div>
