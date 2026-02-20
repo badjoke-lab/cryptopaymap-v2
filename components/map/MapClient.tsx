@@ -148,6 +148,7 @@ export default function MapClient() {
   const [mounted, setMounted] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const invalidateTimeoutRef = useRef<number | null>(null);
+  const openInvalidateTimeoutRef = useRef<number | null>(null);
   const drawerReasonRef = useRef("initial");
   const viewportSnapshotRef = useRef<{ center: [number, number]; zoom: number } | null>(null);
 
@@ -166,17 +167,38 @@ export default function MapClient() {
   const invalidateMapSize = useCallback((reason: string) => {
     const map = mapInstanceRef.current;
     if (!map) return;
+
+    if (reason === "viewportSync") {
+      logDebugEvent("[map] invalidateMapSize skipped reason=viewportSync");
+      return;
+    }
+
+    if (reason === "sheetStageChange") {
+      logDebugEvent("[map] invalidateMapSize skipped reason=sheetStageChange");
+      return;
+    }
+
+    if (reason === "open") {
+      logDebugEvent("[map] invalidateMapSize scheduled reason=open delay=300ms");
+      if (openInvalidateTimeoutRef.current !== null) {
+        window.clearTimeout(openInvalidateTimeoutRef.current);
+      }
+      openInvalidateTimeoutRef.current = window.setTimeout(() => {
+        map.invalidateSize({ pan: false });
+        logDebugEvent("[map] invalidateMapSize reason=open");
+        openInvalidateTimeoutRef.current = null;
+      }, 300);
+      return;
+    }
+
     logDebugEvent(`[map] invalidateMapSize reason=${reason}`);
     if (invalidateTimeoutRef.current !== null) {
       window.clearTimeout(invalidateTimeoutRef.current);
     }
-    window.requestAnimationFrame(() => {
+    invalidateTimeoutRef.current = window.setTimeout(() => {
       map.invalidateSize({ pan: false });
-      invalidateTimeoutRef.current = window.setTimeout(() => {
-        map.invalidateSize({ pan: false });
-        invalidateTimeoutRef.current = null;
-      }, 120);
-    });
+      invalidateTimeoutRef.current = null;
+    }, 0);
   }, [logDebugEvent]);
 
   const toggleFilters = useCallback(() => {
@@ -677,7 +699,6 @@ export default function MapClient() {
         logViewportSyncIfChanged(eventName);
         scheduleFetchForBounds(map.getBounds(), { force: true });
         updateVisibleMarkers();
-        invalidateMapSize("viewportSync");
       };
 
       const handleMapResize = () => {
@@ -703,7 +724,7 @@ export default function MapClient() {
         scheduleFetchForBounds(mapInstanceRef.current.getBounds(), { force: true });
       };
       map.whenReady(() => {
-        invalidateMapSize("open");
+        invalidateMapSize("ready");
         logViewportSyncIfChanged("ready");
         scheduleFetchForBounds(map.getBounds(), { force: true });
       });
@@ -1144,13 +1165,18 @@ if (!selectionHydrated) {
   }, [invalidateMapSize, isPlaceOpen]);
 
   useEffect(() => {
-    invalidateMapSize("viewportSync");
-  }, [filtersOpen, invalidateMapSize]);
+    if (process.env.NODE_ENV !== "production") {
+      logDebugEvent(`[map] filtersOpen changed next=${filtersOpen}`);
+    }
+  }, [filtersOpen, logDebugEvent]);
 
   useEffect(() => {
     return () => {
       if (invalidateTimeoutRef.current !== null) {
         window.clearTimeout(invalidateTimeoutRef.current);
+      }
+      if (openInvalidateTimeoutRef.current !== null) {
+        window.clearTimeout(openInvalidateTimeoutRef.current);
       }
     };
   }, []);
@@ -1246,9 +1272,6 @@ if (!selectionHydrated) {
               onClose={() => closeDrawer("user")}
               ref={bottomSheetRef}
               selectionStatus={selectionStatus}
-              onStageChange={() => {
-                invalidateMapSize("sheetStageChange");
-              }}
             />
           ) : null}
         </div>
