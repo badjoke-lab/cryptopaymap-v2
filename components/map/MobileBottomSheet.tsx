@@ -89,10 +89,18 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
     const prevIsOpenRef = useRef(isOpen);
     const lastNotifiedStageRef = useRef<SheetStage | null>(null);
     const mountCountRef = useRef(0);
+    const panelRef = useRef<HTMLDivElement | null>(null);
     const eventLogRef = useRef<DebugEventEntry[]>([]);
     const [debugHudEnabled, setDebugHudEnabled] = useState(false);
     const [debugLogVersion, setDebugLogVersion] = useState(0);
     const [debugEventCategory, setDebugEventCategory] = useState<DebugEventCategory>("ALL");
+    const [disableSheetStageInvalidate, setDisableSheetStageInvalidate] = useState(false);
+    const [viewportMetrics, setViewportMetrics] = useState<{ innerHeight: number | null; visualViewportHeight: number | null; mapRectHeight: number | null; panelRectHeight: number | null }>({
+      innerHeight: null,
+      visualViewportHeight: null,
+      mapRectHeight: null,
+      panelRectHeight: null,
+    });
 
     const pushDebugEvent = (entry: string, broadcast = true) => {
       const timestamp = new Date().toISOString();
@@ -176,8 +184,10 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
     useEffect(() => {
       if (typeof window === "undefined") return;
       const key = "cpm_debugHud";
+      const disableKey = "cpm_disableSheetStageInvalidate";
       const update = () => {
         setDebugHudEnabled(window.localStorage.getItem(key) === "1");
+        setDisableSheetStageInvalidate(window.localStorage.getItem(disableKey) === "1");
       };
       const onExternalDebugEvent = (event: Event) => {
         const detail = (event as CustomEvent<{ source?: string; entry?: string } | string>).detail;
@@ -202,6 +212,45 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
         window.removeEventListener("cpm-debug-event", onExternalDebugEvent as EventListener);
       };
     }, []);
+
+    useEffect(() => {
+      if (typeof window === "undefined") return;
+      const syncMetrics = () => {
+        const mapElement = document.getElementById("map");
+        const mapRectHeight = mapElement ? Math.round(mapElement.getBoundingClientRect().height) : null;
+        const panelRectHeight = panelRef.current
+          ? Math.round(panelRef.current.getBoundingClientRect().height)
+          : null;
+        setViewportMetrics({
+          innerHeight: window.innerHeight,
+          visualViewportHeight: window.visualViewport
+            ? Math.round(window.visualViewport.height)
+            : null,
+          mapRectHeight,
+          panelRectHeight,
+        });
+      };
+      const onResize = () => syncMetrics();
+      syncMetrics();
+      window.addEventListener("resize", onResize);
+      window.visualViewport?.addEventListener("resize", onResize);
+      const interval = window.setInterval(syncMetrics, 500);
+      return () => {
+        window.clearInterval(interval);
+        window.removeEventListener("resize", onResize);
+        window.visualViewport?.removeEventListener("resize", onResize);
+      };
+    }, [debugLogVersion, isOpen, stage]);
+
+    const toggleDisableSheetInvalidate = () => {
+      if (typeof window === "undefined") return;
+      const key = "cpm_disableSheetStageInvalidate";
+      const nextValue = disableSheetStageInvalidate ? "0" : "1";
+      window.localStorage.setItem(key, nextValue);
+      setDisableSheetStageInvalidate(nextValue === "1");
+      window.dispatchEvent(new CustomEvent("cpm-sheet-invalidate-toggle", { detail: nextValue }));
+      pushDebugEvent(`[hud] disableSheetStageInvalidate=${nextValue}`);
+    };
 
     const viewModel = useMemo(() => getPlaceViewModel(renderedPlace), [renderedPlace]);
     const photos = viewModel.media;
@@ -355,6 +404,8 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
     });
 
     const displayedEvents = filteredEvents.slice(-30).reverse();
+    const resizeEvents = categorizedEvents.filter((eventItem) => eventItem.entry.startsWith("[map] resize"));
+    const resizeEventTimestamps = resizeEvents.slice(-10).map((eventItem) => eventItem.timestamp);
 
     const debugHudContent = debugHudEnabled ? (
       <section
@@ -379,8 +430,29 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
         <div>place prop: {place ? `yes (${place.id})` : "no"}</div>
         <div>panel height(px): {panelHeightPx ?? "n/a"}</div>
         <div>panel transform: {panelTransform}</div>
+        <div>window.innerHeight: {viewportMetrics.innerHeight ?? "n/a"}</div>
+        <div>visualViewport.height: {viewportMetrics.visualViewportHeight ?? "n/a"}</div>
+        <div>map rect height(px): {viewportMetrics.mapRectHeight ?? "n/a"}</div>
+        <div>panel rect height(px): {viewportMetrics.panelRectHeight ?? "n/a"}</div>
+        <div>leaflet resize count: {resizeEvents.length}</div>
+        <div>leaflet resize timestamps: {resizeEventTimestamps.join(", ") || "none"}</div>
         <div>mountCount: {mountCountRef.current}</div>
         <div style={{ marginTop: "6px", fontWeight: 700 }}>events filter</div>
+        <button
+          type="button"
+          onClick={toggleDisableSheetInvalidate}
+          style={{
+            marginTop: "4px",
+            border: "1px solid #fca5a5",
+            borderRadius: "6px",
+            padding: "2px 6px",
+            background: disableSheetStageInvalidate ? "#7f1d1d" : "transparent",
+            color: "#fee2e2",
+            fontSize: "10px",
+          }}
+        >
+          Disable sheetStageChange invalidate: {disableSheetStageInvalidate ? "ON" : "OFF"}
+        </button>
         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "4px" }}>
           {(["ALL", "SHEET", "MAP", "INPUT"] as DebugEventCategory[]).map((category) => (
             <button
@@ -442,6 +514,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
           ) : null}
           <div
             className="cpm-bottom-sheet__panel"
+            ref={panelRef}
             style={{ height: sheetHeight, transform: panelTransform }}
           >
             <div className="cpm-bottom-sheet__handle">
@@ -492,6 +565,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       >
         <div
           className="cpm-bottom-sheet__panel"
+          ref={panelRef}
           style={{ height: sheetHeight, transform: panelTransform }}
         >
           <div

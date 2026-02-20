@@ -156,6 +156,7 @@ export default function MapClient() {
   const lastMobileOpenAtRef = useRef<number>(0);
   const prevIsMobilePlaceOpenRef = useRef(false);
   const lastUserStageReasonAtRef = useRef<number>(0);
+  const disableSheetStageInvalidateRef = useRef(false);
 
   const isMobilePlaceOpen = mounted && isPlaceOpen && Boolean(selectedPlaceId);
   const drawerMode: "full" = "full";
@@ -198,6 +199,26 @@ export default function MapClient() {
     }
     prevIsMobilePlaceOpenRef.current = isMobilePlaceOpen;
   }, [isMobilePlaceOpen]);
+
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const key = "cpm_disableSheetStageInvalidate";
+    const sync = () => {
+      disableSheetStageInvalidateRef.current = window.localStorage.getItem(key) === "1";
+      logDebugEvent(
+        `[map] sheetStageInvalidateDisabled=${String(disableSheetStageInvalidateRef.current)}`,
+      );
+    };
+    const onToggle = () => sync();
+    sync();
+    window.addEventListener("storage", sync);
+    window.addEventListener("cpm-sheet-invalidate-toggle", onToggle as EventListener);
+    return () => {
+      window.removeEventListener("storage", sync);
+      window.removeEventListener("cpm-sheet-invalidate-toggle", onToggle as EventListener);
+    };
+  }, [logDebugEvent]);
 
   const invalidateMapSize = useCallback((reason: string) => {
     const map = mapInstanceRef.current;
@@ -265,6 +286,10 @@ export default function MapClient() {
       }
 
       prevMobileSheetStageRef.current = nextStage;
+      if (disableSheetStageInvalidateRef.current) {
+        logDebugEvent("[map] invalidateMapSize skipped reason=sheetStageChange disabled");
+        return;
+      }
       const delayMs = 260;
       if (sheetStageInvalidateDebounceRef.current !== null) {
         logDebugEvent("[map] invalidateMapSize deduped reason=sheetStageChange");
@@ -798,6 +823,18 @@ export default function MapClient() {
       map.on("click", handleMapClickWithLog);
       mapInstanceRef.current = map;
 
+      const mapContainer = map.getContainer();
+      let previousMapContainerHeight = Math.round(mapContainer.getBoundingClientRect().height);
+      logDebugEvent(`[map] containerHeight=${previousMapContainerHeight}`);
+      const mapContainerObserver = new ResizeObserver(() => {
+        const nextHeight = Math.round(mapContainer.getBoundingClientRect().height);
+        if (nextHeight !== previousMapContainerHeight) {
+          previousMapContainerHeight = nextHeight;
+          logDebugEvent(`[map] containerHeight=${nextHeight}`);
+        }
+      });
+      mapContainerObserver.observe(mapContainer);
+
       fetchPlacesRef.current = () => {
         if (!mapInstanceRef.current) return;
         scheduleFetchForBounds(mapInstanceRef.current.getBounds(), { force: true });
@@ -809,6 +846,7 @@ export default function MapClient() {
       });
 
       return () => {
+        mapContainerObserver.disconnect();
         map.off("moveend", handleMoveEnd);
         map.off("zoomend", handleZoomEnd);
         map.off("resize", handleMapResize);
