@@ -86,9 +86,12 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
     const [debugHudEnabled, setDebugHudEnabled] = useState(false);
     const [debugLogVersion, setDebugLogVersion] = useState(0);
 
-    const pushDebugEvent = (entry: string) => {
+    const pushDebugEvent = (entry: string, broadcast = true) => {
       eventLogRef.current = [...eventLogRef.current, `${new Date().toISOString()} ${entry}`].slice(-30);
       setDebugLogVersion((value) => value + 1);
+      if (broadcast && typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("cpm-debug-event", { detail: { source: "sheet", entry } }));
+      }
     };
 
     const markInput = (scope: "root" | "handle", eventName: "pointerdown" | "pointerup" | "click" | "touchstart" | "touchend") => {
@@ -167,12 +170,27 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       const update = () => {
         setDebugHudEnabled(window.localStorage.getItem(key) === "1");
       };
+      const onExternalDebugEvent = (event: Event) => {
+        const detail = (event as CustomEvent<{ source?: string; entry?: string } | string>).detail;
+        if (typeof detail === "string") {
+          pushDebugEvent(detail, false);
+          return;
+        }
+        if (detail?.source === "sheet") {
+          return;
+        }
+        if (typeof detail?.entry === "string") {
+          pushDebugEvent(detail.entry, false);
+        }
+      };
       update();
       window.addEventListener("storage", update);
       window.addEventListener("cpm-debug-hud-changed", update as EventListener);
+      window.addEventListener("cpm-debug-event", onExternalDebugEvent as EventListener);
       return () => {
         window.removeEventListener("storage", update);
         window.removeEventListener("cpm-debug-hud-changed", update as EventListener);
+        window.removeEventListener("cpm-debug-event", onExternalDebugEvent as EventListener);
       };
     }, []);
 

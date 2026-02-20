@@ -149,13 +149,24 @@ export default function MapClient() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const invalidateTimeoutRef = useRef<number | null>(null);
   const drawerReasonRef = useRef("initial");
+  const viewportSnapshotRef = useRef<{ center: [number, number]; zoom: number } | null>(null);
 
   const isMobilePlaceOpen = mounted && isPlaceOpen && Boolean(selectedPlaceId);
   const drawerMode: "full" = "full";
 
-  const invalidateMapSize = useCallback(() => {
+  const logDebugEvent = useCallback((entry: string) => {
+    if (process.env.NODE_ENV !== "production") {
+      console.debug(entry);
+    }
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("cpm-debug-event", { detail: { source: "map", entry } }));
+    }
+  }, []);
+
+  const invalidateMapSize = useCallback((reason: string) => {
     const map = mapInstanceRef.current;
     if (!map) return;
+    logDebugEvent(`[map] invalidateMapSize reason=${reason}`);
     if (invalidateTimeoutRef.current !== null) {
       window.clearTimeout(invalidateTimeoutRef.current);
     }
@@ -166,7 +177,7 @@ export default function MapClient() {
         invalidateTimeoutRef.current = null;
       }, 120);
     });
-  }, []);
+  }, [logDebugEvent]);
 
   const toggleFilters = useCallback(() => {
     setFiltersOpen((previous) => {
@@ -640,13 +651,51 @@ export default function MapClient() {
         }, 120);
       };
 
-      const handleMapViewChange = () => {
-        scheduleFetchForBounds(map.getBounds(), { force: true });
-        updateVisibleMarkers();
+      const logViewportSyncIfChanged = (source: string) => {
+        const center = map.getCenter();
+        const zoom = map.getZoom();
+        const nextCenter: [number, number] = [
+          Number(center.lat.toFixed(6)),
+          Number(center.lng.toFixed(6)),
+        ];
+        const previous = viewportSnapshotRef.current;
+        const changed =
+          !previous ||
+          previous.zoom !== zoom ||
+          previous.center[0] !== nextCenter[0] ||
+          previous.center[1] !== nextCenter[1];
+        if (changed) {
+          viewportSnapshotRef.current = { center: nextCenter, zoom };
+          logDebugEvent(
+            `[map] viewportSync source=${source} center=${nextCenter[0]},${nextCenter[1]} zoom=${zoom}`,
+          );
+        }
       };
 
-      map.on("moveend zoomend", handleMapViewChange);
-      map.on("click", handleMapClick);
+      const handleMapViewChange = (eventName: "moveend" | "zoomend") => {
+        logDebugEvent(`[map] ${eventName}`);
+        logViewportSyncIfChanged(eventName);
+        scheduleFetchForBounds(map.getBounds(), { force: true });
+        updateVisibleMarkers();
+        invalidateMapSize("viewportSync");
+      };
+
+      const handleMapResize = () => {
+        logDebugEvent("[map] resize");
+      };
+
+      const handleMapClickWithLog = (event: import("leaflet").LeafletMouseEvent) => {
+        logDebugEvent("[map] click");
+        handleMapClick(event);
+      };
+
+      const handleMoveEnd = () => handleMapViewChange("moveend");
+      const handleZoomEnd = () => handleMapViewChange("zoomend");
+
+      map.on("moveend", handleMoveEnd);
+      map.on("zoomend", handleZoomEnd);
+      map.on("resize", handleMapResize);
+      map.on("click", handleMapClickWithLog);
       mapInstanceRef.current = map;
 
       fetchPlacesRef.current = () => {
@@ -654,12 +703,16 @@ export default function MapClient() {
         scheduleFetchForBounds(mapInstanceRef.current.getBounds(), { force: true });
       };
       map.whenReady(() => {
-        invalidateMapSize();
+        invalidateMapSize("open");
+        logViewportSyncIfChanged("ready");
         scheduleFetchForBounds(map.getBounds(), { force: true });
       });
 
       return () => {
-        map.off("click", handleMapClick);
+        map.off("moveend", handleMoveEnd);
+        map.off("zoomend", handleZoomEnd);
+        map.off("resize", handleMapResize);
+        map.off("click", handleMapClickWithLog);
       };
     };
 
@@ -679,7 +732,7 @@ export default function MapClient() {
         mapInstanceRef.current = null;
       }
     };
-  }, [closeDrawer, invalidateMapSize, openDrawerForPlace]);
+  }, [closeDrawer, invalidateMapSize, logDebugEvent, openDrawerForPlace]);
 
   const selectedPlace = useMemo(
     () =>
@@ -1087,11 +1140,11 @@ if (!selectionHydrated) {
 
   useEffect(() => {
     if (!isPlaceOpen) return;
-    invalidateMapSize();
+    invalidateMapSize(isPlaceOpen ? "open" : "close");
   }, [invalidateMapSize, isPlaceOpen]);
 
   useEffect(() => {
-    invalidateMapSize();
+    invalidateMapSize("viewportSync");
   }, [filtersOpen, invalidateMapSize]);
 
   useEffect(() => {
@@ -1194,7 +1247,7 @@ if (!selectionHydrated) {
               ref={bottomSheetRef}
               selectionStatus={selectionStatus}
               onStageChange={() => {
-                invalidateMapSize();
+                invalidateMapSize("sheetStageChange");
               }}
             />
           ) : null}
