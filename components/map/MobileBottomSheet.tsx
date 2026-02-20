@@ -127,6 +127,16 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
     });
     const latestLayoutSnapshotRef = useRef<LayoutSnapshot | null>(null);
     const domSizeChangesRef = useRef<DomSizeChange[]>([]);
+    const recentRafCallsRef = useRef<number[]>([]);
+    const recentTimeoutCallsRef = useRef<number[]>([]);
+    const [jsActivityCounts, setJsActivityCounts] = useState<{ raf500ms: number; timeout500ms: number }>({ raf500ms: 0, timeout500ms: 0 });
+    const [sheetLayoutInfo, setSheetLayoutInfo] = useState<{ wrapperPosition: string; panelPosition: string; panelDisplay: string; panelTransform: string; overlayLayout: boolean | null }>({
+      wrapperPosition: "n/a",
+      panelPosition: "n/a",
+      panelDisplay: "n/a",
+      panelTransform: "n/a",
+      overlayLayout: null,
+    });
 
     const pushDebugEvent = (entry: string, broadcast = true) => {
       const timestamp = new Date().toISOString();
@@ -273,7 +283,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
               .join(" | ");
 
             pushDebugEvent(
-              `[map] resize snapshot before(inner=${before?.innerHeight ?? "n/a"},vv=${before?.visualViewportHeight ?? "n/a"},map=${formatRect(before?.mapRect ?? null)},panel=${formatRect(before?.panelRect ?? null)},body=${before?.bodyClientHeight ?? "n/a"},root=${formatRect(before?.pageRootRect ?? null)},header=${formatRect(before?.headerRect ?? null)}) after(inner=${after.innerHeight ?? "n/a"},vv=${after.visualViewportHeight ?? "n/a"},map=${formatRect(after.mapRect)},panel=${formatRect(after.panelRect)},body=${after.bodyClientHeight ?? "n/a"},root=${formatRect(after.pageRootRect)},header=${formatRect(after.headerRect)}) recentDom200ms=${recentDomChanges || "none"} recentInput200ms=${recentInputs || "none"}`,
+              `[map] resize snapshot before(inner=${before?.innerHeight ?? "n/a"},vv=${before?.visualViewportHeight ?? "n/a"},map=${formatRect(before?.mapRect ?? null)},panel=${formatRect(before?.panelRect ?? null)},body=${before?.bodyClientHeight ?? "n/a"},root=${formatRect(before?.pageRootRect ?? null)},header=${formatRect(before?.headerRect ?? null)}) after(inner=${after.innerHeight ?? "n/a"},vv=${after.visualViewportHeight ?? "n/a"},map=${formatRect(after.mapRect)},panel=${formatRect(after.panelRect)},body=${after.bodyClientHeight ?? "n/a"},root=${formatRect(after.pageRootRect)},header=${formatRect(after.headerRect)}) recentDom200ms=${recentDomChanges || "none"} recentInput200ms=${recentInputs || "none"} js500ms=raf:${jsActivityCounts.raf500ms},timeout:${jsActivityCounts.timeout500ms}`,
               false,
             );
           }
@@ -321,11 +331,43 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
         };
       };
 
-      const registerDomChange = (target: string, prev: number | null, next: number | null) => {
+      const elementMetaCache = new Map<string, string>();
+      const getElementMeta = (element: Element | null) => {
+        if (!element) return "missing";
+        const el = element as HTMLElement;
+        const computed = window.getComputedStyle(el);
+        const parentTag = el.parentElement ? `${el.parentElement.tagName.toLowerCase()}${el.parentElement.className ? `.${el.parentElement.className.toString().split(" ").filter(Boolean).join(".")}` : ""}` : "none";
+        const offsetParentTag = el.offsetParent ? (el.offsetParent as HTMLElement).tagName.toLowerCase() : "none";
+        return [
+          `id=${el.id || "none"}`,
+          `class=${el.className || "none"}`,
+          `inline=${el.getAttribute("style") || "none"}`,
+          `height=${computed.height}`,
+          `minHeight=${computed.minHeight}`,
+          `maxHeight=${computed.maxHeight}`,
+          `position=${computed.position}`,
+          `display=${computed.display}`,
+          `overflow=${computed.overflow}`,
+          `top=${computed.top}`,
+          `bottom=${computed.bottom}`,
+          `transform=${computed.transform}`,
+          `var(--vh)=${computed.getPropertyValue("--vh").trim() || "n/a"}`,
+          `var(--dvh)=${computed.getPropertyValue("--dvh").trim() || "n/a"}`,
+          `var(--header-h)=${computed.getPropertyValue("--header-h").trim() || "n/a"}`,
+          `var(--safe-bottom)=${computed.getPropertyValue("--safe-bottom").trim() || "n/a"}`,
+          `offsetParent=${offsetParentTag}`,
+          `parent=${parentTag}`,
+        ].join(";");
+      };
+
+      const registerDomChange = (target: string, element: Element | null, prev: number | null, next: number | null) => {
         const nextEntry: DomSizeChange = { at: Date.now(), target, prev, next };
         domSizeChangesRef.current = [...domSizeChangesRef.current, nextEntry].slice(-80);
+        const nextMeta = getElementMeta(element);
+        const prevMeta = elementMetaCache.get(target) ?? "none";
+        elementMetaCache.set(target, nextMeta);
         pushDebugEvent(
-          `[dom-size] target=${target} prev=${prev ?? "n/a"} next=${next ?? "n/a"}`,
+          `[dom-size] target=${target} prev=${prev ?? "n/a"} next=${next ?? "n/a"} prevMeta={${prevMeta}} nextMeta={${nextMeta}}`,
           false,
         );
       };
@@ -334,6 +376,22 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
         const snapshot = buildSnapshot();
         latestLayoutSnapshotRef.current = snapshot;
         setViewportMetrics(snapshot);
+
+        const wrapper = panelRef.current?.closest(".cpm-bottom-sheet") as HTMLElement | null;
+        const wrapperComputed = wrapper ? window.getComputedStyle(wrapper) : null;
+        const panelComputed = panelRef.current ? window.getComputedStyle(panelRef.current) : null;
+        const wrapperPosition = wrapperComputed?.position ?? "n/a";
+        const panelPosition = panelComputed?.position ?? "n/a";
+        const panelDisplay = panelComputed?.display ?? "n/a";
+        const panelTransformValue = panelComputed?.transform ?? "n/a";
+        const overlayLayout = wrapperComputed ? wrapperComputed.position === "fixed" : null;
+        setSheetLayoutInfo({
+          wrapperPosition,
+          panelPosition,
+          panelDisplay,
+          panelTransform: panelTransformValue,
+          overlayLayout,
+        });
       };
 
       const observers: ResizeObserver[] = [];
@@ -343,7 +401,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
         const observer = new ResizeObserver(() => {
           const nextHeight = getHeight();
           if (nextHeight !== prevHeight) {
-            registerDomChange(name, prevHeight, nextHeight);
+            registerDomChange(name, target, prevHeight, nextHeight);
             prevHeight = nextHeight;
             syncMetrics();
           }
@@ -391,6 +449,42 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       window.dispatchEvent(new CustomEvent("cpm-sheet-invalidate-toggle", { detail: nextValue }));
       pushDebugEvent(`[hud] disableSheetStageInvalidate=${nextValue}`);
     };
+
+    useEffect(() => {
+      if (typeof window === "undefined") return;
+      if (process.env.NODE_ENV === "production") return;
+      if (!debugHudEnabled) return;
+
+      const originalRaf = window.requestAnimationFrame.bind(window);
+      const originalSetTimeout = window.setTimeout.bind(window);
+
+      const patchedRaf: typeof window.requestAnimationFrame = (callback) => {
+        recentRafCallsRef.current = [...recentRafCallsRef.current, Date.now()].slice(-120);
+        return originalRaf(callback);
+      };
+
+      const patchedSetTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
+        recentTimeoutCallsRef.current = [...recentTimeoutCallsRef.current, Date.now()].slice(-120);
+        return originalSetTimeout(handler, timeout, ...args);
+      }) as typeof window.setTimeout;
+
+      (window as Window & { requestAnimationFrame: typeof window.requestAnimationFrame }).requestAnimationFrame = patchedRaf;
+      (window as Window & { setTimeout: typeof window.setTimeout }).setTimeout = patchedSetTimeout;
+
+      const activityTimer = originalSetTimeout(function tick() {
+        const now = Date.now();
+        const raf500ms = recentRafCallsRef.current.filter((at) => now - at <= 500).length;
+        const timeout500ms = recentTimeoutCallsRef.current.filter((at) => now - at <= 500).length;
+        setJsActivityCounts({ raf500ms, timeout500ms });
+        originalSetTimeout(tick, 300);
+      }, 300);
+
+      return () => {
+        (window as Window & { requestAnimationFrame: typeof window.requestAnimationFrame }).requestAnimationFrame = originalRaf;
+        (window as Window & { setTimeout: typeof window.setTimeout }).setTimeout = originalSetTimeout;
+        window.clearTimeout(activityTimer);
+      };
+    }, [debugHudEnabled]);
 
     const viewModel = useMemo(() => getPlaceViewModel(renderedPlace), [renderedPlace]);
     const photos = viewModel.media;
@@ -579,6 +673,11 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
         <div>header rect: {viewportMetrics.headerRect ? `top=${viewportMetrics.headerRect.top}, h=${viewportMetrics.headerRect.height}` : "n/a"}</div>
         <div>leaflet resize count: {resizeEvents.length}</div>
         <div>leaflet resize timestamps: {resizeEventTimestamps.join(", ") || "none"}</div>
+        <div>js activity(500ms): raf={jsActivityCounts.raf500ms}, timeout={jsActivityCounts.timeout500ms}</div>
+        <div>sheet wrapper position: {sheetLayoutInfo.wrapperPosition}</div>
+        <div>sheet panel position/display: {sheetLayoutInfo.panelPosition} / {sheetLayoutInfo.panelDisplay}</div>
+        <div>sheet panel computed transform: {sheetLayoutInfo.panelTransform}</div>
+        <div>sheet overlay layout: {sheetLayoutInfo.overlayLayout === null ? "n/a" : sheetLayoutInfo.overlayLayout ? "true" : "false"}</div>
         <div>mountCount: {mountCountRef.current}</div>
         <div style={{ marginTop: "6px", fontWeight: 700 }}>events filter</div>
         <button
