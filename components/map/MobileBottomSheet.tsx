@@ -29,6 +29,27 @@ type DebugEventEntry = {
   timestamp: string;
   entry: string;
 };
+type RectSnapshot = {
+  top: number;
+  height: number;
+};
+
+type LayoutSnapshot = {
+  innerHeight: number | null;
+  visualViewportHeight: number | null;
+  mapRect: RectSnapshot | null;
+  panelRect: RectSnapshot | null;
+  bodyClientHeight: number | null;
+  pageRootRect: RectSnapshot | null;
+  headerRect: RectSnapshot | null;
+};
+
+type DomSizeChange = {
+  at: number;
+  target: string;
+  prev: number | null;
+  next: number | null;
+};
 
 const PEEK_HEIGHT = 35;
 const EXPANDED_HEIGHT = 88;
@@ -95,12 +116,17 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
     const [debugLogVersion, setDebugLogVersion] = useState(0);
     const [debugEventCategory, setDebugEventCategory] = useState<DebugEventCategory>("ALL");
     const [disableSheetStageInvalidate, setDisableSheetStageInvalidate] = useState(false);
-    const [viewportMetrics, setViewportMetrics] = useState<{ innerHeight: number | null; visualViewportHeight: number | null; mapRectHeight: number | null; panelRectHeight: number | null }>({
+    const [viewportMetrics, setViewportMetrics] = useState<LayoutSnapshot>({
       innerHeight: null,
       visualViewportHeight: null,
-      mapRectHeight: null,
-      panelRectHeight: null,
+      mapRect: null,
+      panelRect: null,
+      bodyClientHeight: null,
+      pageRootRect: null,
+      headerRect: null,
     });
+    const latestLayoutSnapshotRef = useRef<LayoutSnapshot | null>(null);
+    const domSizeChangesRef = useRef<DomSizeChange[]>([]);
 
     const pushDebugEvent = (entry: string, broadcast = true) => {
       const timestamp = new Date().toISOString();
@@ -189,6 +215,9 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
         setDebugHudEnabled(window.localStorage.getItem(key) === "1");
         setDisableSheetStageInvalidate(window.localStorage.getItem(disableKey) === "1");
       };
+      const formatRect = (rect: RectSnapshot | null) =>
+        rect ? `top=${rect.top},h=${rect.height}` : "n/a";
+
       const onExternalDebugEvent = (event: Event) => {
         const detail = (event as CustomEvent<{ source?: string; entry?: string } | string>).detail;
         if (typeof detail === "string") {
@@ -200,6 +229,54 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
         }
         if (typeof detail?.entry === "string") {
           pushDebugEvent(detail.entry, false);
+
+          if (detail.entry.startsWith("[map] resize")) {
+            const before = latestLayoutSnapshotRef.current;
+            const mapElement = document.getElementById("map");
+            const mapRect = mapElement ? mapElement.getBoundingClientRect() : null;
+            const panelRect = panelRef.current?.getBoundingClientRect() ?? null;
+            const pageRoot = document.querySelector(".cpm-map-root") as HTMLElement | null;
+            const pageRootRect = pageRoot?.getBoundingClientRect() ?? null;
+            const header = document.querySelector("header") as HTMLElement | null;
+            const headerRect = header?.getBoundingClientRect() ?? null;
+            const after: LayoutSnapshot = {
+              innerHeight: window.innerHeight,
+              visualViewportHeight: window.visualViewport
+                ? Math.round(window.visualViewport.height)
+                : null,
+              mapRect: mapRect ? { top: Math.round(mapRect.top), height: Math.round(mapRect.height) } : null,
+              panelRect: panelRect
+                ? { top: Math.round(panelRect.top), height: Math.round(panelRect.height) }
+                : null,
+              bodyClientHeight: document.body?.clientHeight ?? null,
+              pageRootRect: pageRootRect
+                ? { top: Math.round(pageRootRect.top), height: Math.round(pageRootRect.height) }
+                : null,
+              headerRect: headerRect
+                ? { top: Math.round(headerRect.top), height: Math.round(headerRect.height) }
+                : null,
+            };
+            latestLayoutSnapshotRef.current = after;
+
+            const now = Date.now();
+            const recentDomChanges = domSizeChangesRef.current
+              .filter((change) => now - change.at <= 200)
+              .map((change) => `${change.target}:${change.prev ?? "n/a"}->${change.next ?? "n/a"}`)
+              .join(" | ");
+            const recentInputs = eventLogRef.current
+              .filter(
+                (entryItem) =>
+                  entryItem.entry.startsWith("[input:") &&
+                  now - new Date(entryItem.timestamp).getTime() <= 200,
+              )
+              .map((entryItem) => entryItem.entry)
+              .join(" | ");
+
+            pushDebugEvent(
+              `[map] resize snapshot before(inner=${before?.innerHeight ?? "n/a"},vv=${before?.visualViewportHeight ?? "n/a"},map=${formatRect(before?.mapRect ?? null)},panel=${formatRect(before?.panelRect ?? null)},body=${before?.bodyClientHeight ?? "n/a"},root=${formatRect(before?.pageRootRect ?? null)},header=${formatRect(before?.headerRect ?? null)}) after(inner=${after.innerHeight ?? "n/a"},vv=${after.visualViewportHeight ?? "n/a"},map=${formatRect(after.mapRect)},panel=${formatRect(after.panelRect)},body=${after.bodyClientHeight ?? "n/a"},root=${formatRect(after.pageRootRect)},header=${formatRect(after.headerRect)}) recentDom200ms=${recentDomChanges || "none"} recentInput200ms=${recentInputs || "none"}`,
+              false,
+            );
+          }
         }
       };
       update();
@@ -215,27 +292,90 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
 
     useEffect(() => {
       if (typeof window === "undefined") return;
-      const syncMetrics = () => {
+
+      const buildSnapshot = (): LayoutSnapshot => {
         const mapElement = document.getElementById("map");
-        const mapRectHeight = mapElement ? Math.round(mapElement.getBoundingClientRect().height) : null;
-        const panelRectHeight = panelRef.current
-          ? Math.round(panelRef.current.getBoundingClientRect().height)
-          : null;
-        setViewportMetrics({
+        const mapRect = mapElement?.getBoundingClientRect() ?? null;
+        const panelRect = panelRef.current?.getBoundingClientRect() ?? null;
+        const pageRoot = document.querySelector(".cpm-map-root") as HTMLElement | null;
+        const pageRootRect = pageRoot?.getBoundingClientRect() ?? null;
+        const header = document.querySelector("header") as HTMLElement | null;
+        const headerRect = header?.getBoundingClientRect() ?? null;
+
+        return {
           innerHeight: window.innerHeight,
           visualViewportHeight: window.visualViewport
             ? Math.round(window.visualViewport.height)
             : null,
-          mapRectHeight,
-          panelRectHeight,
-        });
+          mapRect: mapRect ? { top: Math.round(mapRect.top), height: Math.round(mapRect.height) } : null,
+          panelRect: panelRect
+            ? { top: Math.round(panelRect.top), height: Math.round(panelRect.height) }
+            : null,
+          bodyClientHeight: document.body?.clientHeight ?? null,
+          pageRootRect: pageRootRect
+            ? { top: Math.round(pageRootRect.top), height: Math.round(pageRootRect.height) }
+            : null,
+          headerRect: headerRect
+            ? { top: Math.round(headerRect.top), height: Math.round(headerRect.height) }
+            : null,
+        };
       };
+
+      const registerDomChange = (target: string, prev: number | null, next: number | null) => {
+        const nextEntry: DomSizeChange = { at: Date.now(), target, prev, next };
+        domSizeChangesRef.current = [...domSizeChangesRef.current, nextEntry].slice(-80);
+        pushDebugEvent(
+          `[dom-size] target=${target} prev=${prev ?? "n/a"} next=${next ?? "n/a"}`,
+          false,
+        );
+      };
+
+      const syncMetrics = () => {
+        const snapshot = buildSnapshot();
+        latestLayoutSnapshotRef.current = snapshot;
+        setViewportMetrics(snapshot);
+      };
+
+      const observers: ResizeObserver[] = [];
+      const observeElement = (target: Element | null, name: string, getHeight: () => number | null) => {
+        if (!target) return;
+        let prevHeight = getHeight();
+        const observer = new ResizeObserver(() => {
+          const nextHeight = getHeight();
+          if (nextHeight !== prevHeight) {
+            registerDomChange(name, prevHeight, nextHeight);
+            prevHeight = nextHeight;
+            syncMetrics();
+          }
+        });
+        observer.observe(target);
+        observers.push(observer);
+      };
+
+      const mapElement = document.getElementById("map");
+      observeElement(mapElement?.parentElement ?? null, "map-parent", () => {
+        if (!mapElement?.parentElement) return null;
+        return Math.round(mapElement.parentElement.getBoundingClientRect().height);
+      });
+      observeElement(panelRef.current, "sheet-panel", () =>
+        panelRef.current ? Math.round(panelRef.current.getBoundingClientRect().height) : null,
+      );
+      const pageRoot = document.querySelector(".cpm-map-root");
+      observeElement(pageRoot, "page-root", () =>
+        pageRoot ? Math.round((pageRoot as HTMLElement).getBoundingClientRect().height) : null,
+      );
+      const header = document.querySelector("header");
+      observeElement(header, "header", () =>
+        header ? Math.round((header as HTMLElement).getBoundingClientRect().height) : null,
+      );
+
       const onResize = () => syncMetrics();
       syncMetrics();
       window.addEventListener("resize", onResize);
       window.visualViewport?.addEventListener("resize", onResize);
       const interval = window.setInterval(syncMetrics, 500);
       return () => {
+        observers.forEach((observer) => observer.disconnect());
         window.clearInterval(interval);
         window.removeEventListener("resize", onResize);
         window.visualViewport?.removeEventListener("resize", onResize);
@@ -432,8 +572,11 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
         <div>panel transform: {panelTransform}</div>
         <div>window.innerHeight: {viewportMetrics.innerHeight ?? "n/a"}</div>
         <div>visualViewport.height: {viewportMetrics.visualViewportHeight ?? "n/a"}</div>
-        <div>map rect height(px): {viewportMetrics.mapRectHeight ?? "n/a"}</div>
-        <div>panel rect height(px): {viewportMetrics.panelRectHeight ?? "n/a"}</div>
+        <div>map rect: {viewportMetrics.mapRect ? `top=${viewportMetrics.mapRect.top}, h=${viewportMetrics.mapRect.height}` : "n/a"}</div>
+        <div>panel rect: {viewportMetrics.panelRect ? `top=${viewportMetrics.panelRect.top}, h=${viewportMetrics.panelRect.height}` : "n/a"}</div>
+        <div>document.body.clientHeight: {viewportMetrics.bodyClientHeight ?? "n/a"}</div>
+        <div>page root rect: {viewportMetrics.pageRootRect ? `top=${viewportMetrics.pageRootRect.top}, h=${viewportMetrics.pageRootRect.height}` : "n/a"}</div>
+        <div>header rect: {viewportMetrics.headerRect ? `top=${viewportMetrics.headerRect.top}, h=${viewportMetrics.headerRect.height}` : "n/a"}</div>
         <div>leaflet resize count: {resizeEvents.length}</div>
         <div>leaflet resize timestamps: {resizeEventTimestamps.join(", ") || "none"}</div>
         <div>mountCount: {mountCountRef.current}</div>
