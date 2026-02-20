@@ -24,6 +24,12 @@ type RenderedPlaceReason =
   | "closeReset"
   | "rerenderGuardHit";
 
+type DebugEventCategory = "ALL" | "SHEET" | "MAP" | "INPUT";
+type DebugEventEntry = {
+  timestamp: string;
+  entry: string;
+};
+
 const PEEK_HEIGHT = 35;
 const EXPANDED_HEIGHT = 88;
 
@@ -82,12 +88,14 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
     const lastInputAtRef = useRef<number | null>(null);
     const prevIsOpenRef = useRef(isOpen);
     const mountCountRef = useRef(0);
-    const eventLogRef = useRef<string[]>([]);
+    const eventLogRef = useRef<DebugEventEntry[]>([]);
     const [debugHudEnabled, setDebugHudEnabled] = useState(false);
     const [debugLogVersion, setDebugLogVersion] = useState(0);
+    const [debugEventCategory, setDebugEventCategory] = useState<DebugEventCategory>("ALL");
 
     const pushDebugEvent = (entry: string, broadcast = true) => {
-      eventLogRef.current = [...eventLogRef.current, `${new Date().toISOString()} ${entry}`].slice(-30);
+      const timestamp = new Date().toISOString();
+      eventLogRef.current = [...eventLogRef.current, { timestamp, entry }].slice(-200);
       setDebugLogVersion((value) => value + 1);
       if (broadcast && typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("cpm-debug-event", { detail: { source: "sheet", entry } }));
@@ -317,6 +325,29 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
         : null;
     const panelTransform = `translateY(${isVisible ? "0" : "100%"})`;
 
+    const categorizedEvents = eventLogRef.current.map((eventItem) => {
+      const logLine = `${eventItem.timestamp} ${eventItem.entry}`;
+      if (eventItem.entry.startsWith("[map]")) {
+        return { ...eventItem, logLine, category: "MAP" as const };
+      }
+      if (eventItem.entry.startsWith("[input:")) {
+        return { ...eventItem, logLine, category: "INPUT" as const };
+      }
+      return { ...eventItem, logLine, category: "SHEET" as const };
+    });
+
+    const pinnedMapEvents = categorizedEvents
+      .filter((eventItem) => eventItem.category === "MAP")
+      .slice(-10)
+      .reverse();
+
+    const filteredEvents = categorizedEvents.filter((eventItem) => {
+      if (debugEventCategory === "ALL") return true;
+      return eventItem.category === debugEventCategory;
+    });
+
+    const displayedEvents = filteredEvents.slice(-30).reverse();
+
     const debugHudContent = debugHudEnabled ? (
       <section
         style={{
@@ -341,10 +372,39 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
         <div>panel height(px): {panelHeightPx ?? "n/a"}</div>
         <div>panel transform: {panelTransform}</div>
         <div>mountCount: {mountCountRef.current}</div>
-        <div style={{ marginTop: "6px", fontWeight: 700 }}>events (latest 30)</div>
-        {eventLogRef.current.length === 0 ? <div>none</div> : null}
-        {eventLogRef.current.map((entry, index) => (
-          <div key={`${index}-${debugLogVersion}`}>{entry}</div>
+        <div style={{ marginTop: "6px", fontWeight: 700 }}>events filter</div>
+        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "4px" }}>
+          {(["ALL", "SHEET", "MAP", "INPUT"] as DebugEventCategory[]).map((category) => (
+            <button
+              key={category}
+              type="button"
+              onClick={() => setDebugEventCategory(category)}
+              style={{
+                border: "1px solid #fca5a5",
+                borderRadius: "6px",
+                padding: "2px 6px",
+                background: debugEventCategory === category ? "#7f1d1d" : "transparent",
+                color: "#fee2e2",
+                fontSize: "10px",
+              }}
+            >
+              {category}
+            </button>
+          ))}
+        </div>
+        <div style={{ marginTop: "6px", fontWeight: 700 }}>
+          pinned [map] (latest 10)
+        </div>
+        {pinnedMapEvents.length === 0 ? <div>none</div> : null}
+        {pinnedMapEvents.map((eventItem, index) => (
+          <div key={`map-${index}-${debugLogVersion}`}>{eventItem.logLine}</div>
+        ))}
+        <div style={{ marginTop: "6px", fontWeight: 700 }}>
+          events ({debugEventCategory}) latest 30 / stored {categorizedEvents.length}
+        </div>
+        {displayedEvents.length === 0 ? <div>none</div> : null}
+        {displayedEvents.map((eventItem, index) => (
+          <div key={`${eventItem.timestamp}-${index}-${debugLogVersion}`}>{eventItem.logLine}</div>
         ))}
       </section>
     ) : null;
