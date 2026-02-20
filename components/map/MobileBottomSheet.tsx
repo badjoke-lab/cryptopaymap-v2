@@ -57,6 +57,10 @@ type InvalidateStats = {
   lastRequestedReason: string;
   lastExecutedReason: string;
   lastExecutedAt: string;
+  appVhVar: string;
+  appVhUpdatedAt: string;
+  appVhUpdatesLast2s: number;
+  lastViewportSyncTrigger: string;
 };
 
 
@@ -153,6 +157,10 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       lastRequestedReason: "none",
       lastExecutedReason: "none",
       lastExecutedAt: "n/a",
+      appVhVar: "n/a",
+      appVhUpdatedAt: "n/a",
+      appVhUpdatesLast2s: 0,
+      lastViewportSyncTrigger: "initial",
     });
 
     const pushDebugEvent = (entry: string, broadcast = true) => {
@@ -327,6 +335,19 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
               : current.lastExecutedReason,
           lastExecutedAt:
             typeof detail.lastExecutedAt === "string" ? detail.lastExecutedAt : current.lastExecutedAt,
+          appVhVar: typeof detail.appVhVar === "string" ? detail.appVhVar : current.appVhVar,
+          appVhUpdatedAt:
+            typeof detail.appVhUpdatedAt === "string"
+              ? detail.appVhUpdatedAt
+              : current.appVhUpdatedAt,
+          appVhUpdatesLast2s:
+            typeof detail.appVhUpdatesLast2s === "number"
+              ? detail.appVhUpdatesLast2s
+              : current.appVhUpdatesLast2s,
+          lastViewportSyncTrigger:
+            typeof detail.lastViewportSyncTrigger === "string"
+              ? detail.lastViewportSyncTrigger
+              : current.lastViewportSyncTrigger,
         }));
       };
 
@@ -724,6 +745,10 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
         <div>lastRequestedReason: {invalidateStats.lastRequestedReason}</div>
         <div>lastExecutedReason: {invalidateStats.lastExecutedReason}</div>
         <div>lastExecutedAt: {invalidateStats.lastExecutedAt}</div>
+        <div>appVhVar: {invalidateStats.appVhVar}</div>
+        <div>appVhUpdatedAt: {invalidateStats.appVhUpdatedAt}</div>
+        <div>appVhUpdates(last2s): {invalidateStats.appVhUpdatesLast2s}</div>
+        <div>lastViewportSyncTrigger: {invalidateStats.lastViewportSyncTrigger}</div>
         <div>js activity(500ms): raf={jsActivityCounts.raf500ms}, timeout={jsActivityCounts.timeout500ms}</div>
         <div>sheet wrapper position: {sheetLayoutInfo.wrapperPosition}</div>
         <div>sheet panel position/display: {sheetLayoutInfo.panelPosition} / {sheetLayoutInfo.panelDisplay}</div>
