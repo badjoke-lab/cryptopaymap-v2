@@ -153,7 +153,6 @@ export default function MapClient() {
   const viewportSnapshotRef = useRef<{ center: [number, number]; zoom: number } | null>(null);
   const prevMobileSheetStageRef = useRef<"peek" | "expanded" | null>(null);
   const sheetStageInvalidateDebounceRef = useRef<number | null>(null);
-  const lastSheetStageInvalidateAtRef = useRef<number>(0);
   const lastMobileOpenAtRef = useRef<number>(0);
   const prevIsMobilePlaceOpenRef = useRef(false);
   const lastUserStageReasonAtRef = useRef<number>(0);
@@ -266,22 +265,17 @@ export default function MapClient() {
       }
 
       prevMobileSheetStageRef.current = nextStage;
+      const delayMs = 260;
       if (sheetStageInvalidateDebounceRef.current !== null) {
+        logDebugEvent("[map] invalidateMapSize deduped reason=sheetStageChange");
         window.clearTimeout(sheetStageInvalidateDebounceRef.current);
       }
 
+      logDebugEvent(`[map] invalidateMapSize scheduled reason=sheetStageChange delay=${delayMs}ms`);
       sheetStageInvalidateDebounceRef.current = window.setTimeout(() => {
-        const now = Date.now();
-        if (now - lastSheetStageInvalidateAtRef.current < 500) {
-          logDebugEvent("[map] invalidateMapSize skipped reason=sheetStageChange cooldown");
-          sheetStageInvalidateDebounceRef.current = null;
-          return;
-        }
-
-        lastSheetStageInvalidateAtRef.current = now;
         invalidateMapSize("sheetStageChange");
         sheetStageInvalidateDebounceRef.current = null;
-      }, 300);
+      }, delayMs);
     },
     [invalidateMapSize, isMobilePlaceOpen, logDebugEvent],
   );
