@@ -151,6 +151,9 @@ export default function MapClient() {
   const openInvalidateTimeoutRef = useRef<number | null>(null);
   const drawerReasonRef = useRef("initial");
   const viewportSnapshotRef = useRef<{ center: [number, number]; zoom: number } | null>(null);
+  const prevMobileSheetStageRef = useRef<"peek" | "expanded" | null>(null);
+  const sheetStageInvalidateDebounceRef = useRef<number | null>(null);
+  const lastSheetStageInvalidateAtRef = useRef<number>(0);
 
   const isMobilePlaceOpen = mounted && isPlaceOpen && Boolean(selectedPlaceId);
   const drawerMode: "full" = "full";
@@ -170,11 +173,6 @@ export default function MapClient() {
 
     if (reason === "viewportSync") {
       logDebugEvent("[map] invalidateMapSize skipped reason=viewportSync");
-      return;
-    }
-
-    if (reason === "sheetStageChange") {
-      logDebugEvent("[map] invalidateMapSize skipped reason=sheetStageChange");
       return;
     }
 
@@ -200,6 +198,34 @@ export default function MapClient() {
       invalidateTimeoutRef.current = null;
     }, 0);
   }, [logDebugEvent]);
+
+  const handleMobileSheetStageChange = useCallback(
+    (nextStage: "peek" | "expanded") => {
+      if (prevMobileSheetStageRef.current === nextStage) {
+        logDebugEvent(`[map] sheetStageChange ignored sameStage=${nextStage}`);
+        return;
+      }
+
+      prevMobileSheetStageRef.current = nextStage;
+      if (sheetStageInvalidateDebounceRef.current !== null) {
+        window.clearTimeout(sheetStageInvalidateDebounceRef.current);
+      }
+
+      sheetStageInvalidateDebounceRef.current = window.setTimeout(() => {
+        const now = Date.now();
+        if (now - lastSheetStageInvalidateAtRef.current < 500) {
+          logDebugEvent("[map] invalidateMapSize skipped reason=sheetStageChange cooldown");
+          sheetStageInvalidateDebounceRef.current = null;
+          return;
+        }
+
+        lastSheetStageInvalidateAtRef.current = now;
+        invalidateMapSize("sheetStageChange");
+        sheetStageInvalidateDebounceRef.current = null;
+      }, 300);
+    },
+    [invalidateMapSize, logDebugEvent],
+  );
 
   const toggleFilters = useCallback(() => {
     setFiltersOpen((previous) => {
@@ -1178,6 +1204,9 @@ if (!selectionHydrated) {
       if (openInvalidateTimeoutRef.current !== null) {
         window.clearTimeout(openInvalidateTimeoutRef.current);
       }
+      if (sheetStageInvalidateDebounceRef.current !== null) {
+        window.clearTimeout(sheetStageInvalidateDebounceRef.current);
+      }
     };
   }, []);
 
@@ -1272,6 +1301,7 @@ if (!selectionHydrated) {
               onClose={() => closeDrawer("user")}
               ref={bottomSheetRef}
               selectionStatus={selectionStatus}
+              onStageChange={handleMobileSheetStageChange}
             />
           ) : null}
         </div>

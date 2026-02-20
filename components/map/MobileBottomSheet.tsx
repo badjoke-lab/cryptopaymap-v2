@@ -87,6 +87,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
     const renderedPlaceReasonRef = useRef<RenderedPlaceReason>("openFromPlaceProp");
     const lastInputAtRef = useRef<number | null>(null);
     const prevIsOpenRef = useRef(isOpen);
+    const lastNotifiedStageRef = useRef<SheetStage | null>(null);
     const mountCountRef = useRef(0);
     const eventLogRef = useRef<DebugEventEntry[]>([]);
     const [debugHudEnabled, setDebugHudEnabled] = useState(false);
@@ -209,7 +210,14 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       renderedPlace?.verification === "directory" || renderedPlace?.verification === "unverified";
 
     useEffect(() => {
-      if (!isOpen) return;
+      if (!isOpen) {
+        lastNotifiedStageRef.current = null;
+        return;
+      }
+      if (lastNotifiedStageRef.current === stage) {
+        return;
+      }
+      lastNotifiedStageRef.current = stage;
       onStageChange?.(stage);
     }, [isOpen, onStageChange, stage]);
 
