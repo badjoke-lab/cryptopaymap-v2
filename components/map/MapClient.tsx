@@ -32,6 +32,7 @@ import { isLimitedHeader } from "@/lib/clientDataSource";
 import MapFetchStatus from "./MapFetchStatus";
 
 const HEADER_HEIGHT = 64;
+const DEBUG_DISABLE_SHEET_STAGE_INVALIDATE_KEY = "cpm_debug_disable_sheetStageInvalidate";
 
 const DEFAULT_COORDINATES: [number, number] = [20, 0];
 const DEFAULT_ZOOM = 2;
@@ -147,6 +148,8 @@ export default function MapClient() {
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isDebugMenuOpen, setIsDebugMenuOpen] = useState(false);
+  const [disableSheetStageInvalidate, setDisableSheetStageInvalidate] = useState(false);
   const pendingInvalidateTimeoutRef = useRef<number | null>(null);
   const pendingInvalidateReasonRef = useRef<string | null>(null);
   const pendingInvalidateDelayRef = useRef<number>(0);
@@ -247,9 +250,11 @@ export default function MapClient() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const key = "cpm_disableSheetStageInvalidate";
+    const key = DEBUG_DISABLE_SHEET_STAGE_INVALIDATE_KEY;
     const sync = () => {
-      disableSheetStageInvalidateRef.current = window.localStorage.getItem(key) === "1";
+      const disabled = window.localStorage.getItem(key) === "1";
+      disableSheetStageInvalidateRef.current = disabled;
+      setDisableSheetStageInvalidate(disabled);
       logDebugEvent(
         `[map] sheetStageInvalidateDisabled=${String(disableSheetStageInvalidateRef.current)}`,
       );
@@ -365,7 +370,7 @@ export default function MapClient() {
 
       prevMobileSheetStageRef.current = nextStage;
       if (disableSheetStageInvalidateRef.current) {
-        logDebugEvent("[map] invalidateMapSize skipped reason=sheetStageChange disabled");
+        logDebugEvent("[map] SKIPPED sheetStageChange invalidate (debug flag)");
         return;
       }
       if (nextStage !== "expanded") {
@@ -458,6 +463,13 @@ export default function MapClient() {
       return next;
     });
   }, []);
+
+  const handleToggleDebugDisableSheetStageInvalidate = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const nextValue = disableSheetStageInvalidate ? "0" : "1";
+    window.localStorage.setItem(DEBUG_DISABLE_SHEET_STAGE_INVALIDATE_KEY, nextValue);
+    window.location.reload();
+  }, [disableSheetStageInvalidate]);
   const closeFilters = useCallback(() => {
     if (process.env.NODE_ENV !== "production") {
       console.debug("[map] close filters", { caller: "filters-close" });
@@ -1316,6 +1328,28 @@ if (!selectionHydrated) {
               />
             )}
           </button>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setIsDebugMenuOpen((previous) => !previous)}
+              className="cpm-map-button cpm-map-button--compact"
+              data-testid="map-debug-toggle"
+            >
+              DBG
+            </button>
+            {isDebugMenuOpen ? (
+              <div className="absolute right-0 top-full z-50 mt-2 w-64 rounded-lg border border-gray-200 bg-white p-3 text-sm text-gray-800 shadow-lg">
+                <label className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={disableSheetStageInvalidate}
+                    onChange={handleToggleDebugDisableSheetStageInvalidate}
+                  />
+                  <span>Disable sheetStageChange invalidate</span>
+                </label>
+              </div>
+            ) : null}
+          </div>
           <div className="cpm-map-places-pill" role="status" aria-live="polite">
             <span>
               {places.length} place{places.length === 1 ? "" : "s"}

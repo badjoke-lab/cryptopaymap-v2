@@ -7,6 +7,8 @@ import type { Place } from "../../types/places";
 import { getPlaceViewModel } from "./placeViewModel";
 import "./MobileBottomSheet.css";
 
+const DEBUG_DISABLE_SHEET_STAGE_INVALIDATE_KEY = "cpm_debug_disable_sheetStageInvalidate";
+
 type Props = {
   place: Place | null;
   isOpen: boolean;
@@ -588,7 +590,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
     useEffect(() => {
       if (typeof window === "undefined") return;
       const key = "cpm_debug";
-      const disableKey = "cpm_disableSheetStageInvalidate";
+      const disableKey = DEBUG_DISABLE_SHEET_STAGE_INVALIDATE_KEY;
       const isDebugEnabled = () =>
         window.localStorage.getItem(key) === "1" || window.location.hash.includes("debug");
       const update = () => {
@@ -911,7 +913,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
 
     const toggleDisableSheetInvalidate = () => {
       if (typeof window === "undefined") return;
-      const key = "cpm_disableSheetStageInvalidate";
+      const key = DEBUG_DISABLE_SHEET_STAGE_INVALIDATE_KEY;
       const nextValue = disableSheetStageInvalidate ? "0" : "1";
       window.localStorage.setItem(key, nextValue);
       setDisableSheetStageInvalidate(nextValue === "1");
