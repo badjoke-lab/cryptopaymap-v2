@@ -188,6 +188,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       invalidateSuppressedReason: "none",
     });
     const lastInputPointRef = useRef<{ x: number; y: number } | null>(null);
+    const lastInputProbeAtRef = useRef(0);
     const probeGenerationRef = useRef(0);
     const markerProbeGenerationRef = useRef(0);
     const probeTimeoutsRef = useRef<number[]>([]);
@@ -232,6 +233,8 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       }
       return null;
     };
+
+    const shouldRunProbe = () => process.env.NODE_ENV !== "production" && debugHudEnabledRef.current;
 
     const shortSelector = (element: Element | null): string => {
       if (!element) return "none";
@@ -427,6 +430,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       inputPoint?: { x: number; y: number } | null,
     ) => {
       if (typeof window === "undefined") return;
+      if (!shouldRunProbe()) return;
       const isMarkerSelectTrigger = trigger.includes("markerSelect");
       const generation = isMarkerSelectTrigger
         ? markerProbeGenerationRef.current + 1
@@ -518,6 +522,11 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       }
       pushDebugEvent(`[input:${scope}] ${eventName}`);
       if (eventName === "pointerdown" || eventName === "click" || eventName === "touchstart") {
+        const now = Date.now();
+        if (now - lastInputProbeAtRef.current < 120) {
+          return;
+        }
+        lastInputProbeAtRef.current = now;
         triggerDarkFlashProbe(`input:${scope}:${eventName}`, point);
       }
     };
@@ -623,7 +632,9 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
             triggerDarkFlashProbe(`map:${detail.entry.replace(/^\[map\]\s*/, "")}`);
           }
           if (detail.entry.startsWith("[map] markerSelect")) {
-            scheduleOverlayWatch(`markerSelect:${detail.entry.replace(/^\[map\]\s*/, "")}`);
+            if (shouldRunProbe()) {
+              scheduleOverlayWatch(`markerSelect:${detail.entry.replace(/^\[map\]\s*/, "")}`);
+            }
           }
           if (
             detail.entry.includes("invalidate REQUEST reason=open") ||
@@ -631,19 +642,25 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
             detail.entry.includes("invalidate EXEC reason=open") ||
             detail.entry.includes("invalidate EXEC reason=sheetStageChange")
           ) {
-            scheduleOverlayWatch(`invalidate:${detail.entry.replace(/^\[map\]\s*/, "")}`);
+            if (shouldRunProbe()) {
+              scheduleOverlayWatch(`invalidate:${detail.entry.replace(/^\[map\]\s*/, "")}`);
+            }
           }
           if (detail.entry.includes("filtersOpen changed next=true")) {
-            ensureFilterOverlayTarget("filtersOpen:true");
-            const detach = attachOverlayTransitionWatch();
-            const detachId = window.setTimeout(() => {
-              detach();
-            }, 2500);
-            overlayWatchTimeoutsRef.current.push(detachId);
-            scheduleOverlayWatch("filtersOpen:true");
+            if (shouldRunProbe()) {
+              ensureFilterOverlayTarget("filtersOpen:true");
+              const detach = attachOverlayTransitionWatch();
+              const detachId = window.setTimeout(() => {
+                detach();
+              }, 2500);
+              overlayWatchTimeoutsRef.current.push(detachId);
+              scheduleOverlayWatch("filtersOpen:true");
+            }
           }
           if (detail.entry.includes("filtersOpen changed next=false")) {
-            scheduleOverlayWatch("filtersOpen:false");
+            if (shouldRunProbe()) {
+              scheduleOverlayWatch("filtersOpen:false");
+            }
           }
 
           if (detail.entry.startsWith("[map] resize")) {
@@ -1005,7 +1022,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       pushDebugEvent(
         `[renderedPlace-set] ${renderedPlace ? renderedPlace.id : "null"} reason=${renderedPlaceReasonRef.current} recentInput200ms=${recentInput}`,
       );
-      if (renderedPlaceReasonRef.current === "openFromPlaceProp") {
+      if (renderedPlaceReasonRef.current === "openFromPlaceProp" && shouldRunProbe()) {
         scheduleOverlayWatch("renderedPlace-set:openFromPlaceProp");
       }
     }, [renderedPlace]);

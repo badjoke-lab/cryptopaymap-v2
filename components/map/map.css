@@ -314,12 +314,14 @@
   z-index: 0;
   transform: translateZ(0);
   will-change: transform;
+  backface-visibility: hidden;
 }
 
 .cpm-map-surface {
   transform: translateZ(0);
   will-change: transform;
   contain: paint;
+  backface-visibility: hidden;
 }
 
 @media (max-width: 1023px) {
