@@ -178,6 +178,17 @@ export default function MapClient() {
   const activeOpenInvalidateTokenRef = useRef<number | null>(null);
   const cleanupOpenInvalidateRef = useRef<(() => void) | null>(null);
   const lastInvalidateSuppressedReasonRef = useRef<string>("none");
+  const lastKnownMapContainerSizeRef = useRef<{ width: number; height: number } | null>(null);
+  const isMapInteractionActiveRef = useRef(false);
+  const lastMapInteractionAtRef = useRef(0);
+  const appVhTimeoutRef = useRef<number | null>(null);
+  const devDiagnosticsRef = useRef({
+    invalidateCalls: 0,
+    containerResizeChanges: 0,
+    mapRectChanges: 0,
+    overlayFilterHits: 0,
+    summaryLogged: false,
+  });
 
   const isMobilePlaceOpen = mounted && isPlaceOpen && Boolean(selectedPlaceId);
   const drawerMode: "full" = "full";
@@ -318,7 +329,49 @@ export default function MapClient() {
       const executeDelay = pendingInvalidateDelayRef.current || selectedDelay;
       const pendingBefore = pendingInvalidateHadPendingRef.current;
 
+      const mapContainer = map.getContainer();
+      const mapRect = mapContainer.getBoundingClientRect();
+      const nextSize = {
+        width: Math.round(mapRect.width),
+        height: Math.round(mapRect.height),
+      };
+      const previousSize = lastKnownMapContainerSizeRef.current;
+      const hasContainerSizeChange =
+        !previousSize ||
+        previousSize.width !== nextSize.width ||
+        previousSize.height !== nextSize.height;
+
+      const interactionCooldownMs = 120;
+      const now = Date.now();
+      const isInteractionHot =
+        isMapInteractionActiveRef.current || now - lastMapInteractionAtRef.current <= interactionCooldownMs;
+      if (isInteractionHot) {
+        logDebugEvent(
+          `[map] invalidate DEFER reason=${executeReason} interactionActive=${String(isMapInteractionActiveRef.current)} elapsedSinceInput=${now - lastMapInteractionAtRef.current}`,
+        );
+        pendingInvalidateTimeoutRef.current = window.setTimeout(() => {
+          requestMapInvalidate(executeReason as "open" | "sheetStageChange" | "ready" | "close");
+        }, interactionCooldownMs);
+        return;
+      }
+
+      if (!hasContainerSizeChange && executeReason !== "ready") {
+        logDebugEvent(
+          `[map] invalidate SKIP reason=${executeReason} unchangedSize=${nextSize.width}x${nextSize.height}`,
+        );
+        pendingInvalidateTimeoutRef.current = null;
+        pendingInvalidateReasonRef.current = null;
+        pendingInvalidateDelayRef.current = 0;
+        pendingInvalidateHadPendingRef.current = 0;
+        emitMapInvalidateStats(executeAt, 0);
+        return;
+      }
+
       map.invalidateSize({ pan: false });
+      lastKnownMapContainerSizeRef.current = nextSize;
+      if (process.env.NODE_ENV !== "production") {
+        devDiagnosticsRef.current.invalidateCalls += 1;
+      }
       logDebugEvent(
         `[map] invalidate EXEC reason=${executeReason} scheduled=${executeDelay} pendingBefore=${pendingBefore}`,
       );
@@ -534,18 +587,24 @@ export default function MapClient() {
 
     const scheduleAppVh = (trigger: "initial" | "resize" | "orientation" | "visualViewport") => {
       appVhPendingTriggerRef.current = trigger;
-      if (appVhRafRef.current !== null) {
-        return;
+      if (appVhTimeoutRef.current !== null) {
+        window.clearTimeout(appVhTimeoutRef.current);
       }
-      appVhRafRef.current = window.requestAnimationFrame(() => {
-        const nextTrigger = appVhPendingTriggerRef.current as
-          | "initial"
-          | "resize"
-          | "orientation"
-          | "visualViewport";
-        appVhRafRef.current = null;
-        applyAppVh(nextTrigger);
-      });
+      appVhTimeoutRef.current = window.setTimeout(() => {
+        appVhTimeoutRef.current = null;
+        if (appVhRafRef.current !== null) {
+          window.cancelAnimationFrame(appVhRafRef.current);
+        }
+        appVhRafRef.current = window.requestAnimationFrame(() => {
+          const nextTrigger = appVhPendingTriggerRef.current as
+            | "initial"
+            | "resize"
+            | "orientation"
+            | "visualViewport";
+          appVhRafRef.current = null;
+          applyAppVh(nextTrigger);
+        });
+      }, 160);
     };
 
     scheduleAppVh("initial");
@@ -561,6 +620,10 @@ export default function MapClient() {
       if (appVhRafRef.current !== null) {
         window.cancelAnimationFrame(appVhRafRef.current);
         appVhRafRef.current = null;
+      }
+      if (appVhTimeoutRef.current !== null) {
+        window.clearTimeout(appVhTimeoutRef.current);
+        appVhTimeoutRef.current = null;
       }
       window.removeEventListener("resize", onResize);
       window.removeEventListener("orientationchange", onOrientationChange);
@@ -1042,15 +1105,75 @@ export default function MapClient() {
 
       const mapContainer = map.getContainer();
       let previousMapContainerHeight = Math.round(mapContainer.getBoundingClientRect().height);
+      let previousMapContainerWidth = Math.round(mapContainer.getBoundingClientRect().width);
+      lastKnownMapContainerSizeRef.current = {
+        width: previousMapContainerWidth,
+        height: previousMapContainerHeight,
+      };
       logDebugEvent(`[map] containerHeight=${previousMapContainerHeight}`);
       const mapContainerObserver = new ResizeObserver(() => {
+        const nextWidth = Math.round(mapContainer.getBoundingClientRect().width);
         const nextHeight = Math.round(mapContainer.getBoundingClientRect().height);
-        if (nextHeight !== previousMapContainerHeight) {
+        if (nextHeight !== previousMapContainerHeight || nextWidth !== previousMapContainerWidth) {
           previousMapContainerHeight = nextHeight;
+          previousMapContainerWidth = nextWidth;
+          lastKnownMapContainerSizeRef.current = { width: nextWidth, height: nextHeight };
+          if (process.env.NODE_ENV !== "production") {
+            devDiagnosticsRef.current.containerResizeChanges += 1;
+          }
           logDebugEvent(`[map] containerHeight=${nextHeight}`);
         }
       });
       mapContainerObserver.observe(mapContainer);
+
+      let devSummaryTimer: number | null = null;
+      const scheduleDevSummary = () => {
+        if (process.env.NODE_ENV === "production") return;
+        if (devDiagnosticsRef.current.summaryLogged) return;
+        if (devSummaryTimer !== null) return;
+        devSummaryTimer = window.setTimeout(() => {
+          const currentRect = mapContainer.getBoundingClientRect();
+          const hadRectChange =
+            Math.round(currentRect.height) !== previousMapContainerHeight ||
+            Math.round(currentRect.width) !== previousMapContainerWidth;
+          if (hadRectChange) {
+            devDiagnosticsRef.current.mapRectChanges += 1;
+          }
+          const overlayCandidates = Array.from(
+            document.querySelectorAll(".cpm-map-mobile-filters__backdrop, .cpm-bottom-sheet__backdrop, .cpm-map-overlay"),
+          ) as HTMLElement[];
+          const overlayFilterHits = overlayCandidates.filter((element) => {
+            const computed = window.getComputedStyle(element);
+            const rect = element.getBoundingClientRect();
+            const covers = rect.width >= window.innerWidth * 0.85 && rect.height >= window.innerHeight * 0.85;
+            return covers && (computed.filter !== "none" || computed.backdropFilter !== "none");
+          }).length;
+          devDiagnosticsRef.current.overlayFilterHits = overlayFilterHits;
+          console.info(
+            `[map-dev-summary] invalidateCalls=${devDiagnosticsRef.current.invalidateCalls} containerResizeChanges=${devDiagnosticsRef.current.containerResizeChanges} mapRectChanges=${devDiagnosticsRef.current.mapRectChanges} overlayFilterHits=${devDiagnosticsRef.current.overlayFilterHits}`,
+          );
+          devDiagnosticsRef.current.summaryLogged = true;
+          devSummaryTimer = null;
+        }, 5000);
+      };
+
+      const markInteractionStart = () => {
+        isMapInteractionActiveRef.current = true;
+        lastMapInteractionAtRef.current = Date.now();
+        scheduleDevSummary();
+      };
+      const markInteractionEnd = () => {
+        isMapInteractionActiveRef.current = false;
+        lastMapInteractionAtRef.current = Date.now();
+      };
+      const markInteractionMove = () => {
+        lastMapInteractionAtRef.current = Date.now();
+      };
+      mapContainer.addEventListener("pointerdown", markInteractionStart, { passive: true });
+      mapContainer.addEventListener("pointerup", markInteractionEnd, { passive: true });
+      mapContainer.addEventListener("touchstart", markInteractionStart, { passive: true });
+      mapContainer.addEventListener("touchend", markInteractionEnd, { passive: true });
+      mapContainer.addEventListener("touchmove", markInteractionMove, { passive: true });
 
       fetchPlacesRef.current = () => {
         if (!mapInstanceRef.current) return;
@@ -1064,6 +1187,15 @@ export default function MapClient() {
 
       return () => {
         mapContainerObserver.disconnect();
+        mapContainer.removeEventListener("pointerdown", markInteractionStart);
+        mapContainer.removeEventListener("pointerup", markInteractionEnd);
+        mapContainer.removeEventListener("touchstart", markInteractionStart);
+        mapContainer.removeEventListener("touchend", markInteractionEnd);
+        mapContainer.removeEventListener("touchmove", markInteractionMove);
+        if (devSummaryTimer !== null) {
+          window.clearTimeout(devSummaryTimer);
+          devSummaryTimer = null;
+        }
         map.off("moveend", handleMoveEnd);
         map.off("zoomend", handleZoomEnd);
         map.off("resize", handleMapResize);
@@ -1608,7 +1740,7 @@ if (!selectionHydrated) {
           data-selected-place={selectedPlaceId ?? ""}
           tabIndex={0}
           aria-label="Map"
-          className="absolute inset-0 h-full w-full"
+          className="cpm-map-surface absolute inset-0 h-full w-full"
         />
         <div className="hidden lg:block">
           <Drawer
