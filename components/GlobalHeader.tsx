@@ -10,7 +10,28 @@ type GlobalHeaderProps = {
 
 export default function GlobalHeader({ className }: GlobalHeaderProps) {
   const headerRef = useRef<HTMLElement | null>(null);
+  const logoTapCountRef = useRef(0);
+  const logoTapTimeoutRef = useRef<number | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [showPreviewDebugButton, setShowPreviewDebugButton] = useState(false);
+  const [debugToast, setDebugToast] = useState<string | null>(null);
+  const debugToastTimeoutRef = useRef<number | null>(null);
+
+  const toggleDebugHud = () => {
+    if (typeof window === "undefined") return;
+    const key = "cpm_debug";
+    const nextValue = window.localStorage.getItem(key) === "1" ? "0" : "1";
+    window.localStorage.setItem(key, nextValue);
+    window.dispatchEvent(new CustomEvent("cpm-debug-changed", { detail: nextValue }));
+    if (debugToastTimeoutRef.current !== null) {
+      window.clearTimeout(debugToastTimeoutRef.current);
+    }
+    setDebugToast(nextValue === "1" ? "Debug: ON" : "Debug: OFF");
+    debugToastTimeoutRef.current = window.setTimeout(() => {
+      setDebugToast(null);
+      debugToastTimeoutRef.current = null;
+    }, 1400);
+  };
 
   useEffect(() => {
     const header = headerRef.current;
@@ -36,6 +57,48 @@ export default function GlobalHeader({ className }: GlobalHeaderProps) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [isMenuOpen]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setShowPreviewDebugButton(window.location.hostname.includes(".vercel.app"));
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (logoTapTimeoutRef.current !== null) {
+        window.clearTimeout(logoTapTimeoutRef.current);
+      }
+      if (debugToastTimeoutRef.current !== null) {
+        window.clearTimeout(debugToastTimeoutRef.current);
+      }
+    },
+    [],
+  );
+
+  const handleLogoTap = () => {
+    if (typeof window === "undefined") return;
+    if (window.matchMedia("(min-width: 768px)").matches) return;
+
+    logoTapCountRef.current += 1;
+
+    if (logoTapTimeoutRef.current !== null) {
+      window.clearTimeout(logoTapTimeoutRef.current);
+    }
+
+    logoTapTimeoutRef.current = window.setTimeout(() => {
+      logoTapCountRef.current = 0;
+      logoTapTimeoutRef.current = null;
+    }, 1200);
+
+    if (logoTapCountRef.current >= 7) {
+      logoTapCountRef.current = 0;
+      if (logoTapTimeoutRef.current !== null) {
+        window.clearTimeout(logoTapTimeoutRef.current);
+        logoTapTimeoutRef.current = null;
+      }
+      toggleDebugHud();
+    }
+  };
+
   return (
     <header
       ref={headerRef}
@@ -44,9 +107,24 @@ export default function GlobalHeader({ className }: GlobalHeaderProps) {
         className ?? "",
       ].join(" ")}
     >
+      {debugToast ? (
+        <div className="pointer-events-none fixed left-1/2 top-20 z-[90] -translate-x-1/2 rounded-md bg-gray-900/90 px-3 py-1.5 text-xs font-semibold text-white shadow">
+          {debugToast}
+        </div>
+      ) : null}
+      {showPreviewDebugButton ? (
+        <button
+          type="button"
+          className="absolute right-2 top-2 z-[60] rounded border border-gray-300 bg-white px-2 py-1 text-xs"
+          aria-label="Toggle debug HUD"
+          onClick={toggleDebugHud}
+        >
+          🐞
+        </button>
+      ) : null}
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
         <div className="flex items-center gap-3">
-          <Link href="/" className="flex items-center gap-2">
+          <Link href="/" className="flex items-center gap-2" onClick={handleLogoTap}>
             <Image
               src="/brand/cryptopaymap-logo.png"
               alt="CryptoPayMap logo"
