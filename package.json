@@ -16,6 +16,7 @@
     "supercluster": "^8.0.1"
   },
   "devDependencies": {
+    "@types/geojson": "^7946.0.16",
     "@types/leaflet": "^1.9.12",
     "@types/node": "22.5.1",
     "@types/react": "18.3.9",

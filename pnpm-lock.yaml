@@ -24,6 +24,9 @@ importers:
         specifier: ^8.0.1
         version: 8.0.1
     devDependencies:
+      '@types/geojson':
+        specifier: ^7946.0.16
+        version: 7946.0.16
       '@types/leaflet':
         specifier: ^1.9.12
         version: 1.9.21
