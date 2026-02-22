@@ -144,7 +144,12 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
             className="cpm-bottom-sheet__panel"
             style={{ height: sheetHeight, transform: `translateY(${isVisible ? "0" : "100%"})` }}
           >
-            <div className="cpm-bottom-sheet__handle">
+            <div
+              className="cpm-bottom-sheet__handle"
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
+            >
               <span className="cpm-bottom-sheet__handle-bar" aria-hidden />
             </div>
             <header className="cpm-bottom-sheet__header">
