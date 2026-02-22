@@ -12,6 +12,23 @@ type StatsResponse = {
   cities: number;
   categories: number;
   chains: Record<string, number>;
+  verification_breakdown: {
+    owner: number;
+    community: number;
+    directory: number;
+    unverified: number;
+    verified: number;
+  };
+  top_chains: Array<{ key: string; count: number }>;
+  top_assets: Array<{ key: string; count: number }>;
+  category_ranking: Array<{ key: string; count: number }>;
+  country_ranking: Array<{ key: string; count: number }>;
+  city_ranking: Array<{ key: string; count: number }>;
+  asset_acceptance_matrix: {
+    assets: string[];
+    chains: string[];
+    rows: Array<{ asset: string; total: number; counts: Record<string, number> }>;
+  };
   generated_at?: string;
   limited?: boolean;
 };
@@ -101,8 +118,113 @@ const EMPTY_STATS: StatsResponse = {
   cities: 0,
   categories: 0,
   chains: {},
+  verification_breakdown: {
+    owner: 0,
+    community: 0,
+    directory: 0,
+    unverified: 0,
+    verified: 0,
+  },
+  top_chains: [],
+  top_assets: [],
+  category_ranking: [],
+  country_ranking: [],
+  city_ranking: [],
+  asset_acceptance_matrix: {
+    assets: [],
+    chains: [],
+    rows: [],
+  },
   limited: true,
 };
+
+function DonutChart({ items }: { items: Array<{ label: string; value: number; color: string }> }) {
+  const size = 180;
+  const strokeWidth = 24;
+  const radius = (size - strokeWidth) / 2;
+  const center = size / 2;
+  const circumference = 2 * Math.PI * radius;
+  const total = Math.max(items.reduce((sum, item) => sum + item.value, 0), 0);
+
+  let offset = 0;
+
+  return (
+    <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-start sm:gap-8">
+      <svg viewBox={`0 0 ${size} ${size}`} className="h-44 w-44" role="img" aria-label="Verification breakdown">
+        <circle cx={center} cy={center} r={radius} fill="none" stroke="#e5e7eb" strokeWidth={strokeWidth} />
+        {items.map((item) => {
+          const ratio = total > 0 ? item.value / total : 0;
+          const segment = ratio * circumference;
+          const dashOffset = circumference - offset;
+          offset += segment;
+
+          return (
+            <circle
+              key={item.label}
+              cx={center}
+              cy={center}
+              r={radius}
+              fill="none"
+              stroke={item.color}
+              strokeWidth={strokeWidth}
+              strokeDasharray={`${segment} ${circumference - segment}`}
+              strokeDashoffset={dashOffset}
+              transform={`rotate(-90 ${center} ${center})`}
+              strokeLinecap="butt"
+            />
+          );
+        })}
+        <text x="50%" y="46%" textAnchor="middle" className="fill-gray-500 text-xs">
+          Total
+        </text>
+        <text x="50%" y="58%" textAnchor="middle" className="fill-gray-900 text-lg font-semibold">
+          {total.toLocaleString()}
+        </text>
+      </svg>
+
+      <div className="w-full space-y-2">
+        {items.map((item) => (
+          <div key={item.label} className="flex items-center justify-between rounded-md border border-gray-200 px-3 py-2 text-sm">
+            <div className="flex items-center gap-2">
+              <span className="h-3 w-3 rounded-full" style={{ backgroundColor: item.color }} />
+              <span className="text-gray-700">{item.label}</span>
+            </div>
+            <span className="font-semibold text-gray-900">{item.value.toLocaleString()}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function HorizontalBarList({ title, rows }: { title: string; rows: Array<{ key: string; count: number }> }) {
+  const max = Math.max(...rows.map((row) => row.count), 1);
+
+  return (
+    <div className="rounded-md border border-gray-200 bg-white p-4">
+      <h3 className="mb-3 text-sm font-semibold text-gray-800">{title}</h3>
+      {rows.length ? (
+        <div className="space-y-2">
+          {rows.map((row) => (
+            <div key={row.key}>
+              <div className="mb-1 flex items-center justify-between text-xs text-gray-700">
+                <span className="font-medium">{row.key}</span>
+                <span>{row.count.toLocaleString()}</span>
+              </div>
+              <div className="h-2 rounded bg-gray-100">
+                <div className="h-2 rounded bg-sky-500" style={{ width: `${(row.count / max) * 100}%` }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-md border border-dashed border-gray-200 bg-gray-50 px-3 py-4 text-center text-sm text-gray-600">
+          {EMPTY_MESSAGE}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function getLabelStep(labels: string[]) {
   return Math.max(1, Math.ceil(labels.length / MAX_AXIS_LABELS));
@@ -464,12 +586,75 @@ export default function StatsPageClient() {
     [stats],
   );
 
+  const verificationEntries = useMemo(
+    () => [
+      { label: 'Owner verified', value: Number(stats.verification_breakdown.owner ?? 0), color: '#2563EB' },
+      { label: 'Community verified', value: Number(stats.verification_breakdown.community ?? 0), color: '#0EA5E9' },
+      { label: 'Directory listed', value: Number(stats.verification_breakdown.directory ?? 0), color: '#14B8A6' },
+      { label: 'Unverified', value: Number(stats.verification_breakdown.unverified ?? 0), color: '#94A3B8' },
+    ],
+    [stats.verification_breakdown],
+  );
+
   const chainEntries = useMemo(() => {
+    const fromTopChains = stats.top_chains
+      .map((entry) => ({ key: entry.key, count: Number(entry.count ?? 0) }))
+      .filter((entry) => entry.key && entry.count >= 0);
+
+    if (fromTopChains.length) {
+      return fromTopChains.sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+    }
+
     return Object.entries(stats.chains)
       .map(([key, count]) => ({ key, count: Number(count ?? 0) }))
-      .filter((entry) => entry.count > 0)
-      .sort((a, b) => b.count - a.count);
-  }, [stats.chains]);
+      .filter((entry) => entry.key && entry.count >= 0)
+      .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+  }, [stats.chains, stats.top_chains]);
+
+  const assetEntries = useMemo(
+    () => stats.top_assets
+      .map((entry) => ({ key: entry.key, count: Number(entry.count ?? 0) }))
+      .filter((entry) => entry.key && entry.count >= 0)
+      .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key)),
+    [stats.top_assets],
+  );
+
+  const rankingSections = useMemo(
+    () => [
+      { title: 'Category ranking table', rows: stats.category_ranking },
+      { title: 'Countries ranking table', rows: stats.country_ranking },
+      { title: 'Cities ranking table', rows: stats.city_ranking },
+    ],
+    [stats.category_ranking, stats.country_ranking, stats.city_ranking],
+  );
+
+  const matrixRows = useMemo(() => {
+    const rows = stats.asset_acceptance_matrix.rows
+      .map((row) => ({
+        asset: row.asset,
+        total: Number(row.total ?? 0),
+        counts: Object.entries(row.counts ?? {}).reduce<Record<string, number>>((acc, [chain, count]) => {
+          acc[chain] = Number(count ?? 0);
+          return acc;
+        }, {}),
+      }))
+      .filter((row) => row.asset && row.total >= 0);
+
+    return rows.sort((a, b) => b.total - a.total || a.asset.localeCompare(b.asset));
+  }, [stats.asset_acceptance_matrix.rows]);
+
+  const matrixChains = useMemo(() => {
+    if (stats.asset_acceptance_matrix.chains.length) {
+      return [...stats.asset_acceptance_matrix.chains].sort((a, b) => a.localeCompare(b));
+    }
+    const chainSet = new Set<string>();
+    for (const row of matrixRows) {
+      for (const chain of Object.keys(row.counts)) {
+        chainSet.add(chain);
+      }
+    }
+    return Array.from(chainSet).sort((a, b) => a.localeCompare(b));
+  }, [matrixRows, stats.asset_acceptance_matrix.chains]);
 
   const lastUpdated = stats.generated_at ? new Date(stats.generated_at).toLocaleString() : null;
   const showLimited = Boolean(stats.limited || state.notice);
@@ -628,25 +813,97 @@ export default function StatsPageClient() {
         </SectionCard>
 
         <SectionCard
-          eyebrow="Top chains"
-          title="Which chains are accepted"
-          description="Top chains or assets accepted in published listings."
+          eyebrow="Snapshot"
+          title="Verification Breakdown"
+          description="Donut view of owner/community/directory/unverified counts for the current filter set."
         >
-          {chainEntries.length ? (
+          <DonutChart items={verificationEntries} />
+        </SectionCard>
+
+        <SectionCard
+          eyebrow="Snapshot"
+          title="Chains / Assets"
+          description="Top accepted chains and assets shown as descending bar charts."
+        >
+          <div className="grid gap-4 lg:grid-cols-2">
+            <HorizontalBarList title="Top chains" rows={chainEntries.slice(0, 10)} />
+            <HorizontalBarList title="Top assets" rows={assetEntries.slice(0, 10)} />
+          </div>
+        </SectionCard>
+
+        <SectionCard
+          eyebrow="Snapshot"
+          title="Rankings"
+          description="Category, country, and city rankings ordered by count (descending)."
+        >
+          <div className="grid gap-4 lg:grid-cols-3">
+            {rankingSections.map((section) => {
+              const rows = [...section.rows]
+                .map((row) => ({ key: row.key, count: Number(row.count ?? 0) }))
+                .filter((row) => row.key && row.count >= 0)
+                .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+
+              return (
+                <div key={section.title} className="overflow-hidden rounded-md border border-gray-200">
+                  <div className="border-b border-gray-200 bg-gray-50 px-4 py-2 text-sm font-semibold text-gray-800">
+                    {section.title}
+                  </div>
+                  {rows.length ? (
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full divide-y divide-gray-200 text-sm">
+                        <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-600">
+                          <tr>
+                            <th className="px-4 py-2 text-left">Name</th>
+                            <th className="px-4 py-2 text-right">Total</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {rows.map((row) => (
+                            <tr key={row.key} className="bg-white">
+                              <td className="whitespace-nowrap px-4 py-2 font-medium text-gray-900">{row.key}</td>
+                              <td className="whitespace-nowrap px-4 py-2 text-right text-gray-800">{row.count.toLocaleString()}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="px-4 py-6 text-center text-sm text-gray-600">{EMPTY_MESSAGE}</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </SectionCard>
+
+        <SectionCard
+          eyebrow="Snapshot"
+          title="Asset Acceptance Matrix"
+          description="Asset × chain acceptance counts. Rows with empty accepts are excluded by API rules."
+        >
+          {matrixRows.length && matrixChains.length ? (
             <div className="overflow-hidden rounded-md border border-gray-200">
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200 text-sm">
                   <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-600">
                     <tr>
-                      <th className="px-4 py-2 text-left">Chain</th>
+                      <th className="px-4 py-2 text-left">Asset</th>
+                      {matrixChains.map((chain) => (
+                        <th key={chain} className="px-4 py-2 text-right">{chain}</th>
+                      ))}
                       <th className="px-4 py-2 text-right">Total</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {chainEntries.slice(0, 10).map((entry) => (
-                      <tr key={entry.key} className="bg-white">
-                        <td className="whitespace-nowrap px-4 py-2 font-medium text-gray-900">{entry.key}</td>
-                        <td className="whitespace-nowrap px-4 py-2 text-right text-gray-800">{entry.count}</td>
+                    {matrixRows.map((row) => (
+                      <tr key={row.asset} className="bg-white">
+                        <td className="whitespace-nowrap px-4 py-2 font-medium text-gray-900">{row.asset}</td>
+                        {matrixChains.map((chain) => (
+                          <td key={`${row.asset}-${chain}`} className="whitespace-nowrap px-4 py-2 text-right text-gray-800">
+                            {(row.counts[chain] ?? 0).toLocaleString()}
+                          </td>
+                        ))}
+                        <td className="whitespace-nowrap px-4 py-2 text-right font-semibold text-gray-900">{row.total.toLocaleString()}</td>
                       </tr>
                     ))}
                   </tbody>
