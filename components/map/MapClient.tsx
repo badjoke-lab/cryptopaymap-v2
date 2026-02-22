@@ -232,6 +232,16 @@ export default function MapClient() {
     }
   }, []);
 
+  const replaceSelectParam = useCallback((placeId: string | null): void => {
+    const url = new URL(window.location.href);
+    if (placeId) {
+      url.searchParams.set("select", placeId);
+    } else {
+      url.searchParams.delete("select");
+    }
+    window.history.replaceState(null, "", url.toString());
+  }, []);
+
   const openDrawerForPlace = useCallback((placeId: string) => {
     lastFocusedElementRef.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -240,10 +250,11 @@ export default function MapClient() {
       console.debug("[map] marker click", { placeId });
     }
     drawerReasonRef.current = `marker:${placeId}`;
-    skipNextSelectionRef.current = false;
+    skipNextSelectionRef.current = true;
+    replaceSelectParam(placeId);
     setSelectedPlaceId(placeId);
     setIsPlaceOpen(true);
-  }, []);
+  }, [replaceSelectParam]);
 
   const closeDrawer = useCallback((caller: string) => {
     if (process.env.NODE_ENV !== "production") {
@@ -252,11 +263,12 @@ export default function MapClient() {
     drawerReasonRef.current = `close:${caller}`;
     skipNextSelectionRef.current = true;
     setIsPlaceOpen(false);
+    replaceSelectParam(null);
     setSelectedPlaceId(null);
     window.requestAnimationFrame(() => {
       restoreFocus();
     });
-  }, [restoreFocus]);
+  }, [replaceSelectParam, restoreFocus]);
 
   useEffect(() => {
     let isMounted = true;
@@ -776,9 +788,7 @@ export default function MapClient() {
   useEffect(() => {
     const selectParam = searchParams.get("select");
     if (skipNextSelectionRef.current) {
-      if (!selectParam) {
-        skipNextSelectionRef.current = false;
-      }
+      skipNextSelectionRef.current = false;
       if (!selectionHydrated) {
         setSelectionHydrated(true);
       }
@@ -791,26 +801,14 @@ export default function MapClient() {
       }
       setIsPlaceOpen(true);
     }
-if (!selectionHydrated) {
+    if (!selectionHydrated) {
       setSelectionHydrated(true);
     }
   }, [searchParams, selectionHydrated]);
 
-  useEffect(() => {
-    if (!selectionHydrated) return;
-    const params = new URLSearchParams(searchParams.toString());
-    if (selectedPlaceId) {
-      params.set("select", selectedPlaceId);
-    } else {
-      params.delete("select");
-    }
-    const nextQuery = params.toString();
-    const currentQuery = searchParams.toString();
-    if (nextQuery !== currentQuery) {
-      const normalizedQuery = nextQuery ? `?${nextQuery}` : "";
-      router.replace(`${pathname}${normalizedQuery}`, { scroll: false });
-    }
-  }, [pathname, router, searchParams, selectedPlaceId, selectionHydrated]);
+  // Intentionally avoid syncing `selectedPlaceId` via Next Router here.
+  // `replaceSelectParam` updates only `?select=` through `history.replaceState`
+  // from open/close handlers to prevent visual flicker on mobile.
 
   useEffect(() => {
     if (!selectionNotice) return;
