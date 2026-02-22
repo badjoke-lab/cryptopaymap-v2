@@ -18,12 +18,28 @@ type StatsResponse = {
 
 type TrendPoint = {
   date: string;
-  delta: number;
-  total: number;
+  value: number;
 };
 
+type VerificationStackedPoint = {
+  date: string;
+  owner: number;
+  community: number;
+  directory: number;
+  unverified: number;
+};
+
+type TrendRange = '24h' | '7d' | '30d' | 'all';
+
 type TrendsResponse = {
-  points: TrendPoint[];
+  range: TrendRange;
+  grain: '1h' | '1d' | '1w';
+  series: {
+    total_series: TrendPoint[];
+    verified_series: TrendPoint[];
+    accepting_any_series: TrendPoint[];
+    verification_stacked_series: VerificationStackedPoint[];
+  };
   meta?: { reason: 'no_history_data' };
 };
 
@@ -60,6 +76,12 @@ type ChartSeries = {
 };
 
 const MAX_AXIS_LABELS = 8;
+const TREND_RANGE_OPTIONS: Array<{ value: TrendRange; label: string }> = [
+  { value: '24h', label: '24h' },
+  { value: '7d', label: '7d' },
+  { value: '30d', label: '30d' },
+  { value: 'all', label: 'All' },
+];
 const EMPTY_MESSAGE = 'No data (showing 0).';
 const FILTER_KEYS: Array<keyof StatsFilters> = ['country', 'city', 'category', 'accepted', 'verification', 'promoted', 'source'];
 
@@ -165,6 +187,92 @@ function LineChart({ labels, series }: { labels: string[]; series: ChartSeries[]
   );
 }
 
+function StackedBarChart({ labels, points }: { labels: string[]; points: VerificationStackedPoint[] }) {
+  const width = 520;
+  const height = 260;
+  const padding = 32;
+  const labelStep = getLabelStep(labels);
+  const maxValue = Math.max(...points.map((point) => point.owner + point.community + point.directory + point.unverified), 1);
+  const yScale = (value: number) => height - padding - (value / maxValue) * (height - padding * 2);
+  const xScale = (index: number) => padding + (index / Math.max(labels.length - 1, 1)) * (width - padding * 2);
+  const barWidth = Math.max(4, (width - padding * 2) / Math.max(labels.length * 2.2, 3));
+
+  const tickCount = 4;
+  const tickValues = Array.from({ length: tickCount + 1 }, (_, index) => Math.round((maxValue / tickCount) * index));
+
+  const colorMap = {
+    owner: '#2563EB',
+    community: '#0EA5E9',
+    directory: '#14B8A6',
+    unverified: '#94A3B8',
+  } as const;
+
+  const stackedLegend: ChartSeries[] = [
+    { label: 'Owner verified', color: colorMap.owner, values: [] },
+    { label: 'Community verified', color: colorMap.community, values: [] },
+    { label: 'Directory listed', color: colorMap.directory, values: [] },
+    { label: 'Unverified', color: colorMap.unverified, values: [] },
+  ];
+
+  return (
+    <div className="rounded-md bg-gray-50 p-4 sm:p-5">
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-64 min-h-[16rem] w-full sm:h-72 lg:h-80">
+        {tickValues.map((tick) => {
+          const y = yScale(tick);
+          return (
+            <g key={tick}>
+              <line x1={padding} x2={width - padding} y1={y} y2={y} stroke="#e5e7eb" strokeWidth={1} />
+              <text x={8} y={y + 4} className="fill-gray-500 text-xs">
+                {tick}
+              </text>
+            </g>
+          );
+        })}
+
+        <line x1={padding} x2={padding} y1={padding} y2={height - padding} stroke="#9ca3af" strokeWidth={1.5} />
+        <line x1={padding} x2={width - padding} y1={height - padding} y2={height - padding} stroke="#9ca3af" strokeWidth={1.5} />
+
+        {points.map((point, index) => {
+          const x = xScale(index) - barWidth / 2;
+          const slices: Array<{ key: keyof typeof colorMap; value: number }> = [
+            { key: 'owner', value: point.owner },
+            { key: 'community', value: point.community },
+            { key: 'directory', value: point.directory },
+            { key: 'unverified', value: point.unverified },
+          ];
+
+          let previousHeight = 0;
+          return (
+            <g key={point.date}>
+              {slices.map((slice) => {
+                const nextHeight = previousHeight + slice.value;
+                const y = yScale(nextHeight);
+                const sliceHeight = yScale(previousHeight) - y;
+                previousHeight = nextHeight;
+                if (sliceHeight <= 0) return null;
+                return <rect key={slice.key} x={x} y={y} width={barWidth} height={sliceHeight} fill={colorMap[slice.key]} rx={1} />;
+              })}
+            </g>
+          );
+        })}
+
+        {labels.map((label, index) => {
+          if (index % labelStep !== 0) return null;
+          const x = xScale(index);
+          const y = height - padding + 16;
+          return (
+            <text key={label + index} x={x} y={y} className="fill-gray-500 text-[9px] sm:text-[10px]" textAnchor="middle">
+              {label}
+            </text>
+          );
+        })}
+      </svg>
+
+      <Legend series={stackedLegend} />
+    </div>
+  );
+}
+
 function SectionCard({
   eyebrow,
   title,
@@ -204,9 +312,20 @@ export default function StatsPageClient() {
   const [filters, setFilters] = useState<StatsFilters>(filtersFromUrl);
   const [filterMeta, setFilterMeta] = useState<FilterMetaResponse | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [trendRange, setTrendRange] = useState<TrendRange>('30d');
   const [state, setState] = useState<StatsState>({ status: 'loading' });
   const stats = state.stats ?? EMPTY_STATS;
-  const trends = state.trends ?? { points: [], meta: { reason: 'no_history_data' } };
+  const trends = state.trends ?? {
+    range: trendRange,
+    grain: '1d' as const,
+    series: {
+      total_series: [{ date: '0', value: 0 }],
+      verified_series: [{ date: '0', value: 0 }],
+      accepting_any_series: [{ date: '0', value: 0 }],
+      verification_stacked_series: [{ date: '0', owner: 0, community: 0, directory: 0, unverified: 0 }],
+    },
+    meta: { reason: 'no_history_data' as const },
+  };
 
   const buildSnapshotQuery = useCallback((input: StatsFilters) => {
     const params = new URLSearchParams();
@@ -235,10 +354,23 @@ export default function StatsPageClient() {
     }));
   }, [buildSnapshotQuery]);
 
-  const fetchTrends = useCallback(async () => {
-    const trendsResult = await safeFetch<TrendsResponse>('/api/stats/trends')
+  const fetchTrends = useCallback(async (range: TrendRange) => {
+    const trendsResult = await safeFetch<TrendsResponse>(`/api/stats/trends?range=${range}`)
       .then((value) => ({ ok: true as const, value }))
-      .catch(() => ({ ok: false as const, value: { points: [], meta: { reason: 'no_history_data' as const } } }));
+      .catch(() => ({
+        ok: false as const,
+        value: {
+          range,
+          grain: '1d' as const,
+          series: {
+            total_series: [{ date: '0', value: 0 }],
+            verified_series: [{ date: '0', value: 0 }],
+            accepting_any_series: [{ date: '0', value: 0 }],
+            verification_stacked_series: [{ date: '0', owner: 0, community: 0, directory: 0, unverified: 0 }],
+          },
+          meta: { reason: 'no_history_data' as const },
+        },
+      }));
 
     setState((previous) => ({
       ...previous,
@@ -289,20 +421,36 @@ export default function StatsPageClient() {
 
   useEffect(() => {
     fetchFilterMeta();
-    fetchTrends();
-  }, [fetchFilterMeta, fetchTrends]);
+  }, [fetchFilterMeta]);
+
+  useEffect(() => {
+    fetchTrends(trendRange);
+  }, [fetchTrends, trendRange]);
 
   useEffect(() => {
     fetchSnapshot(filters);
   }, [fetchSnapshot, filters]);
 
-  const trendPoints = trends.points;
-  const trendLabels = trendPoints.map((point) => point.date);
+  const trendTotalPoints = trends.series.total_series;
+  const trendVerifiedPoints = trends.series.verified_series;
+  const trendAcceptingAnyPoints = trends.series.accepting_any_series;
+  const trendStackedPoints = trends.series.verification_stacked_series;
+  const trendLabels = trendTotalPoints.map((point) => point.date);
   const trendSeries: ChartSeries[] = [
     {
       label: 'Total published places',
       color: '#2563EB',
-      values: trendPoints.map((point) => point.total),
+      values: trendTotalPoints.map((point) => point.value),
+    },
+    {
+      label: 'Verified places',
+      color: '#0EA5E9',
+      values: trendVerifiedPoints.map((point) => point.value),
+    },
+    {
+      label: 'Accepting any crypto',
+      color: '#14B8A6',
+      values: trendAcceptingAnyPoints.map((point) => point.value),
     },
   ];
 
@@ -454,13 +602,29 @@ export default function StatsPageClient() {
           title="Growth over the last 30 days"
           description="Daily cumulative totals based on moderation history (approve/promote actions)."
         >
-          {trends.points.length ? (
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            {TREND_RANGE_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setTrendRange(option.value)}
+                className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${trendRange === option.value
+                    ? 'bg-sky-600 text-white'
+                    : 'border border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                  }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="space-y-4">
             <LineChart labels={trendLabels} series={trendSeries} />
-          ) : (
-            <div className="rounded-md border border-dashed border-gray-200 bg-gray-50 px-4 py-8 text-center text-sm text-gray-600">
-              Not enough trend data yet.
+            <div className="rounded-md border border-gray-200 bg-white p-3 text-xs font-medium text-gray-600">
+              Verification stack (owner/community/directory/unverified)
             </div>
-          )}
+            <StackedBarChart labels={trendLabels} points={trendStackedPoints} />
+          </div>
         </SectionCard>
 
         <SectionCard
