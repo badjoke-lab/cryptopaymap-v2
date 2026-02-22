@@ -148,25 +148,62 @@ export default function MapClient() {
   const [mounted, setMounted] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const invalidateTimeoutRef = useRef<number | null>(null);
+  const invalidateRafRef = useRef<number | null>(null);
+  const sheetTransitionEndTimerRef = useRef<number | null>(null);
+  const isSheetTransitioningRef = useRef(false);
+  const hasDeferredInvalidateRef = useRef(false);
+  const deferredInvalidateReasonRef = useRef<string | null>(null);
   const drawerReasonRef = useRef("initial");
 
   const isMobilePlaceOpen = mounted && isPlaceOpen && Boolean(selectedPlaceId);
   const drawerMode: "full" = "full";
 
-  const invalidateMapSize = useCallback(() => {
+  const invalidateMapSize = useCallback((reason = "unknown") => {
     const map = mapInstanceRef.current;
     if (!map) return;
-    if (invalidateTimeoutRef.current !== null) {
-      window.clearTimeout(invalidateTimeoutRef.current);
+
+    if (isSheetTransitioningRef.current) {
+      hasDeferredInvalidateRef.current = true;
+      deferredInvalidateReasonRef.current = reason;
+      return;
     }
-    window.requestAnimationFrame(() => {
+
+    if (invalidateRafRef.current !== null) {
+      return;
+    }
+
+    invalidateRafRef.current = window.requestAnimationFrame(() => {
+      invalidateRafRef.current = null;
       map.invalidateSize({ pan: false });
+
+      if (invalidateTimeoutRef.current !== null) {
+        window.clearTimeout(invalidateTimeoutRef.current);
+      }
       invalidateTimeoutRef.current = window.setTimeout(() => {
         map.invalidateSize({ pan: false });
         invalidateTimeoutRef.current = null;
-      }, 120);
+      }, 0);
     });
   }, []);
+
+  const beginSheetTransition = useCallback((reason: string) => {
+    isSheetTransitioningRef.current = true;
+    if (sheetTransitionEndTimerRef.current !== null) {
+      window.clearTimeout(sheetTransitionEndTimerRef.current);
+    }
+
+    sheetTransitionEndTimerRef.current = window.setTimeout(() => {
+      isSheetTransitioningRef.current = false;
+      sheetTransitionEndTimerRef.current = null;
+
+      if (hasDeferredInvalidateRef.current) {
+        hasDeferredInvalidateRef.current = false;
+        const deferredReason = deferredInvalidateReasonRef.current ?? `${reason}:deferred`;
+        deferredInvalidateReasonRef.current = null;
+        invalidateMapSize(`${deferredReason}:flush`);
+      }
+    }, 280);
+  }, [invalidateMapSize]);
 
   const toggleFilters = useCallback(() => {
     setFiltersOpen((previous) => {
@@ -1087,17 +1124,28 @@ if (!selectionHydrated) {
 
   useEffect(() => {
     if (!isPlaceOpen) return;
-    invalidateMapSize();
+    invalidateMapSize("place-open");
   }, [invalidateMapSize, isPlaceOpen]);
 
   useEffect(() => {
-    invalidateMapSize();
+    invalidateMapSize("filters-toggle");
   }, [filtersOpen, invalidateMapSize]);
 
   useEffect(() => {
+    if (!isMobileViewport) return;
+    beginSheetTransition(isMobilePlaceOpen ? "sheet-open" : "sheet-close");
+  }, [beginSheetTransition, isMobilePlaceOpen, isMobileViewport]);
+
+  useEffect(() => {
     return () => {
+      if (invalidateRafRef.current !== null) {
+        window.cancelAnimationFrame(invalidateRafRef.current);
+      }
       if (invalidateTimeoutRef.current !== null) {
         window.clearTimeout(invalidateTimeoutRef.current);
+      }
+      if (sheetTransitionEndTimerRef.current !== null) {
+        window.clearTimeout(sheetTransitionEndTimerRef.current);
       }
     };
   }, []);
@@ -1193,8 +1241,9 @@ if (!selectionHydrated) {
               onClose={() => closeDrawer("user")}
               ref={bottomSheetRef}
               selectionStatus={selectionStatus}
-              onStageChange={() => {
-                invalidateMapSize();
+              onStageChange={(stage) => {
+                beginSheetTransition(`sheet-stage:${stage}`);
+                invalidateMapSize(`sheet-stage:${stage}`);
               }}
             />
           ) : null}
