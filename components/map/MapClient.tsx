@@ -1086,11 +1086,6 @@ if (!selectionHydrated) {
   }, []);
 
   useEffect(() => {
-    if (!isPlaceOpen) return;
-    invalidateMapSize();
-  }, [invalidateMapSize, isPlaceOpen]);
-
-  useEffect(() => {
     invalidateMapSize();
   }, [filtersOpen, invalidateMapSize]);
 
