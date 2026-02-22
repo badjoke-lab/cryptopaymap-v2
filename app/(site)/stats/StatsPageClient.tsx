@@ -1,6 +1,7 @@
 'use client';
 
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 
 import LimitedModeNotice from '@/components/status/LimitedModeNotice';
 import { safeFetch } from '@/lib/safeFetch';
@@ -28,6 +29,23 @@ type TrendsResponse = {
 
 type FetchStatus = 'idle' | 'loading' | 'success';
 
+type StatsFilters = {
+  country: string;
+  city: string;
+  category: string;
+  accepted: string;
+  verification: string;
+  promoted: string;
+  source: string;
+};
+
+type FilterMetaResponse = {
+  countries: string[];
+  categories: string[];
+  cities: Record<string, string[]>;
+  chains: string[];
+};
+
 type StatsState = {
   status: FetchStatus;
   notice?: string;
@@ -43,6 +61,17 @@ type ChartSeries = {
 
 const MAX_AXIS_LABELS = 8;
 const EMPTY_MESSAGE = 'No data (showing 0).';
+const FILTER_KEYS: Array<keyof StatsFilters> = ['country', 'city', 'category', 'accepted', 'verification', 'promoted', 'source'];
+
+const DEFAULT_FILTERS: StatsFilters = {
+  country: '',
+  city: '',
+  category: '',
+  accepted: '',
+  verification: '',
+  promoted: '',
+  source: '',
+};
 
 const EMPTY_STATS: StatsResponse = {
   total_places: 0,
@@ -160,29 +189,112 @@ function SectionCard({
 }
 
 export default function StatsPageClient() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const filtersFromUrl = useMemo(() => {
+    const fromUrl = { ...DEFAULT_FILTERS };
+    for (const key of FILTER_KEYS) {
+      fromUrl[key] = searchParams.get(key) ?? '';
+    }
+    return fromUrl;
+  }, [searchParams]);
+
+  const [filters, setFilters] = useState<StatsFilters>(filtersFromUrl);
+  const [filterMeta, setFilterMeta] = useState<FilterMetaResponse | null>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [state, setState] = useState<StatsState>({ status: 'loading' });
   const stats = state.stats ?? EMPTY_STATS;
   const trends = state.trends ?? { points: [], meta: { reason: 'no_history_data' } };
 
-  const fetchStats = useCallback(async () => {
-    setState({ status: 'loading' });
-    const [statsResult, trendsResult] = await Promise.allSettled([
-      safeFetch<StatsResponse>('/api/stats'),
-      safeFetch<TrendsResponse>('/api/stats/trends'),
-    ]);
+  const buildSnapshotQuery = useCallback((input: StatsFilters) => {
+    const params = new URLSearchParams();
+    for (const key of FILTER_KEYS) {
+      const value = input[key].trim();
+      if (value) params.set(key, value);
+    }
+    const query = params.toString();
+    return query ? `?${query}` : '';
+  }, []);
 
-    const statsValue = statsResult.status === 'fulfilled' ? statsResult.value : EMPTY_STATS;
-    const notice = statsResult.status === 'rejected' ? 'Stats data is currently limited.' : undefined;
+  const fetchSnapshot = useCallback(async (activeFilters: StatsFilters) => {
+    setState((previous) => ({ ...previous, status: 'loading' }));
+    const statsResult = await safeFetch<StatsResponse>(`/api/stats${buildSnapshotQuery(activeFilters)}`)
+      .then((value) => ({ ok: true as const, value }))
+      .catch(() => ({ ok: false as const, value: EMPTY_STATS }));
 
-    const trendsFallback: TrendsResponse = { points: [], meta: { reason: 'no_history_data' } };
-    const trendsValue = trendsResult.status === 'fulfilled' ? trendsResult.value : trendsFallback;
+    const statsValue = statsResult.value;
+    const notice = statsResult.ok ? undefined : 'Stats data is currently limited.';
 
-    setState({ status: 'success', stats: statsValue, trends: trendsValue, notice });
+    setState((previous) => ({
+      status: 'success',
+      stats: statsValue,
+      trends: previous.trends,
+      notice,
+    }));
+  }, [buildSnapshotQuery]);
+
+  const fetchTrends = useCallback(async () => {
+    const trendsResult = await safeFetch<TrendsResponse>('/api/stats/trends')
+      .then((value) => ({ ok: true as const, value }))
+      .catch(() => ({ ok: false as const, value: { points: [], meta: { reason: 'no_history_data' as const } } }));
+
+    setState((previous) => ({
+      ...previous,
+      status: previous.stats ? 'success' : previous.status,
+      trends: trendsResult.value,
+    }));
+  }, []);
+
+  const syncUrl = useCallback((next: StatsFilters) => {
+    const params = new URLSearchParams(searchParams.toString());
+    for (const key of FILTER_KEYS) {
+      const value = next[key].trim();
+      if (value) params.set(key, value);
+      else params.delete(key);
+    }
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }, [pathname, router, searchParams]);
+
+  const handleFilterChange = useCallback((key: keyof StatsFilters, value: string) => {
+    setFilters((previous) => {
+      const next = { ...previous, [key]: value };
+      if (key === 'country' && !value) {
+        next.city = '';
+      }
+      syncUrl(next);
+      return next;
+    });
+  }, [syncUrl]);
+
+  const resetFilters = useCallback(() => {
+    setFilters(DEFAULT_FILTERS);
+    syncUrl(DEFAULT_FILTERS);
+  }, [syncUrl]);
+
+  const fetchFilterMeta = useCallback(async () => {
+    try {
+      const meta = await safeFetch<FilterMetaResponse>('/api/filters/meta');
+      setFilterMeta(meta);
+    } catch {
+      setFilterMeta(null);
+    }
   }, []);
 
   useEffect(() => {
-    fetchStats();
-  }, [fetchStats]);
+    setFilters(filtersFromUrl);
+  }, [filtersFromUrl]);
+
+  useEffect(() => {
+    fetchFilterMeta();
+    fetchTrends();
+  }, [fetchFilterMeta, fetchTrends]);
+
+  useEffect(() => {
+    fetchSnapshot(filters);
+  }, [fetchSnapshot, filters]);
 
   const trendPoints = trends.points;
   const trendLabels = trendPoints.map((point) => point.date);
@@ -213,6 +325,7 @@ export default function StatsPageClient() {
 
   const lastUpdated = stats.generated_at ? new Date(stats.generated_at).toLocaleString() : null;
   const showLimited = Boolean(stats.limited || state.notice);
+  const cityOptions = filters.country ? filterMeta?.cities?.[filters.country] ?? [] : [];
 
   if (state.status === 'loading') {
     return (
@@ -260,7 +373,7 @@ export default function StatsPageClient() {
               state.notice ? (
                 <button
                   type="button"
-                  onClick={fetchStats}
+                  onClick={() => fetchSnapshot(filters)}
                   className="inline-flex items-center gap-2 rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-700"
                 >
                   Retry
@@ -269,6 +382,57 @@ export default function StatsPageClient() {
             }
           />
         ) : null}
+
+        <section className="rounded-lg bg-white p-4 shadow-sm ring-1 ring-gray-200 sm:p-5">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold text-gray-800">Filters</p>
+            <button
+              type="button"
+              onClick={() => setFiltersOpen((previous) => !previous)}
+              className="inline-flex items-center gap-2 rounded-md border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-700 sm:hidden"
+            >
+              ⚙ {filtersOpen ? 'Close' : 'Open'}
+            </button>
+          </div>
+
+          <div className={`${filtersOpen ? 'mt-4 grid' : 'hidden'} gap-3 sm:mt-4 sm:grid sm:grid-cols-2 lg:grid-cols-4`}>
+            <select value={filters.country} onChange={(event) => handleFilterChange('country', event.target.value)} className="rounded-md border border-gray-300 px-3 py-2 text-sm">
+              <option value="">All countries</option>
+              {(filterMeta?.countries ?? []).map((country) => <option key={country} value={country}>{country}</option>)}
+            </select>
+            <select value={filters.city} onChange={(event) => handleFilterChange('city', event.target.value)} className="rounded-md border border-gray-300 px-3 py-2 text-sm" disabled={!filters.country}>
+              <option value="">All cities</option>
+              {cityOptions.map((city) => <option key={city} value={city}>{city}</option>)}
+            </select>
+            <select value={filters.category} onChange={(event) => handleFilterChange('category', event.target.value)} className="rounded-md border border-gray-300 px-3 py-2 text-sm">
+              <option value="">All categories</option>
+              {(filterMeta?.categories ?? []).map((category) => <option key={category} value={category}>{category}</option>)}
+            </select>
+            <select value={filters.accepted} onChange={(event) => handleFilterChange('accepted', event.target.value)} className="rounded-md border border-gray-300 px-3 py-2 text-sm">
+              <option value="">All assets/chains</option>
+              {(filterMeta?.chains ?? []).map((chain) => <option key={chain} value={chain}>{chain}</option>)}
+            </select>
+            <select value={filters.verification} onChange={(event) => handleFilterChange('verification', event.target.value)} className="rounded-md border border-gray-300 px-3 py-2 text-sm">
+              <option value="">All verification</option>
+              <option value="owner">Owner Verified</option>
+              <option value="community">Community Verified</option>
+              <option value="directory">Directory Listed</option>
+              <option value="unverified">Unverified</option>
+            </select>
+            <select value={filters.promoted} onChange={(event) => handleFilterChange('promoted', event.target.value)} className="rounded-md border border-gray-300 px-3 py-2 text-sm">
+              <option value="">Promoted + not promoted</option>
+              <option value="true">Promoted only</option>
+              <option value="false">Not promoted</option>
+            </select>
+            <select value={filters.source} onChange={(event) => handleFilterChange('source', event.target.value)} className="rounded-md border border-gray-300 px-3 py-2 text-sm">
+              <option value="">All sources</option>
+              <option value="owner">Owner submission</option>
+              <option value="community">Community submission</option>
+              <option value="directory">Directory import</option>
+            </select>
+            <button type="button" onClick={resetFilters} className="rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Reset</button>
+          </div>
+        </section>
 
         <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {summaryCards.map((card) => (
