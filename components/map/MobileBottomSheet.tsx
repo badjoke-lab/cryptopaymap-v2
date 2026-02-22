@@ -1,7 +1,7 @@
 "use client";
 
 import type React from "react";
-import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { Place } from "../../types/places";
 import { getPlaceViewModel } from "./placeViewModel";
@@ -16,6 +16,13 @@ type Props = {
 };
 
 type SheetStage = "peek" | "expanded";
+type DebugEventName = "open" | "close" | "setRenderedPlace" | "stageChange" | "rafSample" | "panelMount";
+
+type DebugEvent = {
+  at: number;
+  event: DebugEventName;
+  details: string;
+};
 
 const PEEK_HEIGHT = 35;
 const EXPANDED_HEIGHT = 88;
@@ -38,14 +45,59 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
   ({ place, isOpen, onClose, selectionStatus = "idle", onStageChange }, ref) => {
     const [stage, setStage] = useState<SheetStage>("peek");
     const [renderedPlace, setRenderedPlace] = useState<Place | null>(null);
+    const [debugEnabled, setDebugEnabled] = useState(false);
+    const [debugHistory, setDebugHistory] = useState<DebugEvent[]>([]);
+    const [panelMountCount, setPanelMountCount] = useState(0);
+    const [computedPanelHeight, setComputedPanelHeight] = useState("-");
+    const [computedPanelTransform, setComputedPanelTransform] = useState("-");
     const touchStartY = useRef<number | null>(null);
     const touchCurrentY = useRef<number | null>(null);
     const previousPlaceIdRef = useRef<string | null>(null);
+    const panelElementRef = useRef<HTMLDivElement | null>(null);
+    const rafFrameRef = useRef<number | null>(null);
+    const openSampleTimeoutRef = useRef<number | null>(null);
+    const isSamplingRef = useRef(false);
+    const mountCountRef = useRef(0);
+    const stageRef = useRef<SheetStage>("peek");
+    const lastPanelNodeRef = useRef<HTMLDivElement | null>(null);
+
+    const pushDebugEvent = (event: DebugEventName, details: string) => {
+      const at = typeof performance !== "undefined" ? performance.now() : Date.now();
+      setDebugHistory((prev) => {
+        const next = [...prev, { at, event, details }];
+        return next.slice(-50);
+      });
+    };
+
+    useEffect(() => {
+      const syncFromHash = () => {
+        setDebugEnabled(window.location.hash.includes("debugSheet"));
+      };
+
+      syncFromHash();
+      window.addEventListener("hashchange", syncFromHash);
+      return () => window.removeEventListener("hashchange", syncFromHash);
+    }, []);
+
+    useEffect(() => {
+      mountCountRef.current += 1;
+    }, []);
+
+    useEffect(() => {
+      if (!debugEnabled) {
+        setDebugHistory([]);
+        setComputedPanelHeight("-");
+        setComputedPanelTransform("-");
+      }
+    }, [debugEnabled]);
 
     useEffect(() => {
       if (place) {
         previousPlaceIdRef.current = place.id;
         setRenderedPlace(place);
+        if (debugEnabled) {
+          pushDebugEvent("setRenderedPlace", `renderedPlace.id=${place.id}`);
+        }
         if (!isOpen) {
           setStage("peek");
         }
@@ -53,6 +105,9 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       }
 
       setRenderedPlace(null);
+      if (debugEnabled) {
+        pushDebugEvent("setRenderedPlace", "renderedPlace=null");
+      }
 
       if (!isOpen) {
         previousPlaceIdRef.current = null;
@@ -62,7 +117,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       }
 
       return undefined;
-    }, [isOpen, place]);
+    }, [debugEnabled, isOpen, place]);
 
     const viewModel = useMemo(() => getPlaceViewModel(renderedPlace), [renderedPlace]);
     const photos = viewModel.media;
@@ -74,6 +129,65 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       if (!isOpen) return;
       onStageChange?.(stage);
     }, [isOpen, onStageChange, stage]);
+
+    useEffect(() => {
+      if (!debugEnabled) return;
+      pushDebugEvent("stageChange", `stage=${stage}`);
+    }, [debugEnabled, stage]);
+
+    useEffect(() => {
+      stageRef.current = stage;
+    }, [stage]);
+
+    useEffect(() => {
+      if (!debugEnabled) return;
+      pushDebugEvent(isOpen ? "open" : "close", `isOpen=${String(isOpen)}`);
+    }, [debugEnabled, isOpen]);
+
+    useEffect(() => {
+      if (!debugEnabled || !isOpen) return;
+
+      const panel = panelElementRef.current;
+      if (!panel) return;
+
+      isSamplingRef.current = true;
+      const startedAt = performance.now();
+
+      const sampleFrame = () => {
+        if (!isSamplingRef.current) {
+          return;
+        }
+        const style = window.getComputedStyle(panel);
+        const height = style.height;
+        const transform = style.transform;
+        setComputedPanelHeight(height);
+        setComputedPanelTransform(transform);
+        pushDebugEvent("rafSample", `height=${height}; transform=${transform}; effectiveStage=${stageRef.current}`);
+        rafFrameRef.current = window.requestAnimationFrame(sampleFrame);
+      };
+
+      sampleFrame();
+      openSampleTimeoutRef.current = window.setTimeout(() => {
+        isSamplingRef.current = false;
+        if (rafFrameRef.current !== null) {
+          window.cancelAnimationFrame(rafFrameRef.current);
+          rafFrameRef.current = null;
+        }
+        pushDebugEvent("rafSample", `stop: ${(performance.now() - startedAt).toFixed(1)}ms`);
+      }, 500);
+
+      return () => {
+        isSamplingRef.current = false;
+        if (openSampleTimeoutRef.current !== null) {
+          window.clearTimeout(openSampleTimeoutRef.current);
+          openSampleTimeoutRef.current = null;
+        }
+        if (rafFrameRef.current !== null) {
+          window.cancelAnimationFrame(rafFrameRef.current);
+          rafFrameRef.current = null;
+        }
+      };
+    }, [debugEnabled, isOpen]);
     const canShowPhotos = photos.length > 0;
     const descriptionText = renderedPlace?.description ?? renderedPlace?.about_short ?? renderedPlace?.about ?? null;
     const canShowDescription = Boolean(renderedPlace && !isRestricted && descriptionText);
@@ -123,15 +237,65 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       touchCurrentY.current = null;
     };
 
-    if (!renderedPlace && !isOpen) {
-      return null;
-    }
-
     const showPlaceholder = isOpen && !renderedPlace;
     const effectiveStage = stage;
     const sheetHeight = effectiveStage === "expanded" ? `${EXPANDED_HEIGHT}vh` : `${PEEK_HEIGHT}vh`;
     const showDetails = effectiveStage === "expanded";
     const isVisible = isOpen && (Boolean(renderedPlace) || showPlaceholder);
+
+    const handlePanelRef = useCallback((node: HTMLDivElement | null) => {
+      panelElementRef.current = node;
+      if (!node || !debugEnabled || node === lastPanelNodeRef.current) {
+        return;
+      }
+      lastPanelNodeRef.current = node;
+
+      setPanelMountCount((prev) => {
+        const next = prev + 1;
+        pushDebugEvent("panelMount", `panelMountCount=${next}`);
+        return next;
+      });
+
+      const style = window.getComputedStyle(node);
+      setComputedPanelHeight(style.height);
+      setComputedPanelTransform(style.transform);
+    }, [debugEnabled]);
+
+    const debugHud = debugEnabled ? (
+      <aside className="cpm-bottom-sheet__debug-hud" aria-hidden>
+        <div>isOpen: {String(isOpen)}</div>
+        <div>
+          stage / effectiveStage: {stage} / {effectiveStage}
+        </div>
+        <div>showPlaceholder: {String(showPlaceholder)}</div>
+        <div>
+          renderedPlace?: {String(Boolean(renderedPlace))} / {renderedPlace?.id ?? "-"}
+        </div>
+        <div>
+          place?: {String(Boolean(place))} / {place?.id ?? "-"}
+        </div>
+        <div>computed height: {computedPanelHeight}</div>
+        <div>computed transform: {computedPanelTransform}</div>
+        <div>mountCount: {mountCountRef.current}</div>
+        <div>panelMountCount: {panelMountCount}</div>
+        <div>lastEvent: {debugHistory[debugHistory.length - 1]?.event ?? "-"}</div>
+        <ol className="cpm-bottom-sheet__debug-log">
+          {debugHistory.map((entry, index) => (
+            <li key={`${entry.at}-${index}`}>
+              [t={entry.at.toFixed(1)}] {entry.event} -&gt; {entry.details}
+            </li>
+          ))}
+        </ol>
+      </aside>
+    ) : null;
+
+    if (!renderedPlace && !isOpen) {
+      return debugEnabled ? (
+        <div className="cpm-bottom-sheet" ref={ref}>
+          {debugHud}
+        </div>
+      ) : null;
+    }
 
     if (showPlaceholder) {
       const placeholderMessage =
@@ -142,6 +306,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
         <div className={`cpm-bottom-sheet ${isVisible ? "open" : ""}`} ref={ref}>
           <div
             className="cpm-bottom-sheet__panel"
+            ref={handlePanelRef}
             style={{ height: sheetHeight, transform: `translateY(${isVisible ? "0" : "100%"})` }}
           >
             <div className="cpm-bottom-sheet__handle">
@@ -171,6 +336,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
               </section>
             </div>
           </div>
+          {debugHud}
         </div>
       );
     }
@@ -183,6 +349,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
       <div className={`cpm-bottom-sheet ${isVisible ? "open" : ""}`} ref={ref}>
         <div
           className="cpm-bottom-sheet__panel"
+          ref={handlePanelRef}
           style={{ height: sheetHeight, transform: `translateY(${isVisible ? "0" : "100%"})` }}
         >
           <div
@@ -391,6 +558,7 @@ const MobileBottomSheet = forwardRef<HTMLDivElement, Props>(
             )}
           </div>
         </div>
+        {debugHud}
       </div>
     );
 });
