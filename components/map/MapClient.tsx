@@ -98,6 +98,7 @@ export default function MapClient() {
   const fetchPlacesRef = useRef<() => void>();
   const leafletRef = useRef<typeof import("leaflet") | null>(null);
   const markersRef = useRef<Map<string, import("leaflet").Marker>>(new Map());
+  const prevSelectedMarkerIdRef = useRef<string | null>(null);
   const userMarkerRef = useRef<import("leaflet").Marker | null>(null);
   const lastFocusedElementRef = useRef<HTMLElement | null>(null);
   const skipNextSelectionRef = useRef(false);
@@ -257,6 +258,22 @@ export default function MapClient() {
       restoreFocus();
     });
   }, [restoreFocus]);
+
+  const setMarkerSelectionState = useCallback(
+    (markerId: string | null, isSelected: boolean) => {
+      if (!markerId) return;
+      const marker = markersRef.current.get(markerId);
+      if (!marker) return;
+      const element = marker.getElement();
+      const pin = element?.querySelector(".cpm-pin");
+      if (pin) {
+        pin.classList.remove("cpm-pin-selected");
+        pin.classList.toggle("active", isSelected);
+      }
+      marker.setZIndexOffset(isSelected ? 1000 : 0);
+    },
+    [],
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -1005,17 +1022,17 @@ if (!selectionHydrated) {
   }, [filters.city, filters.country, places]);
 
   useEffect(() => {
-    markersRef.current.forEach((marker, id) => {
-      const element = marker.getElement();
-      const isSelected = id === selectedPlaceId;
-      const pin = element?.querySelector(".cpm-pin");
-      if (pin) {
-        pin.classList.remove("cpm-pin-selected");
-        pin.classList.toggle("active", isSelected);
-      }
-      marker.setZIndexOffset(isSelected ? 1000 : 0);
-    });
-  }, [selectedPlaceId]);
+    const previousId = prevSelectedMarkerIdRef.current;
+    const nextId = selectedPlaceId;
+
+    if (previousId === nextId) {
+      return;
+    }
+
+    setMarkerSelectionState(previousId, false);
+    setMarkerSelectionState(nextId, true);
+    prevSelectedMarkerIdRef.current = nextId;
+  }, [selectedPlaceId, setMarkerSelectionState]);
 
   useEffect(() => {
     const map = mapInstanceRef.current;
