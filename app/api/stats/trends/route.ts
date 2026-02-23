@@ -10,7 +10,8 @@ export type TrendGrain = "1h" | "1d" | "1w";
 
 type TrendSeriesPoint = {
   date: string;
-  value: number;
+  total: number;
+  delta: number;
 };
 
 type VerificationStackedPoint = {
@@ -24,12 +25,14 @@ type VerificationStackedPoint = {
 export type StatsTrendsResponse = {
   range: TrendRange;
   grain: TrendGrain;
-  series: {
-    total_series: TrendSeriesPoint[];
-    verified_series: TrendSeriesPoint[];
-    accepting_any_series: TrendSeriesPoint[];
-    verification_stacked_series: VerificationStackedPoint[];
-  };
+  last_updated: string;
+  points: Array<TrendSeriesPoint & {
+    verified_total: number;
+    verified_delta: number;
+    accepting_any_total: number;
+    accepting_any_delta: number;
+  }>;
+  stack: VerificationStackedPoint[];
   meta?: { reason: "no_history_data" | "db_unavailable" | "internal_error" };
 };
 
@@ -92,7 +95,7 @@ const parseRange = (request: Request): TrendRange => {
   if (raw && VALID_RANGES.includes(raw as TrendRange)) {
     return raw as TrendRange;
   }
-  return "30d";
+  return "7d";
 };
 
 const buildBuckets = (range: TrendRange, grain: TrendGrain, oldest: Date | null) => {
@@ -131,18 +134,23 @@ const buildEmptyResponse = (
 ): StatsTrendsResponse => ({
   range,
   grain,
-  series: {
-    total_series: labels.map((date) => ({ date, value: 0 })),
-    verified_series: labels.map((date) => ({ date, value: 0 })),
-    accepting_any_series: labels.map((date) => ({ date, value: 0 })),
-    verification_stacked_series: labels.map((date) => ({
+  last_updated: new Date().toISOString(),
+  points: labels.map((date) => ({
+    date,
+    total: 0,
+    delta: 0,
+    verified_total: 0,
+    verified_delta: 0,
+    accepting_any_total: 0,
+    accepting_any_delta: 0,
+  })),
+  stack: labels.map((date) => ({
       date,
       owner: 0,
       community: 0,
       directory: 0,
       unverified: 0,
     })),
-  },
   meta: { reason },
 });
 
@@ -151,9 +159,14 @@ export async function GET(request: Request) {
   const range = parseRange(request);
   const { grain } = RANGE_CONFIG[range];
 
+  const responseUpdatedAt = new Date().toISOString();
+
   if (!hasDatabaseUrl()) {
     const { labels } = buildBuckets(range, grain, null);
-    return NextResponse.json<StatsTrendsResponse>(buildEmptyResponse(range, grain, labels, "no_history_data"), {
+    return NextResponse.json<StatsTrendsResponse>({
+      ...buildEmptyResponse(range, grain, labels, "no_history_data"),
+      last_updated: responseUpdatedAt,
+    }, {
       headers: {
         "Cache-Control": CACHE_CONTROL,
         ...buildDataSourceHeaders("db", true),
@@ -282,9 +295,7 @@ export async function GET(request: Request) {
     let runningDirectory = 0;
     let runningUnverified = 0;
 
-    const totalSeries: TrendSeriesPoint[] = [];
-    const verifiedSeries: TrendSeriesPoint[] = [];
-    const acceptingAnySeries: TrendSeriesPoint[] = [];
+    const points: StatsTrendsResponse["points"] = [];
     const verificationStackedSeries: VerificationStackedPoint[] = [];
 
     for (const label of labels) {
@@ -297,9 +308,15 @@ export async function GET(request: Request) {
       runningDirectory += Number(row?.directory ?? 0);
       runningUnverified += Number(row?.unverified ?? 0);
 
-      totalSeries.push({ date: label, value: runningTotal });
-      verifiedSeries.push({ date: label, value: runningVerified });
-      acceptingAnySeries.push({ date: label, value: runningAcceptingAny });
+      points.push({
+        date: label,
+        total: runningTotal,
+        delta: Number(row?.total ?? 0),
+        verified_total: runningVerified,
+        verified_delta: Number(row?.verified ?? 0),
+        accepting_any_total: runningAcceptingAny,
+        accepting_any_delta: Number(row?.accepting_any ?? 0),
+      });
       verificationStackedSeries.push({
         date: label,
         owner: runningOwner,
@@ -313,12 +330,9 @@ export async function GET(request: Request) {
     const response: StatsTrendsResponse = {
       range,
       grain,
-      series: {
-        total_series: totalSeries,
-        verified_series: verifiedSeries,
-        accepting_any_series: acceptingAnySeries,
-        verification_stacked_series: verificationStackedSeries,
-      },
+      last_updated: responseUpdatedAt,
+      points,
+      stack: verificationStackedSeries,
       ...(hasAnyData ? {} : { meta: { reason: "no_history_data" as const } }),
     };
 
@@ -331,13 +345,19 @@ export async function GET(request: Request) {
   } catch (error) {
     const { labels } = buildBuckets(range, grain, null);
     if (error instanceof DbUnavailableError || (error as Error).message?.includes("DATABASE_URL")) {
-      return NextResponse.json<StatsTrendsResponse>(buildEmptyResponse(range, grain, labels, "db_unavailable"), {
+      return NextResponse.json<StatsTrendsResponse>({
+        ...buildEmptyResponse(range, grain, labels, "db_unavailable"),
+        last_updated: responseUpdatedAt,
+      }, {
         status: 503,
         headers: buildDataSourceHeaders("db", true),
       });
     }
     console.error("[stats] failed to load trends", error);
-    return NextResponse.json<StatsTrendsResponse>(buildEmptyResponse(range, grain, labels, "internal_error"), {
+    return NextResponse.json<StatsTrendsResponse>({
+      ...buildEmptyResponse(range, grain, labels, "internal_error"),
+      last_updated: responseUpdatedAt,
+    }, {
       status: 500,
       headers: buildDataSourceHeaders("db", true),
     });
