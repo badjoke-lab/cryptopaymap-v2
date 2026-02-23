@@ -1,6 +1,6 @@
 'use client';
 
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 
 import LimitedModeNotice from '@/components/status/LimitedModeNotice';
@@ -137,6 +137,18 @@ const EMPTY_STATS: StatsResponse = {
   },
   limited: true,
 };
+
+const createEmptyTrends = (range: TrendRange): TrendsResponse => ({
+  range,
+  grain: '1d',
+  series: {
+    total_series: [{ date: '0', value: 0 }],
+    verified_series: [{ date: '0', value: 0 }],
+    accepting_any_series: [{ date: '0', value: 0 }],
+    verification_stacked_series: [{ date: '0', owner: 0, community: 0, directory: 0, unverified: 0 }],
+  },
+  meta: { reason: 'no_history_data' },
+});
 
 function DonutChart({ items }: { items: Array<{ label: string; value: number; color: string }> }) {
   const size = 180;
@@ -436,18 +448,10 @@ export default function StatsPageClient() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [trendRange, setTrendRange] = useState<TrendRange>('30d');
   const [state, setState] = useState<StatsState>({ status: 'loading' });
+  const lastSuccessfulSnapshotRef = useRef<StatsResponse | null>(null);
+  const lastSuccessfulTrendsRef = useRef<Partial<Record<TrendRange, TrendsResponse>>>({});
   const stats = state.stats ?? EMPTY_STATS;
-  const trends = state.trends ?? {
-    range: trendRange,
-    grain: '1d' as const,
-    series: {
-      total_series: [{ date: '0', value: 0 }],
-      verified_series: [{ date: '0', value: 0 }],
-      accepting_any_series: [{ date: '0', value: 0 }],
-      verification_stacked_series: [{ date: '0', owner: 0, community: 0, directory: 0, unverified: 0 }],
-    },
-    meta: { reason: 'no_history_data' as const },
-  };
+  const trends = state.trends ?? createEmptyTrends(trendRange);
 
   const buildSnapshotQuery = useCallback((input: StatsFilters) => {
     const params = new URLSearchParams();
@@ -463,10 +467,14 @@ export default function StatsPageClient() {
     setState((previous) => ({ ...previous, status: 'loading' }));
     const statsResult = await safeFetch<StatsResponse>(`/api/stats${buildSnapshotQuery(activeFilters)}`)
       .then((value) => ({ ok: true as const, value }))
-      .catch(() => ({ ok: false as const, value: EMPTY_STATS }));
+      .catch(() => ({ ok: false as const, value: lastSuccessfulSnapshotRef.current ?? EMPTY_STATS }));
 
     const statsValue = statsResult.value;
-    const notice = statsResult.ok ? undefined : 'Stats data is currently limited.';
+    if (statsResult.ok) {
+      lastSuccessfulSnapshotRef.current = statsValue;
+    }
+
+    const notice = statsResult.ok ? undefined : 'Showing last successful stats due to API error.';
 
     setState((previous) => ({
       status: 'success',
@@ -481,18 +489,12 @@ export default function StatsPageClient() {
       .then((value) => ({ ok: true as const, value }))
       .catch(() => ({
         ok: false as const,
-        value: {
-          range,
-          grain: '1d' as const,
-          series: {
-            total_series: [{ date: '0', value: 0 }],
-            verified_series: [{ date: '0', value: 0 }],
-            accepting_any_series: [{ date: '0', value: 0 }],
-            verification_stacked_series: [{ date: '0', owner: 0, community: 0, directory: 0, unverified: 0 }],
-          },
-          meta: { reason: 'no_history_data' as const },
-        },
+        value: lastSuccessfulTrendsRef.current[range] ?? createEmptyTrends(range),
       }));
+
+    if (trendsResult.ok) {
+      lastSuccessfulTrendsRef.current[range] = trendsResult.value;
+    }
 
     setState((previous) => ({
       ...previous,
