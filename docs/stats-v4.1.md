@@ -1,9 +1,13 @@
-# 🧱 Stats v4.1 仕様（What = 何を持つか）
+# 🧱 Stats v4.1 仕様（What = 何を持つか）【完全版】
+
+---
 
 ## 0. 目的
 
 * Snapshot（現状）とTrends（推移）の**両方が同一フィルタ条件で一貫する**。
 * 「この条件の世界は、今どうで、どう増減してきたか」が見える。
+* v4.1では、Trendsは保存済みスナップショット（事前計算キューブ）を基盤とする。
+* 重いオンデマンドSQLは禁止し、事前計算による安定表示を優先する。
 
 ---
 
@@ -33,16 +37,62 @@
 * Category / Country / City ranking
 * Asset Matrix
 
+Snapshotはフィルタ変更時に即時再集計される。
+
 ---
 
-## C. Trends（v4.1強化）
+# C. Trends（v4.1強化）
+
+---
 
 ## C-1. 期間セレクタ（必須）
 
 * 24h（1h粒度）
 * 7d（1d粒度）
 * 30d（1d粒度）
-* All（1w or 1mo）
+* All（1w粒度）
+
+---
+
+# 🔁 C-1a. スナップショット生成間隔
+
+Trendsは事前計算済みキューブを参照する。
+
+---
+
+### ■ 24h（1h粒度）
+
+* 保存粒度：1時間
+* 更新間隔：**1時間ごと**
+* 再計算範囲：直近48時間
+* 表示は直近24時間のみ
+* 過去確定時間は再計算しない
+
+---
+
+### ■ 7d / 30d（1d粒度）
+
+* 保存粒度：1日
+* 更新間隔：**1日1回**
+* 更新タイミング：UTC日次バッチ
+* 過去確定日は再計算しない
+
+---
+
+### ■ All（1w粒度）
+
+* 保存粒度：1週間
+* 更新間隔：**週1回**
+* 長期傾向確認用途
+
+---
+
+# ■ 保存方式（必須）
+
+* DBに保存されたキューブを参照
+* APIは保存済みデータのみ返却
+* オンデマンド重SQLは禁止
+* 保存済みキューブに存在する組合せのみ正確表示
 
 ---
 
@@ -53,8 +103,6 @@
 1. Total count
 2. Verified count
 3. Accepting any crypto
-
-→ すべて**フィルタ後母集団の時系列**
 
 ---
 
@@ -67,33 +115,38 @@
 * Top5 Countries 推移
 * Top5 Assets 推移
 
-※Top5は「期間合計上位」で固定
+※Top5は期間合計上位固定
 
 ---
 
-## C-4. 複合フィルタ推移（重要）
+## C-4. 複合フィルタ推移
 
-v4.1は以下を許可：
+許可：
 
-* country=DE の推移
-* category=fast_food の推移
-* asset=BTC の推移
-* country=DE AND category=fast_food
-* country=DE AND asset=BTC
-* category=fast_food AND asset=BTC
-* country=DE AND category=fast_food AND asset=BTC
+* country
+* category
+* asset
+* country+category
+* country+asset
+* category+asset
+* country+category+asset
 
-※ただし保存済みキューブに存在する組み合わせのみ正確表示
+存在しない組合せは代替表示＋明示
 
 ---
 
-## D. データ更新表示（必須）
+# D. データ更新表示
+
+表示：
 
 * Last updated
-* 対応していない組合せ時の注記
+* 使用粒度（1h / 1d / 1w）
+* 使用キューブ種別
+* 非対応組合せ注記
 
 ---
 
+# ⚙️ 挙動（How）
 # ⚙️ Stats v4.1 挙動（How = どう動くか）
 
 ---
@@ -116,6 +169,7 @@ v4.1は以下を許可：
 
 * 同じフィルタ条件で再取得
 * 期間は維持
+* 保存済みキューブが存在しない場合は代替キューブを使用
 
 ---
 
@@ -175,9 +229,11 @@ Trends：
 
 # 7. パフォーマンス挙動
 
-* APIはキャッシュ前提
-* フィルタ変更時のみ再取得
-* 同一条件は再利用
+* APIは保存済みキューブを参照
+* 24hは1時間ごと更新
+* 7d/30dは日次更新
+* Allは週次更新
+* 同一条件はキャッシュ再利用
 
 ---
 
@@ -192,9 +248,9 @@ Trends：
 
 # 📊 データ前提（v4.1）
 
-以下のdim_typeが保存済みであること：
+保存済みdim_type：
 
-* **all**
+* all
 * verification
 * country
 * city
@@ -204,7 +260,7 @@ Trends：
 * promoted
 * source
 
-さらに組合せdim：
+組合せdim：
 
 * country|category
 * country|asset
@@ -214,21 +270,98 @@ Trends：
 
 ---
 
+# 🗄 追加：データ保存設計（v4.1新規）
+
+## 1. 保存テーブル構造
+
+### stats_timeseries
+
+| column              | type           | 説明                                |
+| ------------------- | -------------- | --------------------------------- |
+| period_start        | timestamp      | バケット開始                            |
+| period_end          | timestamp      | バケット終了                            |
+| grain               | enum(1h,1d,1w) | 粒度                                |
+| dim_type            | text           | 次元種別                              |
+| dim_key             | text           | 次元値                               |
+| total_count         | int            | 総数                                |
+| verified_count      | int            | verified数                         |
+| accepting_any_count | int            | Accepting any数                    |
+| breakdown_json      | jsonb          | 内訳（verification/category/assetなど） |
+| generated_at        | timestamp      | 生成時刻                              |
+
+Primary Key:
+
+```
+(period_start, grain, dim_type, dim_key)
+```
+
+---
+
+## 2. Core Cube（事前保存対象）
+
+単一ディメンション：
+
+* country（上位N）
+* category（上位N）
+* asset（上位N）
+* verification
+* all
+
+複合ディメンション：
+
+* country|category
+* country|asset
+* category|asset
+* country|category|asset（任意）
+
+※全組合せは保存しない
+
+---
+
+## 3. 更新ジョブ仕様
+
+### Hourly Job（毎時）
+
+* 対象：1h粒度
+* 更新：直近48時間
+* 処理時間目標：< 2分
+
+### Daily Job（日次）
+
+* 対象：1d粒度
+* 前日分を確定
+* TopN再計算
+
+### Weekly Job（週次）
+
+* 対象：1w粒度
+* 長期集約
+
+---
+
+## 4. Warm Cache（補助）
+
+* 未保存の複合条件が要求された場合のみ生成
+* TTL：24時間
+* LRU上限：1000キー
+* 保存済みキューブを優先
+
+---
+
 # 🚫 v4.1でやらないこと
 
-* リアルタイム秒単位更新
-* 無制限多次元キューブ保存
-* 任意条件のオンデマンド重SQL
+* 秒単位更新
+* 無制限キューブ保存
+* 重い動的集計
 
 ---
 
 # 🎯 v4.1 完成条件
 
-* フィルタとTrendsが完全一致
-* 単一フィルタ推移が正確
-* 対応複合フィルタが正確
-* 非対応組合せは明示表示
+* フィルタとTrends完全一致
+* 更新間隔が仕様通り
+* 事前計算のみで表示
 * 0件でも壊れない
-* API失敗でも真っ白にならない
+* 非対応条件は明示
 
 ---
