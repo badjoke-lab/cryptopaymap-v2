@@ -18,11 +18,27 @@ export default function SiteFooter() {
             Disclaimer
           </Link>
         </nav>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
-          <span>© 2026 CryptoPayMap</span>
-          <a href="https://badjoke-lab.com" target="_blank" rel="noreferrer" className="hover:text-gray-700">
-            Built by BadJoke-Lab
-          </a>
+        <div className="flex items-center justify-between gap-2 text-xs text-gray-500">
+          <span className="whitespace-nowrap">© 2026 CryptoPayMap</span>
+          <div className="flex items-center gap-2 whitespace-nowrap sm:gap-3">
+            <a href="https://badjoke-lab.com" target="_blank" rel="noopener noreferrer" className="hover:text-gray-700">
+              Built by BadJoke-Lab
+            </a>
+            <span aria-hidden="true">|</span>
+            <a href="https://x.com/CryptoPayMap" target="_blank" rel="noopener noreferrer" className="hover:text-gray-700">
+              X
+            </a>
+            <span aria-hidden="true">|</span>
+            <a href="https://www.producthunt.com/products/cryptopaymap" target="_blank" rel="noopener noreferrer" aria-label="Product Hunt" className="hover:text-gray-700">
+              <span className="max-[480px]:hidden">Product Hunt</span>
+              <span className="hidden max-[480px]:inline">PH</span>
+            </a>
+            <span aria-hidden="true">|</span>
+            <a href="https://bitcointalk.org/index.php?topic=5560203.0" target="_blank" rel="noopener noreferrer" aria-label="Bitcointalk" className="hover:text-gray-700">
+              <span className="max-[480px]:hidden">Bitcointalk</span>
+              <span className="hidden max-[480px]:inline">BCT</span>
+            </a>
+          </div>
         </div>
       </div>
     </footer>
