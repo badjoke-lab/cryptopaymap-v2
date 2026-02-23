@@ -35,7 +35,12 @@ type StatsResponse = {
 
 type TrendPoint = {
   date: string;
-  value: number;
+  total: number;
+  delta: number;
+  verified_total: number;
+  verified_delta: number;
+  accepting_any_total: number;
+  accepting_any_delta: number;
 };
 
 type VerificationStackedPoint = {
@@ -51,13 +56,10 @@ type TrendRange = '24h' | '7d' | '30d' | 'all';
 type TrendsResponse = {
   range: TrendRange;
   grain: '1h' | '1d' | '1w';
-  series: {
-    total_series: TrendPoint[];
-    verified_series: TrendPoint[];
-    accepting_any_series: TrendPoint[];
-    verification_stacked_series: VerificationStackedPoint[];
-  };
-  meta?: { reason: 'no_history_data' };
+  last_updated: string;
+  points: TrendPoint[];
+  stack: VerificationStackedPoint[];
+  meta?: { reason: 'no_history_data' | 'db_unavailable' | 'internal_error' };
 };
 
 type FetchStatus = 'idle' | 'loading' | 'success';
@@ -141,12 +143,17 @@ const EMPTY_STATS: StatsResponse = {
 const createEmptyTrends = (range: TrendRange): TrendsResponse => ({
   range,
   grain: '1d',
-  series: {
-    total_series: [{ date: '0', value: 0 }],
-    verified_series: [{ date: '0', value: 0 }],
-    accepting_any_series: [{ date: '0', value: 0 }],
-    verification_stacked_series: [{ date: '0', owner: 0, community: 0, directory: 0, unverified: 0 }],
-  },
+  last_updated: new Date(0).toISOString(),
+  points: [{
+    date: '0',
+    total: 0,
+    delta: 0,
+    verified_total: 0,
+    verified_delta: 0,
+    accepting_any_total: 0,
+    accepting_any_delta: 0,
+  }],
+  stack: [{ date: '0', owner: 0, community: 0, directory: 0, unverified: 0 }],
   meta: { reason: 'no_history_data' },
 });
 
@@ -260,6 +267,7 @@ function LineChart({ labels, series }: { labels: string[]; series: ChartSeries[]
   const height = 260;
   const padding = 32;
   const labelStep = getLabelStep(labels);
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
   const maxValue = Math.max(...series.flatMap((item) => item.values), 1);
   const yScale = (value: number) => height - padding - (value / maxValue) * (height - padding * 2);
@@ -298,6 +306,30 @@ function LineChart({ labels, series }: { labels: string[]; series: ChartSeries[]
           />
         ))}
 
+        {activeIndex !== null ? (
+          <line
+            x1={xScale(activeIndex)}
+            x2={xScale(activeIndex)}
+            y1={padding}
+            y2={height - padding}
+            stroke="#94a3b8"
+            strokeWidth={1}
+            strokeDasharray="4 4"
+          />
+        ) : null}
+
+        {activeIndex !== null ? (
+          <g>
+            <rect x={padding + 6} y={padding + 4} width={width - padding * 2 - 12} height={48} rx={4} fill="#ffffff" stroke="#cbd5e1" />
+            <text x={padding + 12} y={padding + 20} className="fill-gray-700 text-[10px] sm:text-xs">{labels[activeIndex]}</text>
+            {series.map((item, idx) => (
+              <text key={`${item.label}-${idx}`} x={padding + 12} y={padding + 32 + idx * 12} className="text-[10px] sm:text-xs" fill={item.color}>
+                {item.label}: {(item.values[activeIndex] ?? 0).toLocaleString()}
+              </text>
+            ))}
+          </g>
+        ) : null}
+
         {labels.map((label, index) => {
           if (index % labelStep !== 0) return null;
           const x = xScale(index);
@@ -312,6 +344,27 @@ function LineChart({ labels, series }: { labels: string[]; series: ChartSeries[]
             >
               {label}
             </text>
+          );
+        })}
+
+        {labels.map((label, index) => {
+          const x = xScale(index);
+          const start = index === 0 ? padding : (xScale(index - 1) + x) / 2;
+          const end = index === labels.length - 1 ? width - padding : (x + xScale(index + 1)) / 2;
+          return (
+            <rect
+              key={`${label}-${index}-hit`}
+              x={start}
+              y={padding}
+              width={Math.max(2, end - start)}
+              height={height - padding * 2}
+              fill="transparent"
+              onMouseEnter={() => setActiveIndex(index)}
+              onMouseMove={() => setActiveIndex(index)}
+              onMouseLeave={() => setActiveIndex(null)}
+              onClick={() => setActiveIndex((prev) => (prev === index ? null : index))}
+              onTouchStart={() => setActiveIndex(index)}
+            />
           );
         })}
       </svg>
@@ -446,7 +499,7 @@ export default function StatsPageClient() {
   const [filters, setFilters] = useState<StatsFilters>(filtersFromUrl);
   const [filterMeta, setFilterMeta] = useState<FilterMetaResponse | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [trendRange, setTrendRange] = useState<TrendRange>('30d');
+  const [trendRange, setTrendRange] = useState<TrendRange>('7d');
   const [state, setState] = useState<StatsState>({ status: 'loading' });
   const lastSuccessfulSnapshotRef = useRef<StatsResponse | null>(null);
   const lastSuccessfulTrendsRef = useRef<Partial<Record<TrendRange, TrendsResponse>>>({});
@@ -555,26 +608,24 @@ export default function StatsPageClient() {
     fetchSnapshot(filters);
   }, [fetchSnapshot, filters]);
 
-  const trendTotalPoints = trends.series.total_series;
-  const trendVerifiedPoints = trends.series.verified_series;
-  const trendAcceptingAnyPoints = trends.series.accepting_any_series;
-  const trendStackedPoints = trends.series.verification_stacked_series;
-  const trendLabels = trendTotalPoints.map((point) => point.date);
+  const trendPoints = trends.points.length ? trends.points : createEmptyTrends(trendRange).points;
+  const trendStackedPoints = trends.stack.length ? trends.stack : createEmptyTrends(trendRange).stack;
+  const trendLabels = trendPoints.map((point) => point.date);
   const trendSeries: ChartSeries[] = [
     {
       label: 'Total published places',
       color: '#2563EB',
-      values: trendTotalPoints.map((point) => point.value),
+      values: trendPoints.map((point) => point.total),
     },
     {
       label: 'Verified places',
       color: '#0EA5E9',
-      values: trendVerifiedPoints.map((point) => point.value),
+      values: trendPoints.map((point) => point.verified_total),
     },
     {
       label: 'Accepting any crypto',
       color: '#14B8A6',
-      values: trendAcceptingAnyPoints.map((point) => point.value),
+      values: trendPoints.map((point) => point.accepting_any_total),
     },
   ];
 
@@ -786,9 +837,13 @@ export default function StatsPageClient() {
 
         <SectionCard
           eyebrow="Trends"
-          title="Growth over the last 30 days"
-          description="Daily cumulative totals based on moderation history (approve/promote actions)."
+          title="Growth trends"
+          description="Cumulative totals based on moderation history (approve/promote actions)."
         >
+          <div className="mb-4 rounded-md border border-gray-200 bg-white p-3 text-xs text-gray-600">
+            Last updated: {new Date(trends.last_updated).toLocaleString()} / range: {trends.range} / grain: {trends.grain}
+            {trends.meta ? <span className="ml-2 text-amber-700">(note: {trends.meta.reason})</span> : null}
+          </div>
           <div className="mb-4 flex flex-wrap items-center gap-2">
             {TREND_RANGE_OPTIONS.map((option) => (
               <button

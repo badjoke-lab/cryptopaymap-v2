@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 
 import { DbUnavailableError, dbQuery } from "@/lib/db";
 import { places } from "@/lib/data/places";
-import { computeDashboardStats } from "@/lib/stats/aggregate";
 import {
   buildDataSourceHeaders,
   getDataSourceContext,
@@ -11,6 +10,16 @@ import {
 } from "@/lib/dataSource";
 
 export const revalidate = 7200;
+
+type StatsFilters = {
+  country: string;
+  city: string;
+  category: string;
+  accepted: string;
+  verification: string;
+  promoted: string;
+  source: string;
+};
 
 // Response shape for GET /api/stats.
 export type StatsApiResponse = {
@@ -55,6 +64,7 @@ const CACHE_CONTROL = "public, s-maxage=7200, stale-while-revalidate=600";
 const TOP_CHAIN_LIMIT = 50;
 const TOP_RANKING_LIMIT = 10;
 const TOP_MATRIX_LIMIT = 20;
+const FILTER_KEYS: Array<keyof StatsFilters> = ["country", "city", "category", "accepted", "verification", "promoted", "source"];
 
 const EMPTY_VERIFICATION_BREAKDOWN: StatsApiResponse["verification_breakdown"] = {
   owner: 0,
@@ -68,6 +78,27 @@ const EMPTY_MATRIX: StatsApiResponse["asset_acceptance_matrix"] = {
   assets: [],
   chains: [],
   rows: [],
+};
+
+const EMPTY_FILTERS: StatsFilters = {
+  country: "",
+  city: "",
+  category: "",
+  accepted: "",
+  verification: "",
+  promoted: "",
+  source: "",
+};
+
+const normalizeFilterValue = (value: string | null) => (value ?? "").trim();
+
+const parseFilters = (request: Request): StatsFilters => {
+  const url = new URL(request.url);
+  const filters = { ...EMPTY_FILTERS };
+  for (const key of FILTER_KEYS) {
+    filters[key] = normalizeFilterValue(url.searchParams.get(key));
+  }
+  return filters;
 };
 
 const tableExists = async (route: string, table: string) => {
@@ -167,10 +198,41 @@ const responseFromCache = (row: CacheRow): StatsApiResponse => {
   };
 };
 
-const responseFromPlaces = (): StatsApiResponse => {
-  const { byCountry, byCategory, byChain, kpi } = computeDashboardStats();
+const responseFromPlaces = (filters: StatsFilters): StatsApiResponse => {
+  const filteredPlaces = places.filter((place) => {
+    if (filters.country && (place.country ?? "").trim() !== filters.country) return false;
+    if (filters.city && (place.city ?? "").trim() !== filters.city) return false;
+    if (filters.category && (place.category ?? "").trim() !== filters.category) return false;
+
+    if (filters.verification) {
+      const verification = (place.verification ?? "unverified").trim();
+      if (verification !== filters.verification) return false;
+    }
+
+    if (filters.accepted) {
+      const accepted = (place.accepted ?? place.supported_crypto ?? []).map((value) => value.trim().toLowerCase());
+      if (!accepted.includes(filters.accepted.toLowerCase())) return false;
+    }
+
+    return true;
+  });
+
+  const byCountry = filteredPlaces.reduce<Record<string, number>>((acc, place) => {
+    const key = (place.country ?? "").trim();
+    if (!key) return acc;
+    acc[key] = (acc[key] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  const byCategory = filteredPlaces.reduce<Record<string, number>>((acc, place) => {
+    const key = (place.category ?? "").trim();
+    if (!key) return acc;
+    acc[key] = (acc[key] ?? 0) + 1;
+    return acc;
+  }, {});
+
   const cityCount = new Set(
-    places
+    filteredPlaces
       .map((place) => {
         const country = place.country?.trim();
         const city = place.city?.trim();
@@ -180,12 +242,7 @@ const responseFromPlaces = (): StatsApiResponse => {
       .filter(Boolean),
   ).size;
 
-  const chains = byChain.reduce<Record<string, number>>((acc, entry) => {
-    acc[entry.chain] = entry.total;
-    return acc;
-  }, {});
-
-  const byCity = places.reduce<Record<string, number>>((acc, place) => {
+  const byCity = filteredPlaces.reduce<Record<string, number>>((acc, place) => {
     const city = place.city?.trim();
     const country = place.country?.trim();
     const key = city && country ? `${city}, ${country}` : city;
@@ -194,8 +251,29 @@ const responseFromPlaces = (): StatsApiResponse => {
     return acc;
   }, {});
 
-  const assetCounts = places.reduce<Record<string, number>>((acc, place) => {
-    for (const asset of place.accepted ?? []) {
+  const chainCounts = filteredPlaces.reduce<Record<string, number>>((acc, place) => {
+    for (const asset of place.accepted ?? place.supported_crypto ?? []) {
+      const normalized = asset.trim();
+      if (!normalized) continue;
+      acc[normalized] = (acc[normalized] ?? 0) + 1;
+    }
+    return acc;
+  }, {});
+
+  const sortedChains = Object.entries(chainCounts)
+    .map(([chain, total]) => ({ chain, total: Number(total) }))
+    .sort((a, b) => b.total - a.total || a.chain.localeCompare(b.chain));
+
+  const sortedCategories = Object.entries(byCategory)
+    .map(([category, total]) => ({ category, total: Number(total) }))
+    .sort((a, b) => b.total - a.total || a.category.localeCompare(b.category));
+
+  const sortedCountries = Object.entries(byCountry)
+    .map(([country, total]) => ({ country, total: Number(total) }))
+    .sort((a, b) => b.total - a.total || a.country.localeCompare(b.country));
+
+  const assetCounts = filteredPlaces.reduce<Record<string, number>>((acc, place) => {
+    for (const asset of place.accepted ?? place.supported_crypto ?? []) {
       const normalized = asset.trim();
       if (!normalized) continue;
       acc[normalized] = (acc[normalized] ?? 0) + 1;
@@ -204,14 +282,17 @@ const responseFromPlaces = (): StatsApiResponse => {
   }, {});
 
   return limitedResponse({
-    total_places: kpi.totalPlaces,
-    total_count: kpi.totalPlaces,
-    countries: byCountry.length,
+    total_places: filteredPlaces.length,
+    total_count: filteredPlaces.length,
+    countries: Object.keys(byCountry).length,
     cities: cityCount,
-    categories: byCategory.length,
-    chains,
+    categories: Object.keys(byCategory).length,
+    chains: sortedChains.reduce<Record<string, number>>((acc, entry) => {
+      acc[entry.chain] = entry.total;
+      return acc;
+    }, {}),
     verification_breakdown: withVerifiedTotal(
-      places.reduce<StatsApiResponse["verification_breakdown"]>((acc, place) => {
+      filteredPlaces.reduce<StatsApiResponse["verification_breakdown"]>((acc, place) => {
         if (place.verification === "owner") acc.owner += 1;
         else if (place.verification === "community") acc.community += 1;
         else if (place.verification === "directory") acc.directory += 1;
@@ -219,18 +300,18 @@ const responseFromPlaces = (): StatsApiResponse => {
         return acc;
       }, { ...EMPTY_VERIFICATION_BREAKDOWN }),
     ),
-    category_ranking: byCategory.slice(0, TOP_RANKING_LIMIT).map((entry) => ({ key: entry.category, count: entry.total })),
-    country_ranking: byCountry.slice(0, TOP_RANKING_LIMIT).map((entry) => ({ key: entry.country, count: entry.total })),
-    city_ranking: Object.entries(byCity)
-      .map(([key, count]) => ({ key, count: Number(count) }))
-      .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key))
-      .slice(0, TOP_RANKING_LIMIT),
-    top_chains: byChain.slice(0, TOP_CHAIN_LIMIT).map((entry) => ({ key: entry.chain, count: entry.total })),
+    top_chains: sortedChains.slice(0, TOP_CHAIN_LIMIT).map((entry) => ({ key: entry.chain, count: entry.total })),
     top_assets: Object.entries(assetCounts)
       .map(([key, count]) => ({ key, count: Number(count) }))
       .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key))
       .slice(0, TOP_CHAIN_LIMIT),
-    accepting_any_count: places.filter((place) => (place.accepted ?? []).length > 0).length,
+    category_ranking: sortedCategories.slice(0, TOP_RANKING_LIMIT).map((entry) => ({ key: entry.category, count: entry.total })),
+    country_ranking: sortedCountries.slice(0, TOP_RANKING_LIMIT).map((entry) => ({ key: entry.country, count: entry.total })),
+    city_ranking: Object.entries(byCity)
+      .map(([key, count]) => ({ key, count: Number(count) }))
+      .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key))
+      .slice(0, TOP_RANKING_LIMIT),
+    accepting_any_count: filteredPlaces.filter((place) => (place.accepted ?? place.supported_crypto ?? []).length > 0).length,
   });
 };
 
@@ -244,7 +325,60 @@ const parseRankingRows = (rows: Array<{ key: string | null; total: string | numb
     .map((row) => ({ key: row.key?.trim() ?? "", count: Number(row.total ?? 0) }))
     .filter((row) => Boolean(row.key) && Number.isFinite(row.count) && row.count > 0);
 
-const fetchDbSnapshotV4 = async (route: string): Promise<Partial<StatsApiResponse>> => {
+type FilterSqlOptions = {
+  hasCountry: boolean;
+  hasCity: boolean;
+  hasCategory: boolean;
+  hasPromoted: boolean;
+  hasSource: boolean;
+  hasPaymentPlaceId: boolean;
+  hasPaymentChain: boolean;
+  hasPaymentAsset: boolean;
+  verificationColumn: string | null;
+};
+
+const buildFilterSql = (filters: StatsFilters, options: FilterSqlOptions) => {
+  const params: Array<string | boolean> = [];
+  const clauses: string[] = [];
+
+  const addParam = (value: string | boolean) => {
+    params.push(value);
+    return `$${params.length}`;
+  };
+
+  if (filters.country && options.hasCountry) clauses.push(`NULLIF(BTRIM(p.country), '') = ${addParam(filters.country)}`);
+  if (filters.city && options.hasCity) clauses.push(`NULLIF(BTRIM(p.city), '') = ${addParam(filters.city)}`);
+  if (filters.category && options.hasCategory) clauses.push(`NULLIF(BTRIM(p.category), '') = ${addParam(filters.category)}`);
+  if (filters.promoted && options.hasPromoted) clauses.push(`COALESCE(p.promoted, FALSE) = ${addParam(filters.promoted === "true")}`);
+  if (filters.source && options.hasSource) clauses.push(`NULLIF(BTRIM(COALESCE(p.source, '')), '') = ${addParam(filters.source)}`);
+
+  if (filters.verification && options.verificationColumn) {
+    clauses.push(`COALESCE((SELECT COALESCE(NULLIF(BTRIM(v.${options.verificationColumn}), ''), 'unverified')
+      FROM verifications v
+      WHERE v.place_id = p.id
+      ORDER BY v.${options.verificationColumn} IS NULL, v.${options.verificationColumn}
+      LIMIT 1), 'unverified') = ${addParam(filters.verification)}`);
+  }
+
+  if (filters.accepted && options.hasPaymentPlaceId && (options.hasPaymentChain || options.hasPaymentAsset)) {
+    clauses.push(`EXISTS (
+      SELECT 1
+      FROM payment_accepts pa
+      WHERE pa.place_id = p.id
+      AND (
+        ${options.hasPaymentChain ? `LOWER(NULLIF(BTRIM(COALESCE(pa.chain, '')), '')) = LOWER(${addParam(filters.accepted)})` : 'FALSE'}
+        OR ${options.hasPaymentAsset ? `LOWER(NULLIF(BTRIM(COALESCE(pa.asset, '')), '')) = LOWER(${addParam(filters.accepted)})` : 'FALSE'}
+      )
+    )`);
+  }
+
+  return {
+    whereClause: clauses.length ? `WHERE ${clauses.join(" AND ")}` : "",
+    params,
+  };
+};
+
+const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<Partial<StatsApiResponse>> => {
   const placesTableExists = await tableExists(route, "places");
   if (!placesTableExists) {
     return {
@@ -268,10 +402,12 @@ const fetchDbSnapshotV4 = async (route: string): Promise<Partial<StatsApiRespons
         : null
     : null;
 
-  const [hasCountry, hasCity, hasCategory] = await Promise.all([
+  const [hasCountry, hasCity, hasCategory, hasPromoted, hasSource] = await Promise.all([
     hasColumn(route, "places", "country"),
     hasColumn(route, "places", "city"),
     hasColumn(route, "places", "category"),
+    hasColumn(route, "places", "promoted"),
+    hasColumn(route, "places", "source"),
   ]);
 
   const hasPayments = await tableExists(route, "payment_accepts");
@@ -283,111 +419,138 @@ const fetchDbSnapshotV4 = async (route: string): Promise<Partial<StatsApiRespons
       ])
     : [false, false, false];
 
+  const { whereClause, params } = buildFilterSql(filters, {
+    hasCountry,
+    hasCity,
+    hasCategory,
+    hasPromoted,
+    hasSource,
+    hasPaymentPlaceId,
+    hasPaymentChain,
+    hasPaymentAsset,
+    verificationColumn,
+  });
+
+  const filteredPlacesCte = `WITH filtered_places AS (
+      SELECT p.id, p.country, p.city, p.category
+      FROM places p
+      ${whereClause}
+    )`;
+
   const verificationPromise = verificationColumn
     ? dbQuery<{ key: string | null; total: string }>(
-        `SELECT COALESCE(NULLIF(BTRIM(v.${verificationColumn}), ''), 'unverified') AS key, COUNT(*) AS total
-         FROM places p
+        `${filteredPlacesCte}
+         SELECT COALESCE(NULLIF(BTRIM(v.${verificationColumn}), ''), 'unverified') AS key, COUNT(*) AS total
+         FROM filtered_places p
          LEFT JOIN verifications v ON v.place_id = p.id
          GROUP BY 1`,
-        [],
+        params,
         { route },
       )
     : Promise.resolve({ rows: [] as Array<{ key: string | null; total: string }> });
 
   const categoryPromise = hasCategory
     ? dbQuery<{ key: string | null; total: string }>(
-        `SELECT NULLIF(BTRIM(category), '') AS key, COUNT(*) AS total
-         FROM places
+        `${filteredPlacesCte}
+         SELECT NULLIF(BTRIM(category), '') AS key, COUNT(*) AS total
+         FROM filtered_places
          WHERE NULLIF(BTRIM(category), '') IS NOT NULL
          GROUP BY 1
          ORDER BY COUNT(*) DESC, key ASC
-         LIMIT $1`,
-        [TOP_RANKING_LIMIT],
+         LIMIT ${TOP_RANKING_LIMIT}`,
+        params,
         { route },
       )
     : Promise.resolve({ rows: [] as Array<{ key: string | null; total: string }> });
 
   const countryPromise = hasCountry
     ? dbQuery<{ key: string | null; total: string }>(
-        `SELECT NULLIF(BTRIM(country), '') AS key, COUNT(*) AS total
-         FROM places
+        `${filteredPlacesCte}
+         SELECT NULLIF(BTRIM(country), '') AS key, COUNT(*) AS total
+         FROM filtered_places
          WHERE NULLIF(BTRIM(country), '') IS NOT NULL
          GROUP BY 1
          ORDER BY COUNT(*) DESC, key ASC
-         LIMIT $1`,
-        [TOP_RANKING_LIMIT],
+         LIMIT ${TOP_RANKING_LIMIT}`,
+        params,
         { route },
       )
     : Promise.resolve({ rows: [] as Array<{ key: string | null; total: string }> });
 
   const cityPromise = hasCity
     ? dbQuery<{ key: string | null; total: string }>(
-        hasCountry
-          ? `SELECT CONCAT(NULLIF(BTRIM(city), ''), ', ', NULLIF(BTRIM(country), '')) AS key, COUNT(*) AS total
-             FROM places
-             WHERE NULLIF(BTRIM(city), '') IS NOT NULL
-               AND NULLIF(BTRIM(country), '') IS NOT NULL
-             GROUP BY 1
-             ORDER BY COUNT(*) DESC, key ASC
-             LIMIT $1`
-          : `SELECT NULLIF(BTRIM(city), '') AS key, COUNT(*) AS total
-             FROM places
-             WHERE NULLIF(BTRIM(city), '') IS NOT NULL
-             GROUP BY 1
-             ORDER BY COUNT(*) DESC, key ASC
-             LIMIT $1`,
-        [TOP_RANKING_LIMIT],
+        `${filteredPlacesCte}
+         ${hasCountry
+           ? `SELECT CONCAT(NULLIF(BTRIM(city), ''), ', ', NULLIF(BTRIM(country), '')) AS key, COUNT(*) AS total
+              FROM filtered_places
+              WHERE NULLIF(BTRIM(city), '') IS NOT NULL
+                AND NULLIF(BTRIM(country), '') IS NOT NULL`
+           : `SELECT NULLIF(BTRIM(city), '') AS key, COUNT(*) AS total
+              FROM filtered_places
+              WHERE NULLIF(BTRIM(city), '') IS NOT NULL`}
+         GROUP BY 1
+         ORDER BY COUNT(*) DESC, key ASC
+         LIMIT ${TOP_RANKING_LIMIT}`,
+        params,
         { route },
       )
     : Promise.resolve({ rows: [] as Array<{ key: string | null; total: string }> });
 
-  const chainPromise = hasPayments && hasPaymentChain
+  const chainPromise = hasPayments && hasPaymentChain && hasPaymentPlaceId
     ? dbQuery<{ key: string | null; total: string }>(
-        `SELECT NULLIF(BTRIM(chain), '') AS key, COUNT(*) AS total
-         FROM payment_accepts
-         WHERE NULLIF(BTRIM(chain), '') IS NOT NULL
+        `${filteredPlacesCte}
+         SELECT NULLIF(BTRIM(pa.chain), '') AS key, COUNT(*) AS total
+         FROM payment_accepts pa
+         INNER JOIN filtered_places fp ON fp.id = pa.place_id
+         WHERE NULLIF(BTRIM(pa.chain), '') IS NOT NULL
          GROUP BY 1
          ORDER BY COUNT(*) DESC, key ASC
-         LIMIT $1`,
-        [TOP_CHAIN_LIMIT],
+         LIMIT ${TOP_CHAIN_LIMIT}`,
+        params,
         { route },
       )
     : Promise.resolve({ rows: [] as Array<{ key: string | null; total: string }> });
 
-  const assetPromise = hasPayments && hasPaymentAsset
+  const assetPromise = hasPayments && hasPaymentAsset && hasPaymentPlaceId
     ? dbQuery<{ key: string | null; total: string }>(
-        `SELECT NULLIF(BTRIM(asset), '') AS key, COUNT(*) AS total
-         FROM payment_accepts
-         WHERE NULLIF(BTRIM(asset), '') IS NOT NULL
+        `${filteredPlacesCte}
+         SELECT NULLIF(BTRIM(pa.asset), '') AS key, COUNT(*) AS total
+         FROM payment_accepts pa
+         INNER JOIN filtered_places fp ON fp.id = pa.place_id
+         WHERE NULLIF(BTRIM(pa.asset), '') IS NOT NULL
          GROUP BY 1
          ORDER BY COUNT(*) DESC, key ASC
-         LIMIT $1`,
-        [TOP_CHAIN_LIMIT],
+         LIMIT ${TOP_CHAIN_LIMIT}`,
+        params,
         { route },
       )
     : Promise.resolve({ rows: [] as Array<{ key: string | null; total: string }> });
 
   const acceptingAnyPromise = hasPayments && hasPaymentPlaceId && (hasPaymentChain || hasPaymentAsset)
     ? dbQuery<{ total: string }>(
-        `SELECT COUNT(DISTINCT place_id) AS total
-         FROM payment_accepts
-         WHERE NULLIF(BTRIM(COALESCE(chain, '')), '') IS NOT NULL
-            OR NULLIF(BTRIM(COALESCE(asset, '')), '') IS NOT NULL`,
-        [],
+        `${filteredPlacesCte}
+         SELECT COUNT(DISTINCT pa.place_id) AS total
+         FROM payment_accepts pa
+         INNER JOIN filtered_places fp ON fp.id = pa.place_id
+         WHERE ${hasPaymentChain ? "NULLIF(BTRIM(COALESCE(pa.chain, '')), '') IS NOT NULL" : "FALSE"}
+            OR ${hasPaymentAsset ? "NULLIF(BTRIM(COALESCE(pa.asset, '')), '') IS NOT NULL" : "FALSE"}`,
+        params,
         { route },
       )
     : Promise.resolve({ rows: [{ total: "0" }] as Array<{ total: string }> });
 
-  const matrixPromise = hasPayments && hasPaymentAsset && hasPaymentChain
+  const matrixPromise = hasPayments && hasPaymentAsset && hasPaymentChain && hasPaymentPlaceId
     ? dbQuery<{ asset: string | null; chain: string | null; total: string }>(
-        `SELECT NULLIF(BTRIM(asset), '') AS asset, NULLIF(BTRIM(chain), '') AS chain, COUNT(*) AS total
-         FROM payment_accepts
-         WHERE NULLIF(BTRIM(asset), '') IS NOT NULL
-           AND NULLIF(BTRIM(chain), '') IS NOT NULL
+        `${filteredPlacesCte}
+         SELECT NULLIF(BTRIM(pa.asset), '') AS asset, NULLIF(BTRIM(pa.chain), '') AS chain, COUNT(*) AS total
+         FROM payment_accepts pa
+         INNER JOIN filtered_places fp ON fp.id = pa.place_id
+         WHERE NULLIF(BTRIM(pa.asset), '') IS NOT NULL
+           AND NULLIF(BTRIM(pa.chain), '') IS NOT NULL
          GROUP BY 1, 2
          ORDER BY COUNT(*) DESC, asset ASC, chain ASC
-         LIMIT $1`,
-        [TOP_MATRIX_LIMIT * TOP_MATRIX_LIMIT],
+         LIMIT ${TOP_MATRIX_LIMIT * TOP_MATRIX_LIMIT}`,
+        params,
         { route },
       )
     : Promise.resolve({ rows: [] as Array<{ asset: string | null; chain: string | null; total: string }> });
@@ -452,75 +615,110 @@ const fetchDbSnapshotV4 = async (route: string): Promise<Partial<StatsApiRespons
   };
 };
 
-const responseFromDbFallback = async (route: string): Promise<StatsApiResponse> => {
+const responseFromDbFallback = async (route: string, filters: StatsFilters): Promise<StatsApiResponse> => {
   const placesTableExists = await tableExists(route, "places");
   if (!placesTableExists) {
     return limitedResponse();
   }
 
-  const [hasCountry, hasCity, hasCategory] = await Promise.all([
+  const [hasCountry, hasCity, hasCategory, hasPromoted, hasSource] = await Promise.all([
     hasColumn(route, "places", "country"),
     hasColumn(route, "places", "city"),
     hasColumn(route, "places", "category"),
+    hasColumn(route, "places", "promoted"),
+    hasColumn(route, "places", "source"),
   ]);
 
+  const hasVerifications = await tableExists(route, "verifications");
+  const verificationColumn = hasVerifications
+    ? (await hasColumn(route, "verifications", "level"))
+      ? "level"
+      : (await hasColumn(route, "verifications", "status"))
+        ? "status"
+        : null
+    : null;
+
   const hasPayments = await tableExists(route, "payment_accepts");
-  const [hasPaymentChain, hasPaymentAsset] = hasPayments
+  const [hasPaymentPlaceId, hasPaymentChain, hasPaymentAsset] = hasPayments
     ? await Promise.all([
+        hasColumn(route, "payment_accepts", "place_id"),
         hasColumn(route, "payment_accepts", "chain"),
         hasColumn(route, "payment_accepts", "asset"),
       ])
-    : [false, false];
+    : [false, false, false];
 
-  const totalPromise = dbQuery<{ total: string }>("SELECT COUNT(*) AS total FROM places", [], { route });
+  const { whereClause, params } = buildFilterSql(filters, {
+    hasCountry,
+    hasCity,
+    hasCategory,
+    hasPromoted,
+    hasSource,
+    hasPaymentPlaceId,
+    hasPaymentChain,
+    hasPaymentAsset,
+    verificationColumn,
+  });
+
+  const filteredPlacesCte = `WITH filtered_places AS (
+      SELECT p.id, p.country, p.city, p.category
+      FROM places p
+      ${whereClause}
+    )`;
+
+  const totalPromise = dbQuery<{ total: string }>(`${filteredPlacesCte} SELECT COUNT(*) AS total FROM filtered_places`, params, { route });
 
   const countriesPromise = hasCountry
     ? dbQuery<{ total: string }>(
-        `SELECT COUNT(DISTINCT country) AS total
-         FROM places
+        `${filteredPlacesCte}
+         SELECT COUNT(DISTINCT country) AS total
+         FROM filtered_places
          WHERE NULLIF(BTRIM(country), '') IS NOT NULL`,
-        [],
+        params,
         { route },
       )
     : Promise.resolve({ rows: [] as { total: string }[] });
 
   const citiesPromise = hasCity
     ? dbQuery<{ total: string }>(
-        hasCountry
-          ? `SELECT COUNT(DISTINCT (country, city)) AS total
-             FROM places
-             WHERE NULLIF(BTRIM(city), '') IS NOT NULL
-               AND NULLIF(BTRIM(country), '') IS NOT NULL`
-          : `SELECT COUNT(DISTINCT city) AS total
-             FROM places
-             WHERE NULLIF(BTRIM(city), '') IS NOT NULL`,
-        [],
+        `${filteredPlacesCte}
+         ${hasCountry
+           ? `SELECT COUNT(DISTINCT (country, city)) AS total
+              FROM filtered_places
+              WHERE NULLIF(BTRIM(city), '') IS NOT NULL
+                AND NULLIF(BTRIM(country), '') IS NOT NULL`
+           : `SELECT COUNT(DISTINCT city) AS total
+              FROM filtered_places
+              WHERE NULLIF(BTRIM(city), '') IS NOT NULL`}`,
+        params,
         { route },
       )
     : Promise.resolve({ rows: [] as { total: string }[] });
 
   const categoriesPromise = hasCategory
     ? dbQuery<{ total: string }>(
-        `SELECT COUNT(DISTINCT category) AS total
-         FROM places
+        `${filteredPlacesCte}
+         SELECT COUNT(DISTINCT category) AS total
+         FROM filtered_places
          WHERE NULLIF(BTRIM(category), '') IS NOT NULL`,
-        [],
+        params,
         { route },
       )
     : Promise.resolve({ rows: [] as { total: string }[] });
 
-  const chainsPromise = hasPayments && (hasPaymentChain || hasPaymentAsset)
+  const chainsPromise = hasPayments && hasPaymentPlaceId && (hasPaymentChain || hasPaymentAsset)
     ? dbQuery<{ key: string | null; total: string }>(
-        `SELECT
-           COALESCE(NULLIF(BTRIM(chain), ''), NULLIF(BTRIM(asset), '')) AS key,
+        `${filteredPlacesCte}
+         SELECT
+           COALESCE(NULLIF(BTRIM(pa.chain), ''), NULLIF(BTRIM(pa.asset), '')) AS key,
            COUNT(*) AS total
-         FROM payment_accepts
-         WHERE NULLIF(BTRIM(chain), '') IS NOT NULL
-            OR NULLIF(BTRIM(asset), '') IS NOT NULL
+         FROM payment_accepts pa
+         INNER JOIN filtered_places fp ON fp.id = pa.place_id
+         WHERE NULLIF(BTRIM(COALESCE(pa.chain, '')), '') IS NOT NULL
+            OR NULLIF(BTRIM(COALESCE(pa.asset, '')), '') IS NOT NULL
          GROUP BY key
          ORDER BY COUNT(*) DESC
-         LIMIT $1`,
-        [TOP_CHAIN_LIMIT],
+         LIMIT ${TOP_CHAIN_LIMIT}`,
+        params,
         { route },
       )
     : Promise.resolve({ rows: [] as { key: string | null; total: string }[] });
@@ -547,9 +745,10 @@ const responseFromDbFallback = async (route: string): Promise<StatsApiResponse> 
   });
 };
 
-const loadStatsFromDb = async (route: string): Promise<StatsApiResponse> => {
-  const v4StatsPromise = fetchDbSnapshotV4(route);
-  const cacheExists = await tableExists(route, "stats_cache");
+const loadStatsFromDb = async (route: string, filters: StatsFilters): Promise<StatsApiResponse> => {
+  const v4StatsPromise = fetchDbSnapshotV4(route, filters);
+  const hasActiveFilter = FILTER_KEYS.some((key) => Boolean(filters[key]));
+  const cacheExists = !hasActiveFilter && await tableExists(route, "stats_cache");
   if (cacheExists) {
     const { rows } = await dbQuery<CacheRow>(
       `SELECT total_places, total_countries, total_cities, category_breakdown, chain_breakdown, generated_at
@@ -569,12 +768,13 @@ const loadStatsFromDb = async (route: string): Promise<StatsApiResponse> => {
   }
 
   return {
-    ...(await responseFromDbFallback(route)),
+    ...(await responseFromDbFallback(route, filters)),
     ...(await v4StatsPromise),
   };
 };
 
-export async function GET() {
+export async function GET(request: Request) {
+  const filters = parseFilters(request);
   const route = "api_stats";
   const dataSource = getDataSourceSetting();
   const { shouldAttemptDb, shouldAllowJson, hasDb } = getDataSourceContext(dataSource);
@@ -587,13 +787,13 @@ export async function GET() {
   }
 
   if (!shouldAttemptDb) {
-    return NextResponse.json<StatsApiResponse>(responseFromPlaces(), {
+    return NextResponse.json<StatsApiResponse>(responseFromPlaces(filters), {
       headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("json", true) },
     });
   }
 
   try {
-    const statsResponse = await withDbTimeout(loadStatsFromDb(route), {
+    const statsResponse = await withDbTimeout(loadStatsFromDb(route, filters), {
       message: "DB_TIMEOUT",
     });
     return NextResponse.json<StatsApiResponse>(statsResponse, {
@@ -613,7 +813,7 @@ export async function GET() {
       });
     }
 
-    return NextResponse.json<StatsApiResponse>(responseFromPlaces(), {
+    return NextResponse.json<StatsApiResponse>(responseFromPlaces(filters), {
       headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("json", true) },
     });
   }
