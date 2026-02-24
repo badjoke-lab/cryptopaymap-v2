@@ -35,6 +35,7 @@ export type OwnerCommunityDraft = {
 
 export type PaymentAcceptDraft = {
   assetKey: string;
+  assetLabel?: string;
   rails: string[];
   customRails: string[];
 };

@@ -51,9 +51,11 @@ const renderPaymentAccepts = (rows?: Array<{ asset_key?: string; rail_key?: stri
     .join(", ");
 };
 
-const renderAcceptedAssets = (rows?: Array<{ asset_key?: string }>) => {
-  const assets = Array.from(new Set((rows ?? []).map((row) => row.asset_key).filter(Boolean)));
-  return assets.length ? assets.join(", ") : "—";
+const renderAcceptedAssets = (rows?: Array<{ asset_key?: string }>, labelsByAsset?: Record<string, string>) => {
+  const assets = Array.from(new Set((rows ?? []).map((row) => row.asset_key).filter(Boolean))) as string[];
+  const display = assets.map((asset) => labelsByAsset?.[asset] ?? asset);
+  const dedupedDisplay = Array.from(new Set(display));
+  return dedupedDisplay.length ? dedupedDisplay.join(", ") : "—";
 };
 
 export default function SubmitConfirm({ kind }: { kind: SubmissionKind }) {
@@ -81,6 +83,17 @@ export default function SubmitConfirm({ kind }: { kind: SubmissionKind }) {
   const submissionPayload = useMemo(() => {
     if (!bundle) return null;
     return buildSubmissionPayload(bundle.payload);
+  }, [bundle]);
+
+  const assetLabelMap = useMemo(() => {
+    if (!bundle || bundle.payload.kind === "report") return {} as Record<string, string>;
+    const entries = bundle.payload.paymentAccepts ?? [];
+    return entries.reduce<Record<string, string>>((acc, entry) => {
+      if (entry.assetKey && entry.assetLabel) {
+        acc[entry.assetKey] = entry.assetLabel;
+      }
+      return acc;
+    }, {});
   }, [bundle]);
 
   const verificationSummary = useMemo(() => {
@@ -224,7 +237,10 @@ export default function SubmitConfirm({ kind }: { kind: SubmissionKind }) {
                 <SummaryRow label="Category" value={bundle.payload.category} />
                 <SummaryRow
                   label="Accepted crypto"
-                  value={renderAcceptedAssets((submissionPayload?.payment_accepts as Array<{ asset_key?: string }>) ?? [])}
+                  value={renderAcceptedAssets(
+                    (submissionPayload?.payment_accepts as Array<{ asset_key?: string }>) ?? [],
+                    assetLabelMap,
+                  )}
                 />
                 <SummaryRow
                   label="Networks"

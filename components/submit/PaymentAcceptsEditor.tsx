@@ -13,15 +13,12 @@ type PaymentAcceptsEditorProps = {
   onChange: (next: PaymentAcceptDraft[]) => void;
 };
 
-const normalizeAsset = (value: string) => value.trim().replace(/\s+/g, "").toUpperCase();
-
 export default function PaymentAcceptsEditor({ value, assetOptions, onChange }: PaymentAcceptsEditorProps) {
   const selectedAssets = value.map((entry) => entry.assetKey);
 
-  const addAsset = (assetKey: string) => {
-    const normalizedAsset = normalizeAsset(assetKey);
-    if (!normalizedAsset || value.some((entry) => entry.assetKey === normalizedAsset)) return;
-    onChange([...value, { assetKey: normalizedAsset, rails: [], customRails: [] }]);
+  const addAsset = ({ assetKey, displayLabel }: { assetKey: string; displayLabel: string }) => {
+    if (!assetKey || value.some((entry) => entry.assetKey === assetKey)) return;
+    onChange([...value, { assetKey, assetLabel: displayLabel, rails: [], customRails: [] }]);
   };
 
   const removeAsset = (assetKey: string) => {
@@ -103,7 +100,7 @@ function AssetRailsCard({
   return (
     <div className="rounded-md border border-gray-200 p-3 space-y-3">
       <div className="flex items-center justify-between gap-2">
-        <p className="font-medium text-gray-900">{entry.assetKey}</p>
+        <p className="font-medium text-gray-900">{entry.assetLabel ?? entry.assetKey}</p>
         <button type="button" className="text-xs text-red-600 underline" onClick={() => onRemoveAsset(entry.assetKey)}>
           Remove asset
         </button>
