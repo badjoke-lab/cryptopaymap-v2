@@ -51,6 +51,11 @@ const renderPaymentAccepts = (rows?: Array<{ asset_key?: string; rail_key?: stri
     .join(", ");
 };
 
+const renderAcceptedAssets = (rows?: Array<{ asset_key?: string }>) => {
+  const assets = Array.from(new Set((rows ?? []).map((row) => row.asset_key).filter(Boolean)));
+  return assets.length ? assets.join(", ") : "—";
+};
+
 export default function SubmitConfirm({ kind }: { kind: SubmissionKind }) {
   const router = useRouter();
   const [bundle, setBundle] = useState<DraftBundle | null>(null);
@@ -217,9 +222,12 @@ export default function SubmitConfirm({ kind }: { kind: SubmissionKind }) {
                 <SummaryRow label="City" value={bundle.payload.city} />
                 <SummaryRow label="Address" value={bundle.payload.address} />
                 <SummaryRow label="Category" value={bundle.payload.category} />
-                <SummaryRow label="Accepted crypto" value={bundle.payload.acceptedChains.join(", ")} />
                 <SummaryRow
-                  label="Payment accepts"
+                  label="Assets"
+                  value={renderAcceptedAssets((submissionPayload?.payment_accepts as Array<{ asset_key?: string }>) ?? [])}
+                />
+                <SummaryRow
+                  label="Payment networks"
                   value={renderPaymentAccepts((submissionPayload?.payment_accepts as Array<{ asset_key?: string; rail_key?: string; rail_raw?: string }>) ?? [])}
                 />
                 {bundle.payload.kind === "owner" ? (

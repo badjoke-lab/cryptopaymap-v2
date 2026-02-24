@@ -25,6 +25,9 @@ const buildPaymentAcceptRows = (value: OwnerCommunityDraft["paymentAccepts"]) =>
     return rows.length ? rows : [{ asset_key: assetKey, rail_key: "unknown" }];
   });
 
+const deriveAcceptedChainsFromPaymentAccepts = (rows: Array<{ asset_key: string }>) =>
+  Array.from(new Set(rows.map((row) => row.asset_key).filter(Boolean)));
+
 export const buildSubmissionPayload = (draft: SubmissionDraft) => {
   const communityEvidenceUrls = normalizeList(draft.communityEvidenceUrls);
   if (draft.kind === "report") {
@@ -46,6 +49,7 @@ export const buildSubmissionPayload = (draft: SubmissionDraft) => {
   }
 
   const draftPayload = draft as OwnerCommunityDraft;
+  const paymentAcceptRows = buildPaymentAcceptRows(draftPayload.paymentAccepts);
   return {
     verificationRequest: draftPayload.kind,
     kind: draftPayload.kind,
@@ -54,8 +58,8 @@ export const buildSubmissionPayload = (draft: SubmissionDraft) => {
     city: draftPayload.city,
     address: draftPayload.address,
     category: draftPayload.category,
-    acceptedChains: draftPayload.acceptedChains,
-    payment_accepts: buildPaymentAcceptRows(draftPayload.paymentAccepts),
+    acceptedChains: deriveAcceptedChainsFromPaymentAccepts(paymentAcceptRows),
+    payment_accepts: paymentAcceptRows,
     about: draftPayload.about || undefined,
     paymentNote: draftPayload.paymentNote || undefined,
     paymentUrl: draftPayload.paymentUrl || undefined,

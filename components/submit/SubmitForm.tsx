@@ -161,7 +161,6 @@ export default function SubmitForm({ kind }: SubmitFormProps) {
       "DAI",
       "SOL",
       "TRX",
-      ...ownerDraft.acceptedChains,
       ...(meta?.chains ?? []),
       ...ownerDraft.paymentAccepts.map((entry) => entry.assetKey),
     ];
@@ -329,7 +328,7 @@ export default function SubmitForm({ kind }: SubmitFormProps) {
               {errors.address && <p className="text-red-600 text-sm">{errors.address}</p>}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-1">
               <div className="space-y-1">
                 {fieldLabel("Category (required)")}
                 <select
@@ -346,38 +345,16 @@ export default function SubmitForm({ kind }: SubmitFormProps) {
                 </select>
                 {errors.category && <p className="text-red-600 text-sm">{errors.category}</p>}
               </div>
-
-              <div className="space-y-1">
-                {fieldLabel("Accepted crypto (required)")}
-                <div className="flex flex-wrap gap-2">
-                  {meta?.chains.map((chain) => (
-                    <label key={chain} className="flex items-center space-x-2 border rounded px-2 py-1">
-                      <input
-                        type="checkbox"
-                        checked={ownerDraft.acceptedChains.includes(chain)}
-                        onChange={(e) => {
-                          const checked = e.target.checked;
-                          const next = checked
-                            ? [...ownerDraft.acceptedChains, chain]
-                            : ownerDraft.acceptedChains.filter((c) => c !== chain);
-                          handleChange("acceptedChains", next);
-                        }}
-                      />
-                      <span>{chain}</span>
-                    </label>
-                  ))}
-                </div>
-                {errors.acceptedChains && <p className="text-red-600 text-sm">{errors.acceptedChains}</p>}
-              </div>
             </div>
 
             <div className="space-y-1">
-              {fieldLabel("Asset → Networks (optional)")}
+              {fieldLabel("Asset → Networks (required)")}
               <PaymentAcceptsEditor
                 value={ownerDraft.paymentAccepts}
                 assetOptions={paymentAssetOptions}
                 onChange={(next) => handleChange("paymentAccepts", next)}
               />
+              {errors.paymentAccepts && <p className="text-red-600 text-sm">{errors.paymentAccepts}</p>}
             </div>
 
             {kind === "owner" ? (
