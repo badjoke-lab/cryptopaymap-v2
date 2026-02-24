@@ -37,6 +37,11 @@ type StatsResponse = {
     chains: string[];
     rows: Array<{ asset: string; total: number; counts: Record<string, number> }>;
   };
+  meta?: {
+    source: "db" | "fallback";
+    limited: boolean;
+    reason?: string;
+  };
   generated_at?: string;
   limited?: boolean;
 };
@@ -153,6 +158,7 @@ const EMPTY_STATS: StatsResponse = {
     rows: [],
   },
   limited: true,
+  meta: { source: "fallback", limited: true, reason: "initial" },
 };
 
 const createEmptyTrends = (range: TrendRange): TrendsResponse => ({
@@ -197,6 +203,15 @@ function HorizontalBarList({ title, rows }: { title: string; rows: Array<{ key: 
           {EMPTY_MESSAGE}
         </div>
       )}
+    </div>
+  );
+}
+
+
+function UnavailableBlock({ message = 'Unavailable' }: { message?: string }) {
+  return (
+    <div className="rounded-md border border-dashed border-amber-300 bg-amber-50 px-4 py-6 text-center text-sm font-medium text-amber-800">
+      {message}
     </div>
   );
 }
@@ -670,6 +685,7 @@ export default function StatsPageClient() {
 
   const lastUpdated = stats.generated_at ? new Date(stats.generated_at).toLocaleString() : null;
   const showLimited = Boolean(stats.limited || state.notice);
+  const statsUnavailable = Boolean(stats.meta?.limited || stats.meta?.source !== "db");
   const cityOptions = filters.country ? filterMeta?.cities?.[filters.country] ?? [] : [];
 
   if (state.status === 'loading') {
@@ -726,6 +742,12 @@ export default function StatsPageClient() {
               ) : null
             }
           />
+        ) : null}
+
+        {statsUnavailable ? (
+          <div className="w-full rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
+            Stats temporarily unavailable (data source fallback).
+          </div>
         ) : null}
 
         <section className="rounded-lg bg-white p-4 shadow-sm ring-1 ring-gray-200 sm:p-5">
@@ -787,7 +809,7 @@ export default function StatsPageClient() {
             >
               <span className="text-sm font-medium text-gray-600">{card.label}</span>
               <span className="mt-1 text-2xl font-semibold text-gray-900 sm:text-[26px]">
-                {card.value.toLocaleString()}
+                {statsUnavailable ? "—" : card.value.toLocaleString()}
               </span>
               <span className="text-xs text-gray-500">{card.description}</span>
             </div>
@@ -820,11 +842,17 @@ export default function StatsPageClient() {
           </div>
 
           <div className="space-y-4">
-            <LineChart labels={trendLabels} series={trendSeries} />
-            <div className="rounded-md border border-gray-200 bg-white p-3 text-xs font-medium text-gray-600">
-              Verification stack (owner/community/directory/unverified)
-            </div>
-            <StackedBarChart labels={trendLabels} points={trendStackedPoints} />
+            {statsUnavailable ? (
+              <UnavailableBlock message="Unavailable" />
+            ) : (
+              <>
+                <LineChart labels={trendLabels} series={trendSeries} />
+                <div className="rounded-md border border-gray-200 bg-white p-3 text-xs font-medium text-gray-600">
+                  Verification stack (owner/community/directory/unverified)
+                </div>
+                <StackedBarChart labels={trendLabels} points={trendStackedPoints} />
+              </>
+            )}
           </div>
         </SectionCard>
 
@@ -833,7 +861,7 @@ export default function StatsPageClient() {
           title="Verification Breakdown"
           description="Donut view of owner/community/directory/unverified counts for the current filter set."
         >
-          <VerificationDonut items={verificationEntries} />
+          {statsUnavailable ? <UnavailableBlock message="Unavailable" /> : <VerificationDonut items={verificationEntries} />}
         </SectionCard>
 
         <SectionCard
@@ -841,10 +869,14 @@ export default function StatsPageClient() {
           title="Chains / Assets"
           description="Top accepted chains and assets shown as descending bar charts."
         >
-          <div className="grid gap-4 lg:grid-cols-2">
-            <HorizontalBarList title="Top chains" rows={chainEntries.slice(0, 10)} />
-            <HorizontalBarList title="Top assets" rows={assetEntries.slice(0, 10)} />
-          </div>
+          {statsUnavailable ? (
+            <UnavailableBlock message="Unavailable" />
+          ) : (
+            <div className="grid gap-4 lg:grid-cols-2">
+              <HorizontalBarList title="Top chains" rows={chainEntries.slice(0, 10)} />
+              <HorizontalBarList title="Top assets" rows={assetEntries.slice(0, 10)} />
+            </div>
+          )}
         </SectionCard>
 
         <SectionCard
@@ -852,44 +884,48 @@ export default function StatsPageClient() {
           title="Rankings"
           description="Category, country, and city rankings ordered by count (descending)."
         >
-          <div className="grid gap-4 lg:grid-cols-3">
-            {rankingSections.map((section) => {
-              const rows = [...section.rows]
-                .map((row) => ({ key: row.key, count: Number(row.count ?? 0) }))
-                .filter((row) => row.key && row.count >= 0)
-                .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+          {statsUnavailable ? (
+            <UnavailableBlock message="Unavailable" />
+          ) : (
+            <div className="grid gap-4 lg:grid-cols-3">
+              {rankingSections.map((section) => {
+                const rows = [...section.rows]
+                  .map((row) => ({ key: row.key, count: Number(row.count ?? 0) }))
+                  .filter((row) => row.key && row.count >= 0)
+                  .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
 
-              return (
-                <div key={section.title} className="overflow-hidden rounded-md border border-gray-200">
-                  <div className="border-b border-gray-200 bg-gray-50 px-4 py-2 text-sm font-semibold text-gray-800">
-                    {section.title}
-                  </div>
-                  {rows.length ? (
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full divide-y divide-gray-200 text-sm">
-                        <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-600">
-                          <tr>
-                            <th className="px-4 py-2 text-left">Name</th>
-                            <th className="px-4 py-2 text-right">Total</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100">
-                          {rows.map((row) => (
-                            <tr key={row.key} className="bg-white">
-                              <td className="whitespace-nowrap px-4 py-2 font-medium text-gray-900">{row.key}</td>
-                              <td className="whitespace-nowrap px-4 py-2 text-right text-gray-800">{row.count.toLocaleString()}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                return (
+                  <div key={section.title} className="overflow-hidden rounded-md border border-gray-200">
+                    <div className="border-b border-gray-200 bg-gray-50 px-4 py-2 text-sm font-semibold text-gray-800">
+                      {section.title}
                     </div>
-                  ) : (
-                    <div className="px-4 py-6 text-center text-sm text-gray-600">{EMPTY_MESSAGE}</div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                    {rows.length ? (
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200 text-sm">
+                          <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-600">
+                            <tr>
+                              <th className="px-4 py-2 text-left">Name</th>
+                              <th className="px-4 py-2 text-right">Total</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100">
+                            {rows.map((row) => (
+                              <tr key={row.key} className="bg-white">
+                                <td className="whitespace-nowrap px-4 py-2 font-medium text-gray-900">{row.key}</td>
+                                <td className="whitespace-nowrap px-4 py-2 text-right text-gray-800">{row.count.toLocaleString()}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="px-4 py-6 text-center text-sm text-gray-600">{EMPTY_MESSAGE}</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </SectionCard>
 
         <SectionCard
@@ -897,7 +933,9 @@ export default function StatsPageClient() {
           title="Asset Acceptance Matrix"
           description="Asset × chain acceptance counts. Rows with empty accepts are excluded by API rules."
         >
-          {matrixRows.length && matrixChains.length ? (
+          {statsUnavailable ? (
+            <UnavailableBlock message="Unavailable" />
+          ) : matrixRows.length && matrixChains.length ? (
             <div className="overflow-hidden rounded-md border border-gray-200">
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200 text-sm">

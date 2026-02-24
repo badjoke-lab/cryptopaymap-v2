@@ -66,6 +66,7 @@ export type StatsApiResponse = {
     where_version: string;
     limited: boolean;
     source: "db" | "fallback";
+    reason?: string;
     debug?: {
       normalization_version: string;
       sample_mismatches: Array<Record<string, unknown>>;
@@ -198,7 +199,7 @@ const withDebugMeta = (
   };
 };
 
-const limitedResponse = (source: "db" | "fallback"): StatsApiResponse => ({
+const limitedResponse = (source: "db" | "fallback", reason?: string): StatsApiResponse => ({
   total_places: 0,
   total_count: 0,
   countries: 0,
@@ -220,6 +221,7 @@ const limitedResponse = (source: "db" | "fallback"): StatsApiResponse => ({
     where_version: MAP_POPULATION_WHERE_VERSION,
     limited: true,
     source,
+    ...(reason ? { reason } : {}),
   },
 });
 
@@ -406,16 +408,17 @@ const responseFromPlaces = (filters: StatsFilters, sourcePlaces: typeof places):
     meta: {
       population: "map_pop",
       where_version: MAP_POPULATION_WHERE_VERSION,
-      limited: false,
+      limited: true,
       source: "fallback",
+      reason: "data_source_fallback",
     },
-    limited: false,
+    limited: true,
   };
 };
 
 const loadStatsFromDb = async (route: string, filters: StatsFilters): Promise<StatsApiResponse> => {
   const placesTableExists = await tableExists(route, "places");
-  if (!placesTableExists) return limitedResponse("fallback");
+  if (!placesTableExists) return limitedResponse("fallback", "places_table_missing");
 
   const hasVerifications = await tableExists(route, "verifications");
   const verificationColumn = hasVerifications
@@ -674,10 +677,10 @@ const loadStatsFromDb = async (route: string, filters: StatsFilters): Promise<St
     meta: {
       population: "map_pop",
       where_version: MAP_POPULATION_WHERE_VERSION,
-      limited: false,
+      limited: true,
       source: "db",
     },
-    limited: false,
+    limited: true,
   };
 };
 
@@ -695,7 +698,7 @@ export async function GET(request: Request) {
         headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("json", true) },
       });
     }
-    const response = limitedResponse("fallback");
+    const response = limitedResponse("fallback", "db_unavailable");
     return NextResponse.json<StatsApiResponse>(withDebugMeta(response, debug), {
       status: 503,
       headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("json", true) },
@@ -723,7 +726,7 @@ export async function GET(request: Request) {
       });
     }
 
-    return NextResponse.json<StatsApiResponse>(withDebugMeta(limitedResponse("fallback"), debug), {
+    return NextResponse.json<StatsApiResponse>(withDebugMeta(limitedResponse("fallback", "db_unavailable"), debug), {
       status: 503,
       headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("db", true) },
     });
