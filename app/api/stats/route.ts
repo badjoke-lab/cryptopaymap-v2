@@ -15,7 +15,7 @@ import {
   isMapPopulationPlace,
 } from "@/lib/population/mapPopulationWhere";
 import { normalizeCategory, normalizeCity, normalizeCountry, normalizeLocationSql } from "@/lib/normalize/location";
-import { normalizeAcceptedValues } from "@/lib/normalize/accepted";
+import { normalizeAcceptedSql, normalizeAcceptedValues } from "@/lib/normalize/accepted";
 import { normalizeVerificationSql, normalizeVerificationValue } from "@/lib/normalize/verification";
 
 export const revalidate = 7200;
@@ -270,8 +270,8 @@ const buildMapPopWhereClause = (filters: StatsFilters, options: FilterSqlOptions
       FROM payment_accepts pa
       WHERE pa.place_id = p.id
       AND (
-        ${options.hasPaymentChain ? `LOWER(NULLIF(BTRIM(COALESCE(pa.chain, '')), '')) = LOWER(${addParam(accepted)})` : "FALSE"}
-        OR ${options.hasPaymentAsset ? `LOWER(NULLIF(BTRIM(COALESCE(pa.asset, '')), '')) = LOWER(${addParam(accepted)})` : "FALSE"}
+        ${options.hasPaymentChain ? `${normalizeAcceptedSql("pa.chain")} = ${addParam(accepted)}` : "FALSE"}
+        OR ${options.hasPaymentAsset ? `${normalizeAcceptedSql("pa.asset")} = ${addParam(accepted)}` : "FALSE"}
       )
     )`);
   }
@@ -461,12 +461,12 @@ const loadStatsFromDb = async (route: string, filters: StatsFilters): Promise<St
     `${mapPopCte}
      SELECT
        COUNT(*) AS total_places,
-       COUNT(DISTINCT NULLIF(BTRIM(country), '')) AS countries,
-       COUNT(DISTINCT (NULLIF(BTRIM(country), ''), NULLIF(BTRIM(city), ''))) FILTER (
-         WHERE NULLIF(BTRIM(country), '') IS NOT NULL
-           AND NULLIF(BTRIM(city), '') IS NOT NULL
+       COUNT(DISTINCT NULLIF(${normalizeLocationSql("country")}, '')) AS countries,
+       COUNT(DISTINCT (NULLIF(${normalizeLocationSql("country")}, ''), NULLIF(${normalizeLocationSql("city")}, ''))) FILTER (
+         WHERE NULLIF(${normalizeLocationSql("country")}, '') IS NOT NULL
+           AND NULLIF(${normalizeLocationSql("city")}, '') IS NOT NULL
        ) AS cities,
-       COUNT(DISTINCT NULLIF(BTRIM(category), '')) AS categories
+       COUNT(DISTINCT NULLIF(${normalizeLocationSql("category")}, '')) AS categories
      FROM ${MAP_POPULATION_CTE}`,
     params,
     { route },
@@ -498,9 +498,9 @@ const loadStatsFromDb = async (route: string, filters: StatsFilters): Promise<St
   const categoryPromise = hasCategory
     ? dbQuery<{ key: string | null; total: string }>(
         `${mapPopCte}
-         SELECT NULLIF(BTRIM(category), '') AS key, COUNT(*) AS total
+         SELECT NULLIF(${normalizeLocationSql("category")}, '') AS key, COUNT(*) AS total
          FROM ${MAP_POPULATION_CTE}
-         WHERE NULLIF(BTRIM(category), '') IS NOT NULL
+         WHERE NULLIF(${normalizeLocationSql("category")}, '') IS NOT NULL
          GROUP BY 1
          ORDER BY COUNT(*) DESC, key ASC
          LIMIT ${TOP_RANKING_LIMIT}`,
@@ -512,9 +512,9 @@ const loadStatsFromDb = async (route: string, filters: StatsFilters): Promise<St
   const countryPromise = hasCountry
     ? dbQuery<{ key: string | null; total: string }>(
         `${mapPopCte}
-         SELECT NULLIF(BTRIM(country), '') AS key, COUNT(*) AS total
+         SELECT NULLIF(${normalizeLocationSql("country")}, '') AS key, COUNT(*) AS total
          FROM ${MAP_POPULATION_CTE}
-         WHERE NULLIF(BTRIM(country), '') IS NOT NULL
+         WHERE NULLIF(${normalizeLocationSql("country")}, '') IS NOT NULL
          GROUP BY 1
          ORDER BY COUNT(*) DESC, key ASC
          LIMIT ${TOP_RANKING_LIMIT}`,
@@ -527,13 +527,13 @@ const loadStatsFromDb = async (route: string, filters: StatsFilters): Promise<St
     ? dbQuery<{ key: string | null; total: string }>(
         `${mapPopCte}
          ${hasCountry
-           ? `SELECT CONCAT(NULLIF(BTRIM(city), ''), ', ', NULLIF(BTRIM(country), '')) AS key, COUNT(*) AS total
+           ? `SELECT CONCAT(NULLIF(${normalizeLocationSql("city")}, ''), ', ', NULLIF(${normalizeLocationSql("country")}, '')) AS key, COUNT(*) AS total
               FROM ${MAP_POPULATION_CTE}
-              WHERE NULLIF(BTRIM(city), '') IS NOT NULL
-                AND NULLIF(BTRIM(country), '') IS NOT NULL`
-           : `SELECT NULLIF(BTRIM(city), '') AS key, COUNT(*) AS total
+              WHERE NULLIF(${normalizeLocationSql("city")}, '') IS NOT NULL
+                AND NULLIF(${normalizeLocationSql("country")}, '') IS NOT NULL`
+           : `SELECT NULLIF(${normalizeLocationSql("city")}, '') AS key, COUNT(*) AS total
               FROM ${MAP_POPULATION_CTE}
-              WHERE NULLIF(BTRIM(city), '') IS NOT NULL`}
+              WHERE NULLIF(${normalizeLocationSql("city")}, '') IS NOT NULL`}
          GROUP BY 1
          ORDER BY COUNT(*) DESC, key ASC
          LIMIT ${TOP_RANKING_LIMIT}`,
@@ -545,10 +545,10 @@ const loadStatsFromDb = async (route: string, filters: StatsFilters): Promise<St
   const chainPromise = hasPayments && hasPaymentChain && hasPaymentPlaceId
     ? dbQuery<{ key: string | null; total: string }>(
         `${mapPopCte}
-         SELECT NULLIF(BTRIM(pa.chain), '') AS key, COUNT(*) AS total
+         SELECT NULLIF(${normalizeAcceptedSql("pa.chain")}, '') AS key, COUNT(*) AS total
          FROM payment_accepts pa
          INNER JOIN ${MAP_POPULATION_CTE} mp ON mp.id = pa.place_id
-         WHERE NULLIF(BTRIM(pa.chain), '') IS NOT NULL
+         WHERE NULLIF(${normalizeAcceptedSql("pa.chain")}, '') IS NOT NULL
          GROUP BY 1
          ORDER BY COUNT(*) DESC, key ASC
          LIMIT ${TOP_CHAIN_LIMIT}`,
@@ -560,10 +560,10 @@ const loadStatsFromDb = async (route: string, filters: StatsFilters): Promise<St
   const assetPromise = hasPayments && hasPaymentAsset && hasPaymentPlaceId
     ? dbQuery<{ key: string | null; total: string }>(
         `${mapPopCte}
-         SELECT NULLIF(BTRIM(pa.asset), '') AS key, COUNT(*) AS total
+         SELECT NULLIF(${normalizeAcceptedSql("pa.asset")}, '') AS key, COUNT(*) AS total
          FROM payment_accepts pa
          INNER JOIN ${MAP_POPULATION_CTE} mp ON mp.id = pa.place_id
-         WHERE NULLIF(BTRIM(pa.asset), '') IS NOT NULL
+         WHERE NULLIF(${normalizeAcceptedSql("pa.asset")}, '') IS NOT NULL
          GROUP BY 1
          ORDER BY COUNT(*) DESC, key ASC
          LIMIT ${TOP_CHAIN_LIMIT}`,
@@ -578,8 +578,8 @@ const loadStatsFromDb = async (route: string, filters: StatsFilters): Promise<St
          SELECT COUNT(DISTINCT pa.place_id) AS total
          FROM payment_accepts pa
          INNER JOIN ${MAP_POPULATION_CTE} mp ON mp.id = pa.place_id
-         WHERE ${hasPaymentChain ? "NULLIF(BTRIM(COALESCE(pa.chain, '')), '') IS NOT NULL" : "FALSE"}
-            OR ${hasPaymentAsset ? "NULLIF(BTRIM(COALESCE(pa.asset, '')), '') IS NOT NULL" : "FALSE"}`,
+         WHERE ${hasPaymentChain ? `NULLIF(${normalizeAcceptedSql("pa.chain")}, '') IS NOT NULL` : "FALSE"}
+            OR ${hasPaymentAsset ? `NULLIF(${normalizeAcceptedSql("pa.asset")}, '') IS NOT NULL` : "FALSE"}`,
         params,
         { route },
       )
@@ -588,11 +588,11 @@ const loadStatsFromDb = async (route: string, filters: StatsFilters): Promise<St
   const matrixPromise = hasPayments && hasPaymentAsset && hasPaymentChain && hasPaymentPlaceId
     ? dbQuery<{ asset: string | null; chain: string | null; total: string }>(
         `${mapPopCte}
-         SELECT NULLIF(BTRIM(pa.asset), '') AS asset, NULLIF(BTRIM(pa.chain), '') AS chain, COUNT(*) AS total
+         SELECT NULLIF(${normalizeAcceptedSql("pa.asset")}, '') AS asset, NULLIF(${normalizeAcceptedSql("pa.chain")}, '') AS chain, COUNT(*) AS total
          FROM payment_accepts pa
          INNER JOIN ${MAP_POPULATION_CTE} mp ON mp.id = pa.place_id
-         WHERE NULLIF(BTRIM(pa.asset), '') IS NOT NULL
-           AND NULLIF(BTRIM(pa.chain), '') IS NOT NULL
+         WHERE NULLIF(${normalizeAcceptedSql("pa.asset")}, '') IS NOT NULL
+           AND NULLIF(${normalizeAcceptedSql("pa.chain")}, '') IS NOT NULL
          GROUP BY 1, 2
          ORDER BY COUNT(*) DESC, asset ASC, chain ASC
          LIMIT ${TOP_MATRIX_LIMIT * TOP_MATRIX_LIMIT}`,

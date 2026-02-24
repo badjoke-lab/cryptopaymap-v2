@@ -37,3 +37,18 @@ export const normalizeAcceptedValues = (values: unknown[]): string[] => {
   }
   return out;
 };
+
+export const normalizeAcceptedSql = (columnSql: string) =>
+  `CASE LOWER(REGEXP_REPLACE(BTRIM(COALESCE(${columnSql}, '')), '\\s+', ' ', 'g'))
+    WHEN 'bitcoin' THEN 'BTC'
+    WHEN 'btc' THEN 'BTC'
+    WHEN 'btc lightning' THEN 'Lightning'
+    WHEN 'btc@lightning' THEN 'Lightning'
+    WHEN 'btc/lightning' THEN 'Lightning'
+    WHEN 'bitcoin lightning' THEN 'Lightning'
+    WHEN 'lightning' THEN 'Lightning'
+    WHEN 'ethereum' THEN 'ETH'
+    WHEN 'eth' THEN 'ETH'
+    WHEN 'tether' THEN 'USDT'
+    ELSE NULLIF(REGEXP_REPLACE(BTRIM(COALESCE(${columnSql}, '')), '\\s+', ' ', 'g'), '')
+  END`;

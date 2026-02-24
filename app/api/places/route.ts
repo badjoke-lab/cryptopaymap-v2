@@ -599,9 +599,9 @@ const loadPlacesFromDb = async (
       const fallback = fallbackPlacesById.get(row.id);
       const fallbackAccepted = fallback?.accepted ?? fallback?.supported_crypto;
 
-      const accepted = hasPayments
+      const accepted = normalizeAcceptedValues(hasPayments
         ? normalizeAccepted(payments, fallbackAccepted)
-        : normalizeAccepted([], fallbackAccepted);
+        : normalizeAccepted([], fallbackAccepted));
 
       const base: Place = {
         id: row.id,
