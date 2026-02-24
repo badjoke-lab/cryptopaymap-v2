@@ -2,22 +2,10 @@
 
 import { useState } from "react";
 
+import { NETWORK_LABELS, NETWORKS_BY_ASSET, normalizeNetworkKey } from "@/lib/networks";
+
 import AssetTypeahead from "./AssetTypeahead";
 import type { PaymentAcceptDraft } from "./types";
-
-const KNOWN_RAILS = [
-  "bitcoin",
-  "lightning",
-  "ethereum",
-  "solana",
-  "tron",
-  "polygon",
-  "bsc",
-  "base",
-  "arbitrum",
-  "optimism",
-  "liquid",
-] as const;
 
 type PaymentAcceptsEditorProps = {
   value: PaymentAcceptDraft[];
@@ -26,7 +14,6 @@ type PaymentAcceptsEditorProps = {
 };
 
 const normalizeAsset = (value: string) => value.trim().replace(/\s+/g, "").toUpperCase();
-const normalizeRail = (value: string) => value.trim().toLowerCase();
 
 export default function PaymentAcceptsEditor({ value, assetOptions, onChange }: PaymentAcceptsEditorProps) {
   const selectedAssets = value.map((entry) => entry.assetKey);
@@ -41,24 +28,26 @@ export default function PaymentAcceptsEditor({ value, assetOptions, onChange }: 
     onChange(value.filter((entry) => entry.assetKey !== assetKey));
   };
 
-  const toggleRail = (assetKey: string, rail: string, checked: boolean) => {
+  const toggleNetwork = (assetKey: string, network: string, checked: boolean) => {
     onChange(
       value.map((entry) => {
         if (entry.assetKey !== assetKey) return entry;
-        const rails = checked ? [...entry.rails, rail] : entry.rails.filter((r) => r !== rail);
-        return { ...entry, rails };
+        const nextNetworks = checked
+          ? [...entry.rails, network]
+          : entry.rails.filter((existingNetwork) => existingNetwork !== network);
+        return { ...entry, rails: nextNetworks };
       }),
     );
   };
 
-  const addCustomRail = (assetKey: string, raw: string) => {
-    const customRail = normalizeRail(raw);
-    if (!customRail) return;
+  const addCustomNetwork = (assetKey: string, raw: string) => {
+    const customNetwork = normalizeNetworkKey(raw);
+    if (!customNetwork) return;
     onChange(
       value.map((entry) => {
         if (entry.assetKey !== assetKey) return entry;
-        if (entry.customRails.includes(customRail)) return entry;
-        return { ...entry, customRails: [...entry.customRails, customRail] };
+        if (entry.customRails.includes(customNetwork)) return entry;
+        return { ...entry, customRails: [...entry.customRails, customNetwork] };
       }),
     );
   };
@@ -82,8 +71,8 @@ export default function PaymentAcceptsEditor({ value, assetOptions, onChange }: 
               key={entry.assetKey}
               entry={entry}
               onRemoveAsset={removeAsset}
-              onToggleRail={toggleRail}
-              onAddCustomRail={addCustomRail}
+              onToggleNetwork={toggleNetwork}
+              onAddCustomNetwork={addCustomNetwork}
               onRemoveCustomRail={removeCustomRail}
             />
           ))}
@@ -91,7 +80,7 @@ export default function PaymentAcceptsEditor({ value, assetOptions, onChange }: 
       ) : (
         <p className="text-sm text-gray-600">No assets added yet.</p>
       )}
-      <p className="text-xs text-gray-500">If an asset has no rails selected, it will be sent with rail_key=&quot;unknown&quot;.</p>
+      <p className="text-xs text-gray-500">If an asset has no network selected, it will be sent as unspecified.</p>
     </div>
   );
 }
@@ -99,16 +88,18 @@ export default function PaymentAcceptsEditor({ value, assetOptions, onChange }: 
 function AssetRailsCard({
   entry,
   onRemoveAsset,
-  onToggleRail,
-  onAddCustomRail,
+  onToggleNetwork,
+  onAddCustomNetwork,
   onRemoveCustomRail,
 }: {
   entry: PaymentAcceptDraft;
   onRemoveAsset: (assetKey: string) => void;
-  onToggleRail: (assetKey: string, rail: string, checked: boolean) => void;
-  onAddCustomRail: (assetKey: string, rail: string) => void;
+  onToggleNetwork: (assetKey: string, network: string, checked: boolean) => void;
+  onAddCustomNetwork: (assetKey: string, network: string) => void;
   onRemoveCustomRail: (assetKey: string, rail: string) => void;
 }) {
+  const allowedNetworks = NETWORKS_BY_ASSET[entry.assetKey] ?? [];
+
   return (
     <div className="rounded-md border border-gray-200 p-3 space-y-3">
       <div className="flex items-center justify-between gap-2">
@@ -117,22 +108,32 @@ function AssetRailsCard({
           Remove asset
         </button>
       </div>
-      <div className="flex flex-wrap gap-2">
-        {KNOWN_RAILS.map((rail) => (
-          <label key={`${entry.assetKey}-${rail}`} className="flex items-center gap-2 rounded border px-2 py-1 text-sm">
-            <input
-              type="checkbox"
-              checked={entry.rails.includes(rail)}
-              onChange={(e) => onToggleRail(entry.assetKey, rail, e.target.checked)}
-            />
-            <span>{rail}</span>
-          </label>
-        ))}
+      <div className="space-y-2">
+        <p className="text-xs text-gray-500">Network</p>
+        <div className="flex flex-wrap gap-2">
+          {allowedNetworks.map((network) => (
+            <label
+              key={`${entry.assetKey}-${network}`}
+              className="flex items-center gap-2 rounded border px-2 py-1 text-sm"
+            >
+              <input
+                type="checkbox"
+                checked={entry.rails.includes(network)}
+                onChange={(e) => onToggleNetwork(entry.assetKey, network, e.target.checked)}
+              />
+              <span>{NETWORK_LABELS[network] ?? network}</span>
+            </label>
+          ))}
+        </div>
+        {!allowedNetworks.length ? (
+          <p className="text-xs text-gray-500">No predefined networks for this asset. Use custom network below.</p>
+        ) : null}
       </div>
+
       <CustomRailInput
         assetKey={entry.assetKey}
         customRails={entry.customRails}
-        onAddCustomRail={onAddCustomRail}
+        onAddCustomRail={onAddCustomNetwork}
         onRemoveCustomRail={onRemoveCustomRail}
       />
     </div>
@@ -162,7 +163,7 @@ function CustomRailInput({
         <input
           type="text"
           className="w-full rounded-md border px-3 py-2"
-          placeholder="Custom rail"
+          placeholder="Custom network (e.g. BEP20, Arbitrum)"
           value={customInput}
           onChange={(e) => setCustomInput(e.target.value)}
           onKeyDown={(e) => {
@@ -176,14 +177,17 @@ function CustomRailInput({
           className="rounded-md border border-gray-300 px-3 py-2 text-sm"
           onClick={commit}
         >
-          Add custom rail
+          Add custom network
         </button>
       </div>
       {customRails.length ? (
         <div className="flex flex-wrap gap-2">
           {customRails.map((rail) => (
-            <span key={`${assetKey}-${rail}`} className="inline-flex items-center gap-2 rounded-full bg-gray-100 px-3 py-1 text-xs">
-              {rail}
+            <span
+              key={`${assetKey}-${rail}`}
+              className="inline-flex items-center gap-2 rounded-full bg-gray-100 px-3 py-1 text-xs"
+            >
+              {NETWORK_LABELS[rail] ?? rail}
               <button type="button" className="text-red-600" onClick={() => onRemoveCustomRail(assetKey, rail)}>
                 ×
               </button>

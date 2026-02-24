@@ -372,7 +372,7 @@ export default function SubmitForm({ kind }: SubmitFormProps) {
             </div>
 
             <div className="space-y-1">
-              {fieldLabel("Asset → rails (optional)")}
+              {fieldLabel("Asset → Networks (optional)")}
               <PaymentAcceptsEditor
                 value={ownerDraft.paymentAccepts}
                 assetOptions={paymentAssetOptions}
