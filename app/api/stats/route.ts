@@ -60,7 +60,8 @@ export type StatsApiResponse = {
   generated_at?: string;
   limited?: boolean;
   meta?: {
-    source: "db";
+    source: "db_live";
+    population_id: "places:map_visible:v1";
     as_of: string;
   };
 };
@@ -69,15 +70,6 @@ type StatsUnavailableResponse = {
   ok: false;
   error: "stats_unavailable";
   reason: "db_error";
-};
-
-type CacheRow = {
-  total_places: number | string | null;
-  total_countries: number | string | null;
-  total_cities: number | string | null;
-  category_breakdown: unknown;
-  chain_breakdown: unknown;
-  generated_at: string | Date | null;
 };
 
 const CACHE_CONTROL = "public, s-maxage=7200, stale-while-revalidate=600";
@@ -152,39 +144,6 @@ const hasColumn = async (route: string, table: string, column: string) => {
   return (rows[0]?.present ?? 0) > 0;
 };
 
-const normalizeBreakdown = (value: unknown): Record<string, number> => {
-  if (!value || typeof value !== "object") {
-    return {};
-  }
-
-  if (Array.isArray(value)) {
-    return value.reduce<Record<string, number>>((acc, entry) => {
-      if (entry && typeof entry === "object") {
-        const key = (entry as { key?: string }).key;
-        const count = Number((entry as { count?: number | string }).count ?? 0);
-        if (key && Number.isFinite(count)) {
-          acc[key] = count;
-        }
-      }
-      return acc;
-    }, {});
-  }
-
-  return Object.entries(value as Record<string, unknown>).reduce<Record<string, number>>((acc, [key, count]) => {
-    const numeric = Number(count);
-    if (Number.isFinite(numeric)) {
-      acc[key] = numeric;
-    }
-    return acc;
-  }, {});
-};
-
-const formatGeneratedAt = (value: CacheRow["generated_at"]): string | undefined => {
-  if (!value) return undefined;
-  if (typeof value === "string") return value;
-  return value.toISOString();
-};
-
 const limitedResponse = (overrides: Partial<StatsApiResponse> = {}): StatsApiResponse => ({
   total_places: 0,
   total_count: 0,
@@ -204,29 +163,6 @@ const limitedResponse = (overrides: Partial<StatsApiResponse> = {}): StatsApiRes
   limited: true,
   ...overrides,
 });
-
-const responseFromCache = (row: CacheRow): StatsApiResponse => {
-  const categoryBreakdown = normalizeBreakdown(row.category_breakdown);
-  return {
-    total_places: Number(row.total_places ?? 0),
-    total_count: Number(row.total_places ?? 0),
-    countries: Number(row.total_countries ?? 0),
-    cities: Number(row.total_cities ?? 0),
-    categories: Object.keys(categoryBreakdown).length,
-    chains: normalizeBreakdown(row.chain_breakdown),
-    breakdown: EMPTY_BREAKDOWN,
-    verification_breakdown: EMPTY_VERIFICATION_BREAKDOWN,
-    top_chains: [],
-    top_assets: [],
-    category_ranking: [],
-    country_ranking: [],
-    city_ranking: [],
-    asset_acceptance_matrix: EMPTY_MATRIX,
-    accepting_any_count: 0,
-    generated_at: formatGeneratedAt(row.generated_at),
-    limited: false,
-  };
-};
 
 const loadPlacesFromJsonFallback = async () => {
   const filePath = path.join(process.cwd(), "data", "places.json");
@@ -452,10 +388,10 @@ const buildFilterSql = (filters: StatsFilters, options: FilterSqlOptions) => {
   };
 };
 
-const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<Partial<StatsApiResponse>> => {
+const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<StatsApiResponse> => {
   const placesTableExists = await tableExists(route, "places");
   if (!placesTableExists) {
-    return {
+    return limitedResponse({
       verification_breakdown: EMPTY_VERIFICATION_BREAKDOWN,
       top_chains: [],
       top_assets: [],
@@ -464,7 +400,7 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
       city_ranking: [],
       asset_acceptance_matrix: EMPTY_MATRIX,
       accepting_any_count: 0,
-    };
+    });
   }
 
   const hasVerifications = await tableExists(route, "verifications");
@@ -702,12 +638,18 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
     rowMap.set(asset, existing);
   }
 
+  const chains = topChains.reduce<Record<string, number>>((acc, entry) => {
+    acc[entry.key] = entry.count;
+    return acc;
+  }, {});
+
   return {
     total_places: totalCount,
     total_count: totalCount,
     countries: Number(totalsRows.rows[0]?.countries ?? 0),
     cities: Number(totalsRows.rows[0]?.cities ?? 0),
     categories: Number(totalsRows.rows[0]?.categories ?? 0),
+    chains,
     breakdown,
     verification_breakdown: withVerifiedTotal({ ...breakdown, verified: 0 }),
     top_chains: topChains,
@@ -724,158 +666,8 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
   };
 };
 
-const responseFromDbFallback = async (route: string, filters: StatsFilters): Promise<StatsApiResponse> => {
-  const placesTableExists = await tableExists(route, "places");
-  if (!placesTableExists) {
-    return limitedResponse();
-  }
-
-  const [hasCountry, hasCity, hasCategory, hasPromoted, hasSource] = await Promise.all([
-    hasColumn(route, "places", "country"),
-    hasColumn(route, "places", "city"),
-    hasColumn(route, "places", "category"),
-    hasColumn(route, "places", "promoted"),
-    hasColumn(route, "places", "source"),
-  ]);
-
-  const hasVerifications = await tableExists(route, "verifications");
-  const verificationColumn = hasVerifications
-    ? (await hasColumn(route, "verifications", "level"))
-      ? "level"
-      : (await hasColumn(route, "verifications", "status"))
-        ? "status"
-        : null
-    : null;
-
-  const hasPayments = await tableExists(route, "payment_accepts");
-  const [hasPaymentPlaceId, hasPaymentChain, hasPaymentAsset] = hasPayments
-    ? await Promise.all([
-        hasColumn(route, "payment_accepts", "place_id"),
-        hasColumn(route, "payment_accepts", "chain"),
-        hasColumn(route, "payment_accepts", "asset"),
-      ])
-    : [false, false, false];
-
-  const { whereClause, params } = buildFilterSql(filters, {
-    hasCountry,
-    hasCity,
-    hasCategory,
-    hasPromoted,
-    hasSource,
-    hasPaymentPlaceId,
-    hasPaymentChain,
-    hasPaymentAsset,
-    verificationColumn,
-  });
-
-  const filteredPlacesCte = buildFilteredPlacesCte(whereClause);
-
-  const totalPromise = dbQuery<{ total: string }>(`${filteredPlacesCte} SELECT COUNT(*) AS total FROM filtered_places`, params, { route });
-
-  const countriesPromise = hasCountry
-    ? dbQuery<{ total: string }>(
-        `${filteredPlacesCte}
-         SELECT COUNT(DISTINCT country) AS total
-         FROM filtered_places
-         WHERE NULLIF(BTRIM(country), '') IS NOT NULL`,
-        params,
-        { route },
-      )
-    : Promise.resolve({ rows: [] as { total: string }[] });
-
-  const citiesPromise = hasCity
-    ? dbQuery<{ total: string }>(
-        `${filteredPlacesCte}
-         ${hasCountry
-           ? `SELECT COUNT(DISTINCT (country, city)) AS total
-              FROM filtered_places
-              WHERE NULLIF(BTRIM(city), '') IS NOT NULL
-                AND NULLIF(BTRIM(country), '') IS NOT NULL`
-           : `SELECT COUNT(DISTINCT city) AS total
-              FROM filtered_places
-              WHERE NULLIF(BTRIM(city), '') IS NOT NULL`}`,
-        params,
-        { route },
-      )
-    : Promise.resolve({ rows: [] as { total: string }[] });
-
-  const categoriesPromise = hasCategory
-    ? dbQuery<{ total: string }>(
-        `${filteredPlacesCte}
-         SELECT COUNT(DISTINCT category) AS total
-         FROM filtered_places
-         WHERE NULLIF(BTRIM(category), '') IS NOT NULL`,
-        params,
-        { route },
-      )
-    : Promise.resolve({ rows: [] as { total: string }[] });
-
-  const chainsPromise = hasPayments && hasPaymentPlaceId && (hasPaymentChain || hasPaymentAsset)
-    ? dbQuery<{ key: string | null; total: string }>(
-        `${filteredPlacesCte}
-         SELECT
-           COALESCE(NULLIF(BTRIM(pa.chain), ''), NULLIF(BTRIM(pa.asset), '')) AS key,
-           COUNT(*) AS total
-         FROM payment_accepts pa
-         INNER JOIN filtered_places fp ON fp.id = pa.place_id
-         WHERE NULLIF(BTRIM(COALESCE(pa.chain, '')), '') IS NOT NULL
-            OR NULLIF(BTRIM(COALESCE(pa.asset, '')), '') IS NOT NULL
-         GROUP BY key
-         ORDER BY COUNT(*) DESC
-         LIMIT ${TOP_CHAIN_LIMIT}`,
-        params,
-        { route },
-      )
-    : Promise.resolve({ rows: [] as { key: string | null; total: string }[] });
-
-  const [{ rows: totalRows }, { rows: countryRows }, { rows: cityRows }, { rows: categoryRows }, { rows: chainRows }] =
-    await Promise.all([totalPromise, countriesPromise, citiesPromise, categoriesPromise, chainsPromise]);
-
-  const chains = chainRows.reduce<Record<string, number>>((acc, row) => {
-    if (!row.key) return acc;
-    const total = Number(row.total ?? 0);
-    if (Number.isFinite(total)) {
-      acc[row.key] = total;
-    }
-    return acc;
-  }, {});
-
-  return limitedResponse({
-    total_places: Number(totalRows[0]?.total ?? 0),
-    total_count: Number(totalRows[0]?.total ?? 0),
-    countries: Number(countryRows[0]?.total ?? 0),
-    cities: Number(cityRows[0]?.total ?? 0),
-    categories: Number(categoryRows[0]?.total ?? 0),
-    chains,
-  });
-};
-
 const loadStatsFromDb = async (route: string, filters: StatsFilters): Promise<StatsApiResponse> => {
-  const v4StatsPromise = fetchDbSnapshotV4(route, filters);
-  const hasActiveFilter = FILTER_KEYS.some((key) => Boolean(filters[key]));
-  const cacheExists = !hasActiveFilter && await tableExists(route, "stats_cache");
-  if (cacheExists) {
-    const { rows } = await dbQuery<CacheRow>(
-      `SELECT total_places, total_countries, total_cities, category_breakdown, chain_breakdown, generated_at
-       FROM stats_cache
-       ORDER BY generated_at DESC
-       LIMIT 1`,
-      [],
-      { route },
-    );
-
-    if (rows[0]) {
-      return {
-        ...responseFromCache(rows[0]),
-        ...(await v4StatsPromise),
-      };
-    }
-  }
-
-  return {
-    ...(await responseFromDbFallback(route, filters)),
-    ...(await v4StatsPromise),
-  };
+  return fetchDbSnapshotV4(route, filters);
 };
 
 export async function GET(request: Request) {
@@ -905,7 +697,7 @@ export async function GET(request: Request) {
       return NextResponse.json<StatsApiResponse>({
         ...responseFromPlaces(filters, jsonPlaces),
         ok: true,
-        meta: { source: "db", as_of: new Date().toISOString() },
+        meta: { source: "db_live", population_id: "places:map_visible:v1", as_of: new Date().toISOString() },
       }, {
         headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("json", true) },
       });
@@ -925,7 +717,7 @@ export async function GET(request: Request) {
     return NextResponse.json<StatsApiResponse>({
       ...statsResponse,
       ok: true,
-      meta: { source: "db", as_of: new Date().toISOString() },
+      meta: { source: "db_live", population_id: "places:map_visible:v1", as_of: new Date().toISOString() },
     }, {
       headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("db", false) },
     });
@@ -949,7 +741,7 @@ export async function GET(request: Request) {
       return NextResponse.json<StatsApiResponse>({
         ...responseFromPlaces(filters, jsonPlaces),
         ok: true,
-        meta: { source: "db", as_of: new Date().toISOString() },
+        meta: { source: "db_live", population_id: "places:map_visible:v1", as_of: new Date().toISOString() },
       }, {
         headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("json", true) },
       });
