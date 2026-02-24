@@ -973,11 +973,8 @@ export default function StatsPageClient() {
         <SectionCard
           eyebrow="Snapshot"
           title="Asset Acceptance Matrix"
-          description={`Asset × chain acceptance counts for network-specified accepts only (${acceptsWithChainCount.toLocaleString()}).`}
+          description={`Network-specified accepts: ${acceptsWithChainCount.toLocaleString()} (coverage ${networkCoveragePercent}; ${acceptsMissingChainCount.toLocaleString()} missing network)`}
         >
-          <p className="mb-3 text-xs text-gray-600">
-            Network-specified accepts only: {acceptsWithChainCount.toLocaleString()} (coverage {networkCoveragePercent}; missing network on {acceptsMissingChainCount.toLocaleString()} accepts rows).
-          </p>
           {matrixRows.length && matrixChains.length ? (
             <div className="overflow-hidden rounded-md border border-gray-200">
               <div className="overflow-x-auto">
