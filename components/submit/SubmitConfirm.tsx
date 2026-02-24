@@ -223,11 +223,11 @@ export default function SubmitConfirm({ kind }: { kind: SubmissionKind }) {
                 <SummaryRow label="Address" value={bundle.payload.address} />
                 <SummaryRow label="Category" value={bundle.payload.category} />
                 <SummaryRow
-                  label="Assets"
+                  label="Accepted crypto"
                   value={renderAcceptedAssets((submissionPayload?.payment_accepts as Array<{ asset_key?: string }>) ?? [])}
                 />
                 <SummaryRow
-                  label="Payment networks"
+                  label="Networks"
                   value={renderPaymentAccepts((submissionPayload?.payment_accepts as Array<{ asset_key?: string; rail_key?: string; rail_raw?: string }>) ?? [])}
                 />
                 {bundle.payload.kind === "owner" ? (

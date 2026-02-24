@@ -80,7 +80,7 @@ export default function PaymentAcceptsEditor({ value, assetOptions, onChange }: 
       ) : (
         <p className="text-sm text-gray-600">No assets added yet.</p>
       )}
-      <p className="text-xs text-gray-500">If an asset has no network selected, it will be sent as unspecified.</p>
+      <p className="text-xs text-gray-500">If not specified, we’ll record it as ‘unspecified’.</p>
     </div>
   );
 }
@@ -109,7 +109,7 @@ function AssetRailsCard({
         </button>
       </div>
       <div className="space-y-2">
-        <p className="text-xs text-gray-500">Network</p>
+        <p className="text-xs text-gray-500">Network (optional)</p>
         <div className="flex flex-wrap gap-2">
           {allowedNetworks.map((network) => (
             <label

@@ -348,7 +348,8 @@ export default function SubmitForm({ kind }: SubmitFormProps) {
             </div>
 
             <div className="space-y-1">
-              {fieldLabel("Asset → Networks (required)")}
+              {fieldLabel("Accepted crypto (required)")}
+              <p className="text-xs text-gray-500">Select at least one crypto. Network is optional.</p>
               <PaymentAcceptsEditor
                 value={ownerDraft.paymentAccepts}
                 assetOptions={paymentAssetOptions}

@@ -43,7 +43,7 @@ export default function AssetTypeahead({ options, selectedAssets, onAddAsset }: 
           className="w-full rounded-md border px-3 py-2"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Type asset symbol, e.g. BTC, USDT"
+          placeholder="Search crypto (e.g. Bitcoin, USDT)"
         />
         <button
           type="button"
@@ -62,7 +62,13 @@ export default function AssetTypeahead({ options, selectedAssets, onAddAsset }: 
               onClick={() => addAsset(asset)}
               className="rounded-full border border-gray-300 bg-gray-50 px-3 py-1 text-xs text-gray-700"
             >
-              {asset}
+              {asset === "BTC"
+                ? "Bitcoin (BTC)"
+                : asset === "ETH"
+                  ? "Ethereum (ETH)"
+                  : asset === "USDT"
+                    ? "Tether (USDT)"
+                    : asset}
             </button>
           ))}
         </div>
