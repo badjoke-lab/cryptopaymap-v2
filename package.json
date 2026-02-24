@@ -17,7 +17,8 @@
     "test:map-smoke": "playwright test tests/map-smoke.spec.ts",
     "test:map-smoke:headed": "playwright test tests/map-smoke.spec.ts --headed",
     "audit:submit": "tsx scripts/audit/run-submit-audit.ts",
-    "db:schema:check": "tsx scripts/validate_db_schema.ts"
+    "db:schema:check": "tsx scripts/validate_db_schema.ts",
+    "validate:map-stats-parity": "node --import tsx scripts/validate_map_stats_parity.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.862.0",
