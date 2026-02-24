@@ -318,16 +318,54 @@ const parseRankingRows = (rows: Array<{ key: string | null; total: string | numb
     .map((row) => ({ key: row.key?.trim() ?? "", count: Number(row.total ?? 0) }))
     .filter((row) => Boolean(row.key) && Number.isFinite(row.count) && row.count > 0);
 
-const buildFilteredPlacesCte = (whereClause: string) => {
+type FilteredPlacesCteOptions = {
+  hasCountry: boolean;
+  hasCity: boolean;
+  hasCategory: boolean;
+};
+
+const buildFilteredPlacesCte = (whereClause: string, options: FilteredPlacesCteOptions) => {
   const baseClause = getMapDisplayableWhereClauses("p").join(" AND ");
   const dynamicClause = whereClause.replace(/^WHERE\s+/i, "").trim();
   const combinedWhere = [baseClause, dynamicClause].filter(Boolean).join(" AND ");
 
+  const countrySql = options.hasCountry ? "p.country AS country" : "NULL::text AS country";
+  const citySql = options.hasCity ? "p.city AS city" : "NULL::text AS city";
+  const categorySql = options.hasCategory ? "p.category AS category" : "NULL::text AS category";
+
   return `WITH filtered_places AS (
-      SELECT p.id, p.country, p.city, p.category
+      SELECT p.id, ${countrySql}, ${citySql}, ${categorySql}
       FROM places p
       WHERE ${combinedWhere}
     )`;
+};
+
+const quoteSqlValue = (value: unknown) => {
+  if (value === null || value === undefined) return "NULL";
+  if (typeof value === "number" || typeof value === "bigint") return String(value);
+  if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
+  if (value instanceof Date) return `'${value.toISOString().replace(/'/g, "''")}'`;
+  return `'${String(value).replace(/'/g, "''")}'`;
+};
+
+const toFinalSqlForLog = (text: string, params: unknown[]) =>
+  text.replace(/\$(\d+)/g, (_, position) => {
+    const index = Number(position) - 1;
+    if (index < 0 || index >= params.length) return `$${position}`;
+    return quoteSqlValue(params[index]);
+  });
+
+const runStatsQuery = <T extends Record<string, unknown>>(
+  label: string,
+  sql: string,
+  params: unknown[],
+  route: string,
+) => {
+  const finalSql = toFinalSqlForLog(sql, params);
+  return dbQuery<T>(sql, params, { route }).catch((error) => {
+    console.error(`[stats] query failed: ${label}`, { finalSql, params, error });
+    throw error;
+  });
 };
 
 type FilterSqlOptions = {
@@ -441,10 +479,9 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
     verificationColumn,
   });
 
-  const filteredPlacesCte = buildFilteredPlacesCte(whereClause);
+  const filteredPlacesCte = buildFilteredPlacesCte(whereClause, { hasCountry, hasCity, hasCategory });
 
-  const totalsPromise = dbQuery<{ total_places: string; countries: string; cities: string; categories: string }>(
-    `${filteredPlacesCte}
+  const totalsSql = `${filteredPlacesCte}
      SELECT
        COUNT(*) AS total_places,
        COUNT(DISTINCT NULLIF(BTRIM(country), '')) AS countries,
@@ -453,13 +490,17 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
            AND NULLIF(BTRIM(city), '') IS NOT NULL
        ) AS cities,
        COUNT(DISTINCT NULLIF(BTRIM(category), '')) AS categories
-     FROM filtered_places`,
+     FROM filtered_places`;
+  const totalsPromise = runStatsQuery<{ total_places: string; countries: string; cities: string; categories: string }>(
+    "totals",
+    totalsSql,
     params,
-    { route },
+    route,
   );
 
   const verificationPromise = verificationColumn
-    ? dbQuery<{ key: string | null; total: string }>(
+    ? runStatsQuery<{ key: string | null; total: string }>(
+        "verification",
         `${filteredPlacesCte}
          SELECT COALESCE(vs.key, 'unverified') AS key, COUNT(*) AS total
          FROM filtered_places p
@@ -477,12 +518,13 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
          ) vs ON TRUE
          GROUP BY 1`,
         params,
-        { route },
+        route,
       )
     : Promise.resolve({ rows: [] as Array<{ key: string | null; total: string }> });
 
   const categoryPromise = hasCategory
-    ? dbQuery<{ key: string | null; total: string }>(
+    ? runStatsQuery<{ key: string | null; total: string }>(
+        "category_ranking",
         `${filteredPlacesCte}
          SELECT NULLIF(BTRIM(category), '') AS key, COUNT(*) AS total
          FROM filtered_places
@@ -491,12 +533,13 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
          ORDER BY COUNT(*) DESC, key ASC
          LIMIT ${TOP_RANKING_LIMIT}`,
         params,
-        { route },
+        route,
       )
     : Promise.resolve({ rows: [] as Array<{ key: string | null; total: string }> });
 
   const countryPromise = hasCountry
-    ? dbQuery<{ key: string | null; total: string }>(
+    ? runStatsQuery<{ key: string | null; total: string }>(
+        "country_ranking",
         `${filteredPlacesCte}
          SELECT NULLIF(BTRIM(country), '') AS key, COUNT(*) AS total
          FROM filtered_places
@@ -505,12 +548,13 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
          ORDER BY COUNT(*) DESC, key ASC
          LIMIT ${TOP_RANKING_LIMIT}`,
         params,
-        { route },
+        route,
       )
     : Promise.resolve({ rows: [] as Array<{ key: string | null; total: string }> });
 
   const cityPromise = hasCity
-    ? dbQuery<{ key: string | null; total: string }>(
+    ? runStatsQuery<{ key: string | null; total: string }>(
+        "city_ranking",
         `${filteredPlacesCte}
          ${hasCountry
            ? `SELECT CONCAT(NULLIF(BTRIM(city), ''), ', ', NULLIF(BTRIM(country), '')) AS key, COUNT(*) AS total
@@ -524,12 +568,13 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
          ORDER BY COUNT(*) DESC, key ASC
          LIMIT ${TOP_RANKING_LIMIT}`,
         params,
-        { route },
+        route,
       )
     : Promise.resolve({ rows: [] as Array<{ key: string | null; total: string }> });
 
   const chainPromise = hasPayments && hasPaymentChain && hasPaymentPlaceId
-    ? dbQuery<{ key: string | null; total: string }>(
+    ? runStatsQuery<{ key: string | null; total: string }>(
+        "top_chains",
         `${filteredPlacesCte}
          SELECT NULLIF(BTRIM(pa.chain), '') AS key, COUNT(*) AS total
          FROM payment_accepts pa
@@ -539,12 +584,13 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
          ORDER BY COUNT(*) DESC, key ASC
          LIMIT ${TOP_CHAIN_LIMIT}`,
         params,
-        { route },
+        route,
       )
     : Promise.resolve({ rows: [] as Array<{ key: string | null; total: string }> });
 
   const assetPromise = hasPayments && hasPaymentAsset && hasPaymentPlaceId
-    ? dbQuery<{ key: string | null; total: string }>(
+    ? runStatsQuery<{ key: string | null; total: string }>(
+        "top_assets",
         `${filteredPlacesCte}
          SELECT NULLIF(BTRIM(pa.asset), '') AS key, COUNT(*) AS total
          FROM payment_accepts pa
@@ -554,12 +600,13 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
          ORDER BY COUNT(*) DESC, key ASC
          LIMIT ${TOP_CHAIN_LIMIT}`,
         params,
-        { route },
+        route,
       )
     : Promise.resolve({ rows: [] as Array<{ key: string | null; total: string }> });
 
   const acceptingAnyPromise = hasPayments && hasPaymentPlaceId && (hasPaymentChain || hasPaymentAsset)
-    ? dbQuery<{ total: string }>(
+    ? runStatsQuery<{ total: string }>(
+        "accepting_any_count",
         `${filteredPlacesCte}
          SELECT COUNT(DISTINCT pa.place_id) AS total
          FROM payment_accepts pa
@@ -567,12 +614,13 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
          WHERE ${hasPaymentChain ? "NULLIF(BTRIM(COALESCE(pa.chain, '')), '') IS NOT NULL" : "FALSE"}
             OR ${hasPaymentAsset ? "NULLIF(BTRIM(COALESCE(pa.asset, '')), '') IS NOT NULL" : "FALSE"}`,
         params,
-        { route },
+        route,
       )
     : Promise.resolve({ rows: [{ total: "0" }] as Array<{ total: string }> });
 
   const matrixPromise = hasPayments && hasPaymentAsset && hasPaymentChain && hasPaymentPlaceId
-    ? dbQuery<{ asset: string | null; chain: string | null; total: string }>(
+    ? runStatsQuery<{ asset: string | null; chain: string | null; total: string }>(
+        "asset_acceptance_matrix",
         `${filteredPlacesCte}
          SELECT NULLIF(BTRIM(pa.asset), '') AS asset, NULLIF(BTRIM(pa.chain), '') AS chain, COUNT(*) AS total
          FROM payment_accepts pa
@@ -583,7 +631,7 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
          ORDER BY COUNT(*) DESC, asset ASC, chain ASC
          LIMIT ${TOP_MATRIX_LIMIT * TOP_MATRIX_LIMIT}`,
         params,
-        { route },
+        route,
       )
     : Promise.resolve({ rows: [] as Array<{ asset: string | null; chain: string | null; total: string }> });
 
