@@ -38,6 +38,11 @@ type StatsResponse = {
     chains: string[];
     rows: Array<{ asset: string; total: number; counts: Record<string, number> }>;
   };
+  meta?: {
+    source: 'db_live';
+    population_id: 'places:map_visible:v1';
+    as_of: string;
+  };
   generated_at?: string;
   limited?: boolean;
 };
