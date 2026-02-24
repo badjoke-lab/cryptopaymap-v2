@@ -22,20 +22,20 @@
 
 ### A-1. Map母集合（表示可能集合）
 
-- [ ] `lat/lng NOT NULL` が必須か
+- [x] `lat/lng NOT NULL` が必須か
 - [ ] `bbox` 適用有無（画面表示集合）
 - [ ] `limit/offset` 適用有無
 - [ ] `country/city/category/verification/accepted(q=search)` の適用有無
 - [ ] `published/approved/promoted/source` の必須条件有無
-- [ ] DB経路とJSON fallback経路で同一定義か
+- [x] DB経路とJSON fallback経路で同一定義か
 
 ### A-2. Stats母集合
 
 - [ ] `FROM places` に対する WHERE 条件を列挙
-- [ ] `lat/lng NOT NULL` 条件有無
+- [x] `lat/lng NOT NULL` 条件有無
 - [ ] `published/approved` など表示可否条件有無
 - [ ] `promoted/source` の扱い（任意フィルタか必須条件か）
-- [ ] DB経路とJSON fallback経路で同一定義か
+- [x] DB経路とJSON fallback経路で同一定義か
 - [ ] `stats_cache` 併用時の出所差（total系 vs ranking系）を確認
 
 ---
@@ -44,31 +44,31 @@
 
 ### B-1. Total places
 - [ ] Map母集合期待値SQLを定義
-- [ ] Stats API返却フィールド（`total_places` / `total_count`）対応を確認
+- [x] Stats API返却フィールド（`total_places` / `total_count`）対応を確認
 - [ ] 判定（OK/Partial/NG）
 
 ### B-2. 4クラス件数（owner / community / directory / unverified）
 - [ ] Map母集合期待値SQLを定義
-- [ ] Stats API返却フィールド（`verification_breakdown.*`）対応を確認
+- [x] Stats API返却フィールド（`verification_breakdown.*`）対応を確認
 - [ ] level/status解釈差・join重複リスクの有無を確認
 - [ ] 判定
 
 ### B-3. Countries（distinct）+ Countries ranking
 - [ ] distinct countries の期待値SQL
 - [ ] countries ranking の期待値SQL
-- [ ] Stats API返却（`countries`, `country_ranking`）対応を確認
+- [x] Stats API返却（`countries`, `country_ranking`）対応を確認
 - [ ] 判定
 
 ### B-4. Cities（distinct）+ Cities ranking
 - [ ] distinct cities の期待値SQL（`country,city` 複合キーを明記）
 - [ ] cities ranking の期待値SQL
-- [ ] Stats API返却（`cities`, `city_ranking`）対応を確認
+- [x] Stats API返却（`cities`, `city_ranking`）対応を確認
 - [ ] 判定
 
 ### B-5. Categories（distinct）+ Category ranking
 - [ ] distinct categories の期待値SQL
 - [ ] categories ranking の期待値SQL
-- [ ] Stats API返却（`categories`, `category_ranking`）対応を確認
+- [x] Stats API返却（`categories`, `category_ranking`）対応を確認
 - [ ] 判定
 
 ### B-6. Chains / Assets（Top, ranking, totals）
@@ -94,8 +94,8 @@
 
 ## C. 0件・縮退・キャッシュ
 
-- [ ] DB利用時（Map=DB, Stats=DB）での一致
-- [ ] JSON fallback時（Map=JSON, Stats=JSON）での一致
+- [x] DB利用時（Map=DB, Stats=DB）での一致
+- [x] JSON fallback時（Map=JSON, Stats=JSON）での一致
 - [ ] 片側のみJSON化した時の挙動差
 - [ ] キャッシュ鮮度差（Map 20s / Stats cache-control + stats_cache）
 - [ ] 0件時レスポンス（NaNや空配列崩れ）

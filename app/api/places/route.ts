@@ -15,6 +15,7 @@ import {
 import { places } from "@/lib/data/places";
 import { normalizeCommaParams } from "@/lib/filters";
 import { normalizeAccepted, type PaymentAccept } from "@/lib/accepted";
+import { getMapDisplayableWhereClauses, isMapDisplayablePlace } from "@/lib/stats/mapPopulation";
 import type { Place } from "@/types/places";
 
 
@@ -333,8 +334,7 @@ const loadPlacesFromDb = async (
       where.push(`p.city = $${params.length}`);
     }
 
-    where.push("p.lat IS NOT NULL");
-    where.push("p.lng IS NOT NULL");
+    where.push(...getMapDisplayableWhereClauses("p"));
 
     const hasVerifications = Boolean(tableChecks[0]?.verifications);
     const hasPayments = Boolean(tableChecks[0]?.payments);
@@ -836,12 +836,7 @@ export async function GET(request: NextRequest) {
   const hasVerificationFilters = verificationFilters.length > 0;
 
   const filtered = sourcePlaces.filter((place) => {
-    if (
-      place.lat === null ||
-      place.lng === null ||
-      Number.isNaN(place.lat) ||
-      Number.isNaN(place.lng)
-    ) {
+    if (!isMapDisplayablePlace(place)) {
       return false;
     }
 

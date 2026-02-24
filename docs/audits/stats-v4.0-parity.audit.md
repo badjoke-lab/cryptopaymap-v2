@@ -5,6 +5,13 @@
 - 方針: **監査のみ（実装変更なし）**
 - 判定基準: `OK / Partial / NG`
 
+## PR-1 反映メモ（母集合ズレ解消: Total/4クラス/Countries/Cities/Categories）
+
+- Parity PR-1で、Stats母集合を Map表示可能集合（`lat/lng NOT NULL`）に統一した。
+- `total_count` / `verification_breakdown` / `countries` / `cities` / `categories` を同一母集合（`filtered_places`）で算出するよう修正した。
+- DB障害時のStats fallbackは `data/places.json` 集計へ寄せ、Map fallbackソースと揃えた。
+- 本監査のうち上記5項目のNG原因（母集合ズレ）は解消済み。ランキング/チェーン/マトリクス/Trends等はPR-2以降で継続。
+
 ---
 
 ## 0. エグゼクティブサマリ
