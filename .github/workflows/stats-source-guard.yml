@@ -1,0 +1,24 @@
+name: Stats Source Guard
+
+on:
+  pull_request:
+    paths:
+      - "app/api/stats/**"
+      - "scripts/ci/check_stats_source.sh"
+      - ".github/workflows/stats-source-guard.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "app/api/stats/**"
+      - "scripts/ci/check_stats_source.sh"
+      - ".github/workflows/stats-source-guard.yml"
+
+jobs:
+  stats-source-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Run stats source guard
+        run: bash scripts/ci/check_stats_source.sh
