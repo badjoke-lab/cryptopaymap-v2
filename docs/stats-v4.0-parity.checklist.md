@@ -48,10 +48,10 @@
 - [ ] 判定（OK/Partial/NG）
 
 ### B-2. 4クラス件数（owner / community / directory / unverified）
-- [ ] Map母集合期待値SQLを定義
+- [x] Map母集合期待値SQLを定義
 - [x] Stats API返却フィールド（`verification_breakdown.*`）対応を確認
-- [ ] level/status解釈差・join重複リスクの有無を確認
-- [ ] 判定
+- [x] level/status解釈差・join重複リスクの有無を確認
+- [x] 判定（OK）
 
 ### B-3. Countries（distinct）+ Countries ranking
 - [ ] distinct countries の期待値SQL

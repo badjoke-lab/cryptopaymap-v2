@@ -3,15 +3,23 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 
+import VerificationDonut from '@/components/stats/VerificationDonut';
 import LimitedModeNotice from '@/components/status/LimitedModeNotice';
 import { safeFetch } from '@/lib/safeFetch';
 
 type StatsResponse = {
   total_places: number;
+  total_count: number;
   countries: number;
   cities: number;
   categories: number;
   chains: Record<string, number>;
+  breakdown: {
+    owner: number;
+    community: number;
+    directory: number;
+    unverified: number;
+  };
   verification_breakdown: {
     owner: number;
     community: number;
@@ -116,10 +124,17 @@ const DEFAULT_FILTERS: StatsFilters = {
 
 const EMPTY_STATS: StatsResponse = {
   total_places: 0,
+  total_count: 0,
   countries: 0,
   cities: 0,
   categories: 0,
   chains: {},
+  breakdown: {
+    owner: 0,
+    community: 0,
+    directory: 0,
+    unverified: 0,
+  },
   verification_breakdown: {
     owner: 0,
     community: 0,
@@ -156,65 +171,6 @@ const createEmptyTrends = (range: TrendRange): TrendsResponse => ({
   stack: [{ date: '0', owner: 0, community: 0, directory: 0, unverified: 0 }],
   meta: { reason: 'no_history_data' },
 });
-
-function DonutChart({ items }: { items: Array<{ label: string; value: number; color: string }> }) {
-  const size = 180;
-  const strokeWidth = 24;
-  const radius = (size - strokeWidth) / 2;
-  const center = size / 2;
-  const circumference = 2 * Math.PI * radius;
-  const total = Math.max(items.reduce((sum, item) => sum + item.value, 0), 0);
-
-  let offset = 0;
-
-  return (
-    <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-start sm:gap-8">
-      <svg viewBox={`0 0 ${size} ${size}`} className="h-44 w-44" role="img" aria-label="Verification breakdown">
-        <circle cx={center} cy={center} r={radius} fill="none" stroke="#e5e7eb" strokeWidth={strokeWidth} />
-        {items.map((item) => {
-          const ratio = total > 0 ? item.value / total : 0;
-          const segment = ratio * circumference;
-          const dashOffset = circumference - offset;
-          offset += segment;
-
-          return (
-            <circle
-              key={item.label}
-              cx={center}
-              cy={center}
-              r={radius}
-              fill="none"
-              stroke={item.color}
-              strokeWidth={strokeWidth}
-              strokeDasharray={`${segment} ${circumference - segment}`}
-              strokeDashoffset={dashOffset}
-              transform={`rotate(-90 ${center} ${center})`}
-              strokeLinecap="butt"
-            />
-          );
-        })}
-        <text x="50%" y="46%" textAnchor="middle" className="fill-gray-500 text-xs">
-          Total
-        </text>
-        <text x="50%" y="58%" textAnchor="middle" className="fill-gray-900 text-lg font-semibold">
-          {total.toLocaleString()}
-        </text>
-      </svg>
-
-      <div className="w-full space-y-2">
-        {items.map((item) => (
-          <div key={item.label} className="flex items-center justify-between rounded-md border border-gray-200 px-3 py-2 text-sm">
-            <div className="flex items-center gap-2">
-              <span className="h-3 w-3 rounded-full" style={{ backgroundColor: item.color }} />
-              <span className="text-gray-700">{item.label}</span>
-            </div>
-            <span className="font-semibold text-gray-900">{item.value.toLocaleString()}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 function HorizontalBarList({ title, rows }: { title: string; rows: Array<{ key: string; count: number }> }) {
   const max = Math.max(...rows.map((row) => row.count), 1);
@@ -640,13 +596,16 @@ export default function StatsPageClient() {
   );
 
   const verificationEntries = useMemo(
-    () => [
-      { label: 'Owner verified', value: Number(stats.verification_breakdown.owner ?? 0), color: '#2563EB' },
-      { label: 'Community verified', value: Number(stats.verification_breakdown.community ?? 0), color: '#0EA5E9' },
-      { label: 'Directory listed', value: Number(stats.verification_breakdown.directory ?? 0), color: '#14B8A6' },
-      { label: 'Unverified', value: Number(stats.verification_breakdown.unverified ?? 0), color: '#94A3B8' },
-    ],
-    [stats.verification_breakdown],
+    () => {
+      const breakdown = stats.breakdown ?? stats.verification_breakdown;
+      return [
+        { label: 'Owner verified', value: Number(breakdown.owner ?? 0), color: '#2563EB' },
+        { label: 'Community verified', value: Number(breakdown.community ?? 0), color: '#0EA5E9' },
+        { label: 'Directory listed', value: Number(breakdown.directory ?? 0), color: '#14B8A6' },
+        { label: 'Unverified', value: Number(breakdown.unverified ?? 0), color: '#94A3B8' },
+      ];
+    },
+    [stats.breakdown, stats.verification_breakdown],
   );
 
   const chainEntries = useMemo(() => {
@@ -874,7 +833,7 @@ export default function StatsPageClient() {
           title="Verification Breakdown"
           description="Donut view of owner/community/directory/unverified counts for the current filter set."
         >
-          <DonutChart items={verificationEntries} />
+          <VerificationDonut items={verificationEntries} />
         </SectionCard>
 
         <SectionCard

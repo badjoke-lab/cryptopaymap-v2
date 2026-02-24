@@ -1,8 +1,8 @@
 # Stats v4.0 「完全パリティ監査」報告書
 
 - 監査名: Map母集合（表示可能集合） vs Stats全項目パリティ監査
-- 監査日: 2026-02-23
-- 方針: **監査のみ（実装変更なし）**
+- 監査日: 2026-02-24
+- 方針: **監査 + PR-2実装反映**
 - 判定基準: `OK / Partial / NG`
 
 ## PR-1 反映メモ（母集合ズレ解消: Total/4クラス/Countries/Cities/Categories）
@@ -11,6 +11,15 @@
 - `total_count` / `verification_breakdown` / `countries` / `cities` / `categories` を同一母集合（`filtered_places`）で算出するよう修正した。
 - DB障害時のStats fallbackは `data/places.json` 集計へ寄せ、Map fallbackソースと揃えた。
 - 本監査のうち上記5項目のNG原因（母集合ズレ）は解消済み。ランキング/チェーン/マトリクス/Trends等はPR-2以降で継続。
+
+## PR-2 反映メモ（Verification Breakdown 完全整合 + UI）
+
+- `owner / community / directory / unverified` の4クラスを正規化キーとして固定した。
+- `fetchDbSnapshotV4` の4クラス集計は `filtered_places`（Map母集合）に対して実行し、`LEFT JOIN LATERAL` で placeごとに1レコードへ正規化して join重複を排除した。
+- `NULL` や未知verification値は `unverified` に正規化する実装へ変更した。
+- APIレスポンスへ `breakdown` フィールド（4クラス）を追加し、`verification_breakdown` は後方互換として維持した。
+- `breakdown合計 != total_count` の場合にエラーログを出す整合チェックを追加した。
+- Stats UIに Verification Breakdown ドーナツ表示をコンポーネント化して反映した。
 
 ---
 
@@ -215,11 +224,12 @@ ORDER BY total DESC, asset ASC, chain ASC;
 
 ### 3-2. 4クラス件数
 - Stats返却: `verification_breakdown.owner/community/directory/unverified`
-- 実装: `fetchDbSnapshotV4` の `LEFT JOIN verifications` 集計
-- 判定: **Partial**
+- 実装: `fetchDbSnapshotV4` の `filtered_places` + `LEFT JOIN LATERAL` 集計（4クラス正規化）
+- 判定: **OK**
 - 理由:
-  - 集計SQL自体は4クラスに沿うが、母集合がMapと不一致。
-  - verification列選択が `level` 優先・なければ `status` を利用し、Map側（places API）は `level` 無い時 unverified寄りの挙動となるため差が出うる。
+  - Map母集合と同一の `filtered_places` を母集合として4クラスを集計。
+  - `NULL/未知値 => unverified` 正規化を適用。
+  - place単位1行化で join重複リスクを解消。
 
 ### 3-3. Countries distinct + ranking
 - Stats返却: `countries`, `country_ranking`
@@ -323,7 +333,7 @@ ORDER BY total DESC, asset ASC, chain ASC;
 |---|---|---|
 | 母集合一致 | **NG** | WHERE差（lat/lng）、source/キャッシュ差 |
 | Total places | **NG** | 母集合差 + cache混在 |
-| 4クラス（owner/community/directory/unverified） | **Partial** | 母集合差 + verification列解釈差 |
+| 4クラス（owner/community/directory/unverified） | **OK** | Map母集合上の4クラス正規化集計（join重複対策済み） |
 | Countries distinct | **NG** | 母集合差 |
 | Countries ranking | **NG** | 母集合差 |
 | Cities distinct | **NG** | 母集合差 |
