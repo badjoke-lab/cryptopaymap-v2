@@ -67,7 +67,10 @@ export type StatsApiResponse = {
     population_id: typeof MAP_POPULATION_ID;
     as_of: string;
     acceptance_chain_missing_places: number;
-    acceptance_unknown_chain_included: true;
+    acceptance_unknown_chain_included: boolean;
+    accepts_with_chain_count: number;
+    accepts_missing_chain_count: number;
+    network_coverage: number;
   };
 };
 
@@ -582,9 +585,10 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
     ? runStatsQuery<{ key: string | null; total: string }>(
         "top_chains",
         `${filteredPlacesCte}
-         SELECT COALESCE(NULLIF(BTRIM(pa.chain), ''), 'unknown') AS key, COUNT(*) AS total
+         SELECT NULLIF(BTRIM(pa.chain), '') AS key, COUNT(*) AS total
          FROM payment_accepts pa
          INNER JOIN filtered_places fp ON fp.id = pa.place_id
+         WHERE NULLIF(BTRIM(pa.chain), '') IS NOT NULL
          GROUP BY 1
          ORDER BY COUNT(*) DESC, key ASC
          LIMIT ${TOP_CHAIN_LIMIT}`,
@@ -627,10 +631,11 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
     ? runStatsQuery<{ asset: string | null; chain: string | null; total: string }>(
         "asset_acceptance_matrix",
         `${filteredPlacesCte}
-         SELECT NULLIF(BTRIM(pa.asset), '') AS asset, COALESCE(NULLIF(BTRIM(pa.chain), ''), 'unknown') AS chain, COUNT(*) AS total
+         SELECT NULLIF(BTRIM(pa.asset), '') AS asset, NULLIF(BTRIM(pa.chain), '') AS chain, COUNT(*) AS total
          FROM payment_accepts pa
          INNER JOIN filtered_places fp ON fp.id = pa.place_id
          WHERE NULLIF(BTRIM(pa.asset), '') IS NOT NULL
+           AND NULLIF(BTRIM(pa.chain), '') IS NOT NULL
          GROUP BY 1, 2
          ORDER BY COUNT(*) DESC, asset ASC, chain ASC
          LIMIT ${TOP_MATRIX_LIMIT * TOP_MATRIX_LIMIT}`,
@@ -653,7 +658,27 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
       )
     : Promise.resolve({ rows: [{ total: "0" }] as Array<{ total: string }> });
 
-  const [totalsRows, verificationRows, categoryRows, countryRows, cityRows, chainRows, assetRows, acceptingAnyRows, matrixRows, chainMissingPlacesRows] =
+  const acceptanceCoveragePromise = hasPayments && hasPaymentAsset && hasPaymentChain && hasPaymentPlaceId
+    ? runStatsQuery<{ accepts_with_chain_count: string; accepts_missing_chain_count: string }>(
+        "acceptance_coverage",
+        `${filteredPlacesCte}
+         SELECT
+           COUNT(*) FILTER (
+             WHERE NULLIF(BTRIM(pa.asset), '') IS NOT NULL
+               AND NULLIF(BTRIM(pa.chain), '') IS NOT NULL
+           ) AS accepts_with_chain_count,
+           COUNT(*) FILTER (
+             WHERE NULLIF(BTRIM(pa.asset), '') IS NOT NULL
+               AND NULLIF(BTRIM(pa.chain), '') IS NULL
+           ) AS accepts_missing_chain_count
+         FROM payment_accepts pa
+         INNER JOIN filtered_places fp ON fp.id = pa.place_id`,
+        params,
+        route,
+      )
+    : Promise.resolve({ rows: [{ accepts_with_chain_count: "0", accepts_missing_chain_count: "0" }] as Array<{ accepts_with_chain_count: string; accepts_missing_chain_count: string }> });
+
+  const [totalsRows, verificationRows, categoryRows, countryRows, cityRows, chainRows, assetRows, acceptingAnyRows, matrixRows, chainMissingPlacesRows, acceptanceCoverageRows] =
     await Promise.all([
       totalsPromise,
       verificationPromise,
@@ -665,6 +690,7 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
       acceptingAnyPromise,
       matrixPromise,
       chainMissingPlacesPromise,
+      acceptanceCoveragePromise,
     ]);
 
   const breakdown = verificationRows.rows.reduce(
@@ -710,6 +736,11 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
     return acc;
   }, {});
 
+  const acceptsWithChainCount = Number(acceptanceCoverageRows.rows[0]?.accepts_with_chain_count ?? 0);
+  const acceptsMissingChainCount = Number(acceptanceCoverageRows.rows[0]?.accepts_missing_chain_count ?? 0);
+  const networkCoverageDenominator = acceptsWithChainCount + acceptsMissingChainCount;
+  const networkCoverage = networkCoverageDenominator > 0 ? acceptsWithChainCount / networkCoverageDenominator : 0;
+
   return {
     total_places: totalCount,
     total_count: totalCount,
@@ -735,7 +766,10 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
       population_id: MAP_POPULATION_ID,
       as_of: new Date().toISOString(),
       acceptance_chain_missing_places: Number(chainMissingPlacesRows.rows[0]?.total ?? 0),
-      acceptance_unknown_chain_included: true,
+      acceptance_unknown_chain_included: false,
+      accepts_with_chain_count: acceptsWithChainCount,
+      accepts_missing_chain_count: acceptsMissingChainCount,
+      network_coverage: networkCoverage,
     },
   };
 };
@@ -776,7 +810,10 @@ export async function GET(request: Request) {
           population_id: MAP_POPULATION_ID,
           as_of: new Date().toISOString(),
           acceptance_chain_missing_places: 0,
-          acceptance_unknown_chain_included: true,
+          acceptance_unknown_chain_included: false,
+          accepts_with_chain_count: 0,
+          accepts_missing_chain_count: 0,
+          network_coverage: 0,
         },
       }, {
         headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("json", true) },
@@ -802,7 +839,10 @@ export async function GET(request: Request) {
         population_id: MAP_POPULATION_ID,
         as_of: new Date().toISOString(),
         acceptance_chain_missing_places: 0,
-        acceptance_unknown_chain_included: true,
+        acceptance_unknown_chain_included: false,
+        accepts_with_chain_count: 0,
+        accepts_missing_chain_count: 0,
+        network_coverage: 0,
       },
     }, {
       headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("db", false) },
@@ -832,7 +872,10 @@ export async function GET(request: Request) {
           population_id: MAP_POPULATION_ID,
           as_of: new Date().toISOString(),
           acceptance_chain_missing_places: 0,
-          acceptance_unknown_chain_included: true,
+          acceptance_unknown_chain_included: false,
+          accepts_with_chain_count: 0,
+          accepts_missing_chain_count: 0,
+          network_coverage: 0,
         },
       }, {
         headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("json", true) },

@@ -1,0 +1,3 @@
+# Why `top_chains` / matrix can be much smaller than `total_places`
+
+`total_places` is computed from the full map population (`places:map_population:v2`), while `top_chains` and `asset_acceptance_matrix` are intentionally computed only from `payment_accepts` rows that have both a non-empty `asset` and a specified non-empty `chain` (network); this means they describe the distribution of **network-specified accepts rows**, not all places, and the UI now shows acceptance coverage (`accepts_with_chain_count`, `accepts_missing_chain_count`, and `network_coverage`) so the gap is explicit rather than misleading.

@@ -38,12 +38,16 @@ type StatsResponse = {
     chains: string[];
     rows: Array<{ asset: string; total: number; counts: Record<string, number> }>;
   };
+  accepting_any_count: number;
   meta?: {
     source: 'db_live';
     population_id: 'places:map_population:v2';
     as_of: string;
     acceptance_chain_missing_places: number;
-    acceptance_unknown_chain_included: true;
+    acceptance_unknown_chain_included: boolean;
+    accepts_with_chain_count: number;
+    accepts_missing_chain_count: number;
+    network_coverage: number;
   };
   generated_at?: string;
   limited?: boolean;
@@ -173,6 +177,7 @@ const EMPTY_STATS: StatsResponse = {
     chains: [],
     rows: [],
   },
+  accepting_any_count: 0,
   limited: true,
 };
 
@@ -716,6 +721,10 @@ export default function StatsPageClient() {
   }, [matrixRows, stats.asset_acceptance_matrix.chains]);
 
   const lastUpdated = stats.generated_at ? new Date(stats.generated_at).toLocaleString() : null;
+  const acceptsWithChainCount = Number(stats.meta?.accepts_with_chain_count ?? 0);
+  const acceptsMissingChainCount = Number(stats.meta?.accepts_missing_chain_count ?? 0);
+  const networkCoverage = Number(stats.meta?.network_coverage ?? 0);
+  const networkCoveragePercent = `${(Math.max(0, Math.min(1, networkCoverage)) * 100).toFixed(1)}%`;
   const unavailable = Boolean(state.statsUnavailable || state.trendsUnavailable);
   const showLimited = Boolean((stats.limited || state.notice) && !unavailable);
   const cityOptions = filters.country ? filterMeta?.cities?.[filters.country] ?? [] : [];
@@ -898,11 +907,20 @@ export default function StatsPageClient() {
         <SectionCard
           eyebrow="Snapshot"
           title="Chains / Assets"
-          description="Top accepted chains and assets shown as descending bar charts."
+          description="Top accepted chains and assets from accepts rows with a specified network."
         >
-          <p className="mb-3 text-xs text-gray-600">Network can be &apos;unknown&apos; when the source data doesn&apos;t specify on-chain / Lightning / etc.</p>
+          <div className="mb-3 grid gap-2 rounded-md border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700 sm:grid-cols-2 lg:grid-cols-4">
+            <div>Accepting any (places): <span className="font-semibold text-gray-900">{stats.accepting_any_count.toLocaleString()}</span></div>
+            <div>Network specified (accepts): <span className="font-semibold text-gray-900">{acceptsWithChainCount.toLocaleString()}</span></div>
+            <div>Network missing (accepts): <span className="font-semibold text-gray-900">{acceptsMissingChainCount.toLocaleString()}</span></div>
+            <div>Network coverage: <span className="font-semibold text-gray-900">{networkCoveragePercent}</span></div>
+          </div>
           <div className="grid gap-4 lg:grid-cols-2">
-            <HorizontalBarList title="Top chains" rows={chainEntries.slice(0, 10)} formatKey={formatChainLabel} />
+            <HorizontalBarList
+              title={`Top chains (Network-specified accepts only: ${acceptsWithChainCount.toLocaleString()})`}
+              rows={chainEntries.slice(0, 10)}
+              formatKey={formatChainLabel}
+            />
             <HorizontalBarList title="Top assets" rows={assetEntries.slice(0, 10)} />
           </div>
         </SectionCard>
@@ -955,9 +973,11 @@ export default function StatsPageClient() {
         <SectionCard
           eyebrow="Snapshot"
           title="Asset Acceptance Matrix"
-          description="Asset × chain acceptance counts grouped by known network plus an unknown bucket when chain data is missing."
+          description={`Asset × chain acceptance counts for network-specified accepts only (${acceptsWithChainCount.toLocaleString()}).`}
         >
-          <p className="mb-3 text-xs text-gray-600">Network can be &apos;unknown&apos; when the source data doesn&apos;t specify on-chain / Lightning / etc.</p>
+          <p className="mb-3 text-xs text-gray-600">
+            Network-specified accepts only: {acceptsWithChainCount.toLocaleString()} (coverage {networkCoveragePercent}; missing network on {acceptsMissingChainCount.toLocaleString()} accepts rows).
+          </p>
           {matrixRows.length && matrixChains.length ? (
             <div className="overflow-hidden rounded-md border border-gray-200">
               <div className="overflow-x-auto">
