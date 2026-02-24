@@ -232,13 +232,13 @@ push
 
 > Submitの画像は「保存先が必要」。無料運営を崩さず成立させるため、ここで運用を固定する。
 
-### 12.1 ストレージ方針（固定）
+### 18.1 ストレージ方針（固定）
 - **申請画像の保存先は Cloudflare R2 をデフォルト採用**（無料枠運用を前提）
 - DBには画像バイナリを保存しない
 - `submission_media.url` は **永続URL**（署名URL禁止）
 - `gallery` は公開取得可、`proof/evidence` は internal 認証必須
 
-### 12.2 必須環境変数（R2）
+### 18.2 必須環境変数（R2）
 （値の例は書かない。Ownerが設定する。）
 - `R2_ACCOUNT_ID`
 - `R2_ACCESS_KEY_ID`
@@ -249,7 +249,7 @@ push
 
 > 注意：**R2の直URLを公開に使わない**。基本はアプリの配信エンドポイント（/api/media...）を永続URLとしてDBに保存する。
 
-### 12.3 オブジェクトキー規約（固定）
+### 18.3 オブジェクトキー規約（固定）
 - 形式：
   - `submissions/{submissionId}/{kind}/{mediaId}.webp`
 - kind は `gallery` / `proof` / `evidence` のみ
@@ -394,3 +394,24 @@ npx playwright show-trace test-results/**/trace.zip
 
 
 ```
+
+---
+
+## 18. Map母集合とStats母集合の再発防止チェック（TASK C）
+
+### 18.1 スクリプト
+- `scripts/validate_map_stats_parity.ts` を追加。
+- 検証内容:
+  - `app/api/stats/route.ts` の `MAP_POPULATION_ID` が `places:map_population:v2` であること。
+  - DB上の Map母集合（`places.lat/lng IS NOT NULL`）件数と、Stats母集合クエリ件数が一致すること。
+  - 集合差分 `A\B` / `B\A` がともに `0` 件であること（ID集合比較）。
+
+### 18.2 実行方法
+- ローカル: `npm run validate:map-stats-parity`
+- 直接実行: `node --import tsx scripts/validate_map_stats_parity.ts`
+
+### 18.3 DATABASE_URL 未設定時の挙動
+- `DATABASE_URL` 未設定かつローカル実行時: **SKIP（終了コード0）**
+- `CI=true` または `REQUIRE_DB_VALIDATION=true` で `DATABASE_URL` 未設定時: **FAIL（終了コード1）**
+
+> 運用ルール: CI では `DATABASE_URL` を必須化し、このチェックを fail-fast で実行する。
