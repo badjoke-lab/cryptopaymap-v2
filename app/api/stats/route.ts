@@ -643,6 +643,10 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
     countries: Number(totalsRows.rows[0]?.countries ?? 0),
     cities: Number(totalsRows.rows[0]?.cities ?? 0),
     categories: Number(totalsRows.rows[0]?.categories ?? 0),
+    chains: topChains.reduce<Record<string, number>>((acc, row) => {
+      acc[row.key] = row.count;
+      return acc;
+    }, {}),
     breakdown,
     verification_breakdown: withVerifiedTotal({ ...breakdown, verified: 0 }),
     top_chains: topChains,
