@@ -32,6 +32,12 @@ export type StatsApiResponse = {
   cities: number;
   categories: number;
   chains: Record<string, number>;
+  breakdown: {
+    owner: number;
+    community: number;
+    directory: number;
+    unverified: number;
+  };
   verification_breakdown: {
     owner: number;
     community: number;
@@ -75,6 +81,13 @@ const EMPTY_VERIFICATION_BREAKDOWN: StatsApiResponse["verification_breakdown"] =
   directory: 0,
   unverified: 0,
   verified: 0,
+};
+
+const EMPTY_BREAKDOWN: StatsApiResponse["breakdown"] = {
+  owner: 0,
+  community: 0,
+  directory: 0,
+  unverified: 0,
 };
 
 const EMPTY_MATRIX: StatsApiResponse["asset_acceptance_matrix"] = {
@@ -167,6 +180,7 @@ const limitedResponse = (overrides: Partial<StatsApiResponse> = {}): StatsApiRes
   cities: 0,
   categories: 0,
   chains: {},
+  breakdown: EMPTY_BREAKDOWN,
   verification_breakdown: EMPTY_VERIFICATION_BREAKDOWN,
   top_chains: [],
   top_assets: [],
@@ -188,6 +202,7 @@ const responseFromCache = (row: CacheRow): StatsApiResponse => {
     cities: Number(row.total_cities ?? 0),
     categories: Object.keys(categoryBreakdown).length,
     chains: normalizeBreakdown(row.chain_breakdown),
+    breakdown: EMPTY_BREAKDOWN,
     verification_breakdown: EMPTY_VERIFICATION_BREAKDOWN,
     top_chains: [],
     top_assets: [],
@@ -296,6 +311,20 @@ const responseFromPlaces = (filters: StatsFilters, sourcePlaces: typeof places):
     return acc;
   }, {});
 
+  const breakdown = filteredPlaces.reduce<StatsApiResponse["breakdown"]>((acc, place) => {
+    if (place.verification === "owner") acc.owner += 1;
+    else if (place.verification === "community") acc.community += 1;
+    else if (place.verification === "directory") acc.directory += 1;
+    else acc.unverified += 1;
+    return acc;
+  }, { ...EMPTY_BREAKDOWN });
+
+  const totalCount = filteredPlaces.length;
+  const breakdownTotal = breakdown.owner + breakdown.community + breakdown.directory + breakdown.unverified;
+  if (breakdownTotal !== totalCount) {
+    console.error("[stats] verification breakdown mismatch (json)", { totalCount, breakdownTotal, breakdown });
+  }
+
   return limitedResponse({
     total_places: filteredPlaces.length,
     total_count: filteredPlaces.length,
@@ -306,15 +335,8 @@ const responseFromPlaces = (filters: StatsFilters, sourcePlaces: typeof places):
       acc[entry.chain] = entry.total;
       return acc;
     }, {}),
-    verification_breakdown: withVerifiedTotal(
-      filteredPlaces.reduce<StatsApiResponse["verification_breakdown"]>((acc, place) => {
-        if (place.verification === "owner") acc.owner += 1;
-        else if (place.verification === "community") acc.community += 1;
-        else if (place.verification === "directory") acc.directory += 1;
-        else acc.unverified += 1;
-        return acc;
-      }, { ...EMPTY_VERIFICATION_BREAKDOWN }),
-    ),
+    breakdown,
+    verification_breakdown: withVerifiedTotal({ ...breakdown, verified: 0 }),
     top_chains: sortedChains.slice(0, TOP_CHAIN_LIMIT).map((entry) => ({ key: entry.chain, count: entry.total })),
     top_assets: Object.entries(assetCounts)
       .map(([key, count]) => ({ key, count: Number(count) }))
@@ -334,6 +356,14 @@ const withVerifiedTotal = (breakdown: StatsApiResponse["verification_breakdown"]
   ...breakdown,
   verified: breakdown.owner + breakdown.community + breakdown.directory,
 });
+
+const normalizeVerificationSql = (columnSql: string) =>
+  `CASE
+    WHEN NULLIF(BTRIM(${columnSql}), '') = 'owner' THEN 'owner'
+    WHEN NULLIF(BTRIM(${columnSql}), '') = 'community' THEN 'community'
+    WHEN NULLIF(BTRIM(${columnSql}), '') = 'directory' THEN 'directory'
+    ELSE 'unverified'
+  END`;
 
 const parseRankingRows = (rows: Array<{ key: string | null; total: string | number }>) =>
   rows
@@ -380,10 +410,15 @@ const buildFilterSql = (filters: StatsFilters, options: FilterSqlOptions) => {
   if (filters.source && options.hasSource) clauses.push(`NULLIF(BTRIM(COALESCE(p.source, '')), '') = ${addParam(filters.source)}`);
 
   if (filters.verification && options.verificationColumn) {
-    clauses.push(`COALESCE((SELECT COALESCE(NULLIF(BTRIM(v.${options.verificationColumn}), ''), 'unverified')
+    clauses.push(`COALESCE((SELECT ${normalizeVerificationSql(`v.${options.verificationColumn}`)}
       FROM verifications v
       WHERE v.place_id = p.id
-      ORDER BY v.${options.verificationColumn} IS NULL, v.${options.verificationColumn}
+      ORDER BY CASE ${normalizeVerificationSql(`v.${options.verificationColumn}`)}
+        WHEN 'owner' THEN 1
+        WHEN 'community' THEN 2
+        WHEN 'directory' THEN 3
+        ELSE 4
+      END
       LIMIT 1), 'unverified') = ${addParam(filters.verification)}`);
   }
 
@@ -478,9 +513,20 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
   const verificationPromise = verificationColumn
     ? dbQuery<{ key: string | null; total: string }>(
         `${filteredPlacesCte}
-         SELECT COALESCE(NULLIF(BTRIM(v.${verificationColumn}), ''), 'unverified') AS key, COUNT(*) AS total
+         SELECT COALESCE(vs.key, 'unverified') AS key, COUNT(*) AS total
          FROM filtered_places p
-         LEFT JOIN verifications v ON v.place_id = p.id
+         LEFT JOIN LATERAL (
+           SELECT ${normalizeVerificationSql(`v.${verificationColumn}`)} AS key
+           FROM verifications v
+           WHERE v.place_id = p.id
+           ORDER BY CASE ${normalizeVerificationSql(`v.${verificationColumn}`)}
+             WHEN 'owner' THEN 1
+             WHEN 'community' THEN 2
+             WHEN 'directory' THEN 3
+             ELSE 4
+           END
+           LIMIT 1
+         ) vs ON TRUE
          GROUP BY 1`,
         params,
         { route },
@@ -606,7 +652,7 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
       matrixPromise,
     ]);
 
-  const verificationBreakdown = verificationRows.rows.reduce(
+  const breakdown = verificationRows.rows.reduce(
     (acc, row) => {
       const total = Number(row.total ?? 0);
       if (!Number.isFinite(total)) return acc;
@@ -616,8 +662,14 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
       if (row.key === "unverified") acc.unverified = total;
       return acc;
     },
-    { ...EMPTY_VERIFICATION_BREAKDOWN },
+    { ...EMPTY_BREAKDOWN },
   );
+
+  const totalCount = Number(totalsRows.rows[0]?.total_places ?? 0);
+  const breakdownTotal = breakdown.owner + breakdown.community + breakdown.directory + breakdown.unverified;
+  if (breakdownTotal !== totalCount) {
+    console.error("[stats] verification breakdown mismatch (db)", { totalCount, breakdownTotal, breakdown });
+  }
 
   const topAssets = parseRankingRows(assetRows.rows);
   const topChains = parseRankingRows(chainRows.rows);
@@ -639,12 +691,13 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
   }
 
   return {
-    total_places: Number(totalsRows.rows[0]?.total_places ?? 0),
-    total_count: Number(totalsRows.rows[0]?.total_places ?? 0),
+    total_places: totalCount,
+    total_count: totalCount,
     countries: Number(totalsRows.rows[0]?.countries ?? 0),
     cities: Number(totalsRows.rows[0]?.cities ?? 0),
     categories: Number(totalsRows.rows[0]?.categories ?? 0),
-    verification_breakdown: withVerifiedTotal(verificationBreakdown),
+    breakdown,
+    verification_breakdown: withVerifiedTotal({ ...breakdown, verified: 0 }),
     top_chains: topChains,
     top_assets: topAssets,
     category_ranking: parseRankingRows(categoryRows.rows),
