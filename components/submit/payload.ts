@@ -10,6 +10,21 @@ const parseNumber = (value: string): number | undefined => {
 
 const normalizeList = (value?: string[]) => (value ?? []).map((entry) => entry.trim()).filter(Boolean);
 
+const buildPaymentAcceptRows = (value: OwnerCommunityDraft["paymentAccepts"]) =>
+  value.flatMap((entry) => {
+    const assetKey = entry.assetKey.trim().replace(/\s+/g, "").toUpperCase();
+    if (!assetKey) return [];
+
+    const knownRows = normalizeList(entry.rails).map((rail) => ({ asset_key: assetKey, rail_key: rail.toLowerCase() }));
+    const customRows = normalizeList(entry.customRails).map((rail) => ({
+      asset_key: assetKey,
+      rail_key: "custom",
+      rail_raw: rail,
+    }));
+    const rows = [...knownRows, ...customRows];
+    return rows.length ? rows : [{ asset_key: assetKey, rail_key: "unknown" }];
+  });
+
 export const buildSubmissionPayload = (draft: SubmissionDraft) => {
   const communityEvidenceUrls = normalizeList(draft.communityEvidenceUrls);
   if (draft.kind === "report") {
@@ -40,6 +55,7 @@ export const buildSubmissionPayload = (draft: SubmissionDraft) => {
     address: draftPayload.address,
     category: draftPayload.category,
     acceptedChains: draftPayload.acceptedChains,
+    payment_accepts: buildPaymentAcceptRows(draftPayload.paymentAccepts),
     about: draftPayload.about || undefined,
     paymentNote: draftPayload.paymentNote || undefined,
     paymentUrl: draftPayload.paymentUrl || undefined,

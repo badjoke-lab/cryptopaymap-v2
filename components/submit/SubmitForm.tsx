@@ -8,6 +8,7 @@ import { isLimitedHeader } from "@/lib/clientDataSource";
 import type { FilterMeta } from "@/lib/filters";
 import type { SubmissionKind } from "@/lib/submissions";
 
+import PaymentAcceptsEditor from "./PaymentAcceptsEditor";
 import { FILE_LIMITS, MAX_LENGTHS } from "./constants";
 import { loadDraftBundle, saveDraftBundle, serializeFiles } from "./draftStorage";
 import type { OwnerCommunityDraft, ReportDraft, SubmissionDraft, SubmissionDraftFiles, StoredFile } from "./types";
@@ -38,6 +39,7 @@ const buildDefaultDraft = (kind: SubmissionKind): SubmissionDraft => {
     address: "",
     category: "",
     acceptedChains: [],
+    paymentAccepts: [],
     about: "",
     paymentNote: "",
     paymentUrl: "",
@@ -149,6 +151,24 @@ export default function SubmitForm({ kind }: SubmitFormProps) {
 
   const ownerDraft = draft.kind === "report" ? null : (draft as OwnerCommunityDraft);
   const reportDraft = draft.kind === "report" ? (draft as ReportDraft) : null;
+  const paymentAssetOptions = useMemo(() => {
+    if (!ownerDraft) return [];
+    const base = [
+      "BTC",
+      "ETH",
+      "USDT",
+      "USDC",
+      "DAI",
+      "SOL",
+      "TRX",
+      ...ownerDraft.acceptedChains,
+      ...(meta?.chains ?? []),
+      ...ownerDraft.paymentAccepts.map((entry) => entry.assetKey),
+    ];
+    return Array.from(new Set(base.map((item) => item.trim().toUpperCase()).filter(Boolean))).sort((a, b) =>
+      a.localeCompare(b),
+    );
+  }, [meta?.chains, ownerDraft]);
 
   type DraftField = keyof OwnerCommunityDraft | keyof ReportDraft;
   type DraftValue<T extends DraftField> =
@@ -349,6 +369,15 @@ export default function SubmitForm({ kind }: SubmitFormProps) {
                 </div>
                 {errors.acceptedChains && <p className="text-red-600 text-sm">{errors.acceptedChains}</p>}
               </div>
+            </div>
+
+            <div className="space-y-1">
+              {fieldLabel("Asset → rails (optional)")}
+              <PaymentAcceptsEditor
+                value={ownerDraft.paymentAccepts}
+                assetOptions={paymentAssetOptions}
+                onChange={(next) => handleChange("paymentAccepts", next)}
+              />
             </div>
 
             {kind === "owner" ? (

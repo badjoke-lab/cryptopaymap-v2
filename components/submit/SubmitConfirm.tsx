@@ -41,6 +41,16 @@ const reportActionLabel = (value?: string) => {
   return value || "—";
 };
 
+const renderPaymentAccepts = (rows?: Array<{ asset_key?: string; rail_key?: string; rail_raw?: string }>) => {
+  if (!rows?.length) return "—";
+  return rows
+    .map((row) => {
+      if (row.rail_key === "custom" && row.rail_raw) return `${row.asset_key} (${row.rail_raw})`;
+      return `${row.asset_key} (${row.rail_key})`;
+    })
+    .join(", ");
+};
+
 export default function SubmitConfirm({ kind }: { kind: SubmissionKind }) {
   const router = useRouter();
   const [bundle, setBundle] = useState<DraftBundle | null>(null);
@@ -208,6 +218,10 @@ export default function SubmitConfirm({ kind }: { kind: SubmissionKind }) {
                 <SummaryRow label="Address" value={bundle.payload.address} />
                 <SummaryRow label="Category" value={bundle.payload.category} />
                 <SummaryRow label="Accepted crypto" value={bundle.payload.acceptedChains.join(", ")} />
+                <SummaryRow
+                  label="Payment accepts"
+                  value={renderPaymentAccepts((submissionPayload?.payment_accepts as Array<{ asset_key?: string; rail_key?: string; rail_raw?: string }>) ?? [])}
+                />
                 {bundle.payload.kind === "owner" ? (
                   <SummaryRow label="Desired status" value={bundle.payload.desiredStatus} />
                 ) : null}
