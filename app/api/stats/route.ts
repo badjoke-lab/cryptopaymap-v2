@@ -26,6 +26,7 @@ type StatsFilters = {
 
 // Response shape for GET /api/stats.
 export type StatsApiResponse = {
+  ok?: true;
   total_places: number;
   total_count: number;
   countries: number;
@@ -58,6 +59,16 @@ export type StatsApiResponse = {
   accepting_any_count: number;
   generated_at?: string;
   limited?: boolean;
+  meta?: {
+    source: "db";
+    as_of: string;
+  };
+};
+
+type StatsUnavailableResponse = {
+  ok: false;
+  error: "stats_unavailable";
+  reason: "db_error";
 };
 
 type CacheRow = {
@@ -70,6 +81,7 @@ type CacheRow = {
 };
 
 const CACHE_CONTROL = "public, s-maxage=7200, stale-while-revalidate=600";
+const NO_STORE = "no-store";
 const TOP_CHAIN_LIMIT = 50;
 const TOP_RANKING_LIMIT = 10;
 const TOP_MATRIX_LIMIT = 20;
@@ -873,23 +885,35 @@ export async function GET(request: Request) {
   const { shouldAttemptDb, shouldAllowJson, hasDb } = getDataSourceContext(dataSource);
 
   if (!hasDb && dataSource === "db") {
-    return NextResponse.json<StatsApiResponse>(limitedResponse(), {
+    return NextResponse.json<StatsUnavailableResponse>({ ok: false, error: "stats_unavailable", reason: "db_error" }, {
       status: 503,
-      headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("db", true) },
+      headers: { "Cache-Control": NO_STORE, ...buildDataSourceHeaders("db", true) },
     });
   }
 
   if (!shouldAttemptDb) {
+    // Production must never use JSON fallback for stats.
+    if (process.env.NODE_ENV === "production") {
+      return NextResponse.json<StatsUnavailableResponse>({ ok: false, error: "stats_unavailable", reason: "db_error" }, {
+        status: 503,
+        headers: { "Cache-Control": NO_STORE, ...buildDataSourceHeaders("db", true) },
+      });
+    }
+
     try {
       const jsonPlaces = await loadPlacesFromJsonFallback();
-      return NextResponse.json<StatsApiResponse>(responseFromPlaces(filters, jsonPlaces), {
+      return NextResponse.json<StatsApiResponse>({
+        ...responseFromPlaces(filters, jsonPlaces),
+        ok: true,
+        meta: { source: "db", as_of: new Date().toISOString() },
+      }, {
         headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("json", true) },
       });
     } catch (error) {
       console.error("[stats] failed to load JSON fallback", error);
-      return NextResponse.json<StatsApiResponse>(limitedResponse(), {
+      return NextResponse.json<StatsUnavailableResponse>({ ok: false, error: "stats_unavailable", reason: "db_error" }, {
         status: 503,
-        headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("json", true) },
+        headers: { "Cache-Control": NO_STORE, ...buildDataSourceHeaders("db", true) },
       });
     }
   }
@@ -898,7 +922,11 @@ export async function GET(request: Request) {
     const statsResponse = await withDbTimeout(loadStatsFromDb(route, filters), {
       message: "DB_TIMEOUT",
     });
-    return NextResponse.json<StatsApiResponse>(statsResponse, {
+    return NextResponse.json<StatsApiResponse>({
+      ...statsResponse,
+      ok: true,
+      meta: { source: "db", as_of: new Date().toISOString() },
+    }, {
       headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("db", false) },
     });
   } catch (error) {
@@ -908,23 +936,28 @@ export async function GET(request: Request) {
       console.error("[stats] failed to load stats", error);
     }
 
-    if (!shouldAllowJson) {
-      return NextResponse.json<StatsApiResponse>(limitedResponse(), {
+    if (!shouldAllowJson || process.env.NODE_ENV === "production") {
+      return NextResponse.json<StatsUnavailableResponse>({ ok: false, error: "stats_unavailable", reason: "db_error" }, {
         status: 503,
-        headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("db", true) },
+        headers: { "Cache-Control": NO_STORE, ...buildDataSourceHeaders("db", true) },
       });
     }
 
+    // Production must never use JSON fallback for stats.
     try {
       const jsonPlaces = await loadPlacesFromJsonFallback();
-      return NextResponse.json<StatsApiResponse>(responseFromPlaces(filters, jsonPlaces), {
+      return NextResponse.json<StatsApiResponse>({
+        ...responseFromPlaces(filters, jsonPlaces),
+        ok: true,
+        meta: { source: "db", as_of: new Date().toISOString() },
+      }, {
         headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("json", true) },
       });
     } catch (jsonError) {
       console.error("[stats] failed to load JSON fallback", jsonError);
-      return NextResponse.json<StatsApiResponse>(limitedResponse(), {
+      return NextResponse.json<StatsUnavailableResponse>({ ok: false, error: "stats_unavailable", reason: "db_error" }, {
         status: 503,
-        headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("json", true) },
+        headers: { "Cache-Control": NO_STORE, ...buildDataSourceHeaders("db", true) },
       });
     }
   }
