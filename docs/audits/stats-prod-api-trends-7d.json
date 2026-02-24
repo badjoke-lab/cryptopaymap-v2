@@ -1,0 +1,26 @@
+{
+  "range": "7d",
+  "grain": "1d",
+  "last_updated": "2026-02-24T06:30:44.633Z",
+  "points": [
+    { "date": "2026-02-18", "total": 0, "delta": 0, "verified_total": 0, "verified_delta": 0, "accepting_any_total": 0, "accepting_any_delta": 0 },
+    { "date": "2026-02-19", "total": 0, "delta": 0, "verified_total": 0, "verified_delta": 0, "accepting_any_total": 0, "accepting_any_delta": 0 },
+    { "date": "2026-02-20", "total": 0, "delta": 0, "verified_total": 0, "verified_delta": 0, "accepting_any_total": 0, "accepting_any_delta": 0 },
+    { "date": "2026-02-21", "total": 0, "delta": 0, "verified_total": 0, "verified_delta": 0, "accepting_any_total": 0, "accepting_any_delta": 0 },
+    { "date": "2026-02-22", "total": 0, "delta": 0, "verified_total": 0, "verified_delta": 0, "accepting_any_total": 0, "accepting_any_delta": 0 },
+    { "date": "2026-02-23", "total": 0, "delta": 0, "verified_total": 0, "verified_delta": 0, "accepting_any_total": 0, "accepting_any_delta": 0 },
+    { "date": "2026-02-24", "total": 0, "delta": 0, "verified_total": 0, "verified_delta": 0, "accepting_any_total": 0, "accepting_any_delta": 0 }
+  ],
+  "stack": [
+    { "date": "2026-02-18", "owner": 0, "community": 0, "directory": 0, "unverified": 0 },
+    { "date": "2026-02-19", "owner": 0, "community": 0, "directory": 0, "unverified": 0 },
+    { "date": "2026-02-20", "owner": 0, "community": 0, "directory": 0, "unverified": 0 },
+    { "date": "2026-02-21", "owner": 0, "community": 0, "directory": 0, "unverified": 0 },
+    { "date": "2026-02-22", "owner": 0, "community": 0, "directory": 0, "unverified": 0 },
+    { "date": "2026-02-23", "owner": 0, "community": 0, "directory": 0, "unverified": 0 },
+    { "date": "2026-02-24", "owner": 0, "community": 0, "directory": 0, "unverified": 0 }
+  ],
+  "meta": {
+    "reason": "no_history_data"
+  }
+}

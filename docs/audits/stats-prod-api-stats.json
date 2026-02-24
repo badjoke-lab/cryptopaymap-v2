@@ -1,0 +1,66 @@
+{
+  "total_places": 5,
+  "total_count": 5,
+  "countries": 5,
+  "cities": 5,
+  "categories": 5,
+  "chains": {
+    "BTC": 4,
+    "BTC@Lightning": 2,
+    "ETH": 2,
+    "USDT": 1
+  },
+  "breakdown": {
+    "owner": 2,
+    "community": 1,
+    "directory": 1,
+    "unverified": 1
+  },
+  "verification_breakdown": {
+    "owner": 2,
+    "community": 1,
+    "directory": 1,
+    "unverified": 1,
+    "verified": 4
+  },
+  "top_chains": [
+    { "key": "BTC", "count": 4 },
+    { "key": "BTC@Lightning", "count": 2 },
+    { "key": "ETH", "count": 2 },
+    { "key": "USDT", "count": 1 }
+  ],
+  "top_assets": [
+    { "key": "BTC", "count": 4 },
+    { "key": "BTC@Lightning", "count": 2 },
+    { "key": "ETH", "count": 2 },
+    { "key": "USDT", "count": 1 }
+  ],
+  "category_ranking": [
+    { "key": "bakery", "count": 1 },
+    { "key": "bookstore", "count": 1 },
+    { "key": "cafe", "count": 1 },
+    { "key": "diner", "count": 1 },
+    { "key": "restaurant", "count": 1 }
+  ],
+  "country_ranking": [
+    { "key": "AU", "count": 1 },
+    { "key": "CA", "count": 1 },
+    { "key": "FR", "count": 1 },
+    { "key": "JP", "count": 1 },
+    { "key": "US", "count": 1 }
+  ],
+  "city_ranking": [
+    { "key": "New York, US", "count": 1 },
+    { "key": "Paris, FR", "count": 1 },
+    { "key": "Sydney, AU", "count": 1 },
+    { "key": "Tokyo, JP", "count": 1 },
+    { "key": "Toronto, CA", "count": 1 }
+  ],
+  "asset_acceptance_matrix": {
+    "assets": [],
+    "chains": [],
+    "rows": []
+  },
+  "accepting_any_count": 5,
+  "limited": true
+}
