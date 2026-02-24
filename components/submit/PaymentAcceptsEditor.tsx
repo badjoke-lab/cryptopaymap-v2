@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { NETWORK_LABELS, NETWORKS_BY_ASSET, normalizeNetworkKey } from "@/lib/networks";
+import { NETWORK_LABELS, NETWORKS_BY_ASSET } from "@/lib/networks";
 
 import AssetTypeahead from "./AssetTypeahead";
 import type { PaymentAcceptDraft } from "./types";
@@ -38,7 +38,7 @@ export default function PaymentAcceptsEditor({ value, assetOptions, onChange }: 
   };
 
   const addCustomNetwork = (assetKey: string, raw: string) => {
-    const customNetwork = normalizeNetworkKey(raw);
+    const customNetwork = raw.trim();
     if (!customNetwork) return;
     onChange(
       value.map((entry) => {

@@ -17,7 +17,7 @@ type AssetTypeaheadProps = {
 
 const prettyCustomLabel = (raw: string, normalized: string) => {
   const trimmed = raw.trim();
-  return trimmed ? `${trimmed} (${normalized})` : normalized;
+  return trimmed || normalized;
 };
 
 export default function AssetTypeahead({ options, selectedAssets, onAddAsset }: AssetTypeaheadProps) {
@@ -29,7 +29,7 @@ export default function AssetTypeahead({ options, selectedAssets, onAddAsset }: 
     const bySymbol = new Map(ASSET_CATALOG.map((entry) => [entry.symbol, entry]));
     options.forEach((option) => {
       const symbol = normalizeAssetKey(option);
-      if (!symbol || bySymbol.has(symbol)) return;
+      if (!symbol || symbol === "LIGHTNING" || bySymbol.has(symbol)) return;
       bySymbol.set(symbol, { symbol, name: symbol, aliases: [] });
     });
     return Array.from(bySymbol.values());
