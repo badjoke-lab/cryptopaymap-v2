@@ -100,3 +100,14 @@ Stats（Top N）:
 ## 5) 結論
 - PR257 preview 実測では、**Map母集合そのものの定義不一致ではなく、レスポンスモード差（E）により全項目がズレる**。
 - ズレは件数/内訳/TopN/Matrix の全レイヤーで確認でき、差分はすべて非0。
+
+## 6) 修正後再検証（このPR）
+ローカル再検証（`/api/places?limit=5000` vs `/api/stats`）で、以下はすべて差分0:
+- total_places
+- countries / cities / categories
+- verification breakdown（owner/community/directory/unverified）
+- top chains / top assets（キーと件数）
+- asset_acceptance_matrix（セル合計）
+
+また、`/api/stats?debug=1` で `meta.debug` が追加され、
+`normalization_version` と `sample_mismatches` を返すことを確認した。

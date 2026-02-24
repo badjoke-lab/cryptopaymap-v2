@@ -16,6 +16,14 @@ import { places } from "@/lib/data/places";
 import { normalizeCommaParams } from "@/lib/filters";
 import { normalizeAccepted, type PaymentAccept } from "@/lib/accepted";
 import {
+  normalizeCategory,
+  normalizeCity,
+  normalizeCountry,
+  normalizeLocationSql,
+} from "@/lib/normalize/location";
+import { normalizeAcceptedValues } from "@/lib/normalize/accepted";
+import { normalizeVerificationValue } from "@/lib/normalize/verification";
+import {
   getMapPopulationWhereClauses,
   isMapPopulationPlace,
   normalizeVerificationSql,
@@ -143,7 +151,7 @@ const parseOffset = (value: string | null): number => {
 
 const buildAccepted = (place: Place): string[] => {
   const fallbackAccepted = place.accepted ?? place.supported_crypto ?? [];
-  return normalizeAccepted([], fallbackAccepted);
+  return normalizeAcceptedValues(normalizeAccepted([], fallbackAccepted));
 };
 
 const normalizeText = (value: unknown): string | null => {
@@ -326,16 +334,16 @@ const loadPlacesFromDb = async (
     const params: unknown[] = [];
 
     if (filters.category) {
-      params.push(filters.category);
-      where.push(`p.category = $${params.length}`);
+      params.push(normalizeCategory(filters.category));
+      where.push(`${normalizeLocationSql("p.category")} = $${params.length}`);
     }
     if (filters.country) {
-      params.push(filters.country);
-      where.push(`p.country = $${params.length}`);
+      params.push(normalizeCountry(filters.country));
+      where.push(`${normalizeLocationSql("p.country")} = $${params.length}`);
     }
     if (filters.city) {
-      params.push(filters.city);
-      where.push(`p.city = $${params.length}`);
+      params.push(normalizeCity(filters.city));
+      where.push(`${normalizeLocationSql("p.city")} = $${params.length}`);
     }
 
     where.push(...getMapPopulationWhereClauses("p"));
@@ -676,7 +684,7 @@ export async function GET(request: NextRequest) {
   const combinedPaymentFilters = Array.from(new Set([...chainFilters, ...paymentFilters])).map((chain) =>
     chain.toLowerCase(),
   );
-  const verificationFilters = normalizeCommaParams(searchParams.getAll("verification")) as Place["verification"][];
+  const verificationFilters = normalizeCommaParams(searchParams.getAll("verification")).map(normalizeVerificationValue) as Place["verification"][];
   const mode = searchParams.get("mode");
   const searchTerm = parseSearchTerm(searchParams.get("q"));
   const bboxResult = parseBbox(searchParams.get("bbox"));
@@ -844,26 +852,26 @@ export async function GET(request: NextRequest) {
       return false;
     }
 
-    if (category && place.category !== category) {
+    if (category && normalizeCategory(place.category) !== normalizeCategory(category)) {
       return false;
     }
 
-    if (country && place.country !== country) {
+    if (country && normalizeCountry(place.country) !== normalizeCountry(country)) {
       return false;
     }
 
-    if (city && place.city !== city) {
+    if (city && normalizeCity(place.city) !== normalizeCity(city)) {
       return false;
     }
 
     if (hasChainFilters) {
-      const placeChains = getPlaceChains(place).map((chain) => chain.toLowerCase());
+      const placeChains = normalizeAcceptedValues(getPlaceChains(place)).map((chain) => chain.toLowerCase());
       if (!combinedPaymentFilters.some((chain) => placeChains.includes(chain))) {
         return false;
       }
     }
 
-    if (hasVerificationFilters && !verificationFilters.includes(place.verification)) {
+    if (hasVerificationFilters && !verificationFilters.includes(normalizeVerificationValue(place.verification) as Place["verification"])) {
       return false;
     }
 

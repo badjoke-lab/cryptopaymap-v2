@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { DbUnavailableError, dbQuery } from "@/lib/db";
+import { places } from "@/lib/data/places";
 import {
   buildDataSourceHeaders,
   getDataSourceContext,
@@ -11,8 +12,11 @@ import {
   MAP_POPULATION_CTE,
   MAP_POPULATION_WHERE_VERSION,
   getMapPopulationWhereClauses,
-  normalizeVerificationSql,
+  isMapPopulationPlace,
 } from "@/lib/population/mapPopulationWhere";
+import { normalizeCategory, normalizeCity, normalizeCountry, normalizeLocationSql } from "@/lib/normalize/location";
+import { normalizeAcceptedValues } from "@/lib/normalize/accepted";
+import { normalizeVerificationSql, normalizeVerificationValue } from "@/lib/normalize/verification";
 
 export const revalidate = 7200;
 
@@ -59,9 +63,13 @@ export type StatsApiResponse = {
   accepting_any_count: number;
   meta: {
     population: "map_pop";
-    where_version: "pr253";
+    where_version: string;
     limited: boolean;
     source: "db" | "fallback";
+    debug?: {
+      normalization_version: string;
+      sample_mismatches: Array<Record<string, unknown>>;
+    };
   };
   generated_at?: string;
   limited?: boolean;
@@ -72,6 +80,7 @@ const TOP_CHAIN_LIMIT = 50;
 const TOP_RANKING_LIMIT = 10;
 const TOP_MATRIX_LIMIT = 20;
 const FILTER_KEYS: Array<keyof StatsFilters> = ["country", "city", "category", "accepted", "verification", "promoted", "source"];
+const NORMALIZATION_VERSION = "n1";
 
 const EMPTY_VERIFICATION_BREAKDOWN: StatsApiResponse["verification_breakdown"] = {
   owner: 0,
@@ -115,6 +124,8 @@ const parseFilters = (request: Request): StatsFilters => {
   return filters;
 };
 
+const isDebugMode = (request: Request) => new URL(request.url).searchParams.get("debug") === "1";
+
 const tableExists = async (route: string, table: string) => {
   const { rows } = await dbQuery<{ present: string | null }>("SELECT to_regclass($1) AS present", [`public.${table}`], { route });
   return Boolean(rows[0]?.present);
@@ -142,6 +153,50 @@ const parseRankingRows = (rows: Array<{ key: string | null; total: string | numb
   rows
     .map((row) => ({ key: row.key?.trim() ?? "", count: Number(row.total ?? 0) }))
     .filter((row) => Boolean(row.key) && Number.isFinite(row.count) && row.count > 0);
+
+const withDebugMeta = (
+  response: StatsApiResponse,
+  debug: boolean,
+  sourcePlaces: typeof places = [],
+): StatsApiResponse => {
+  if (!debug) return response;
+  const sample_mismatches: Array<Record<string, unknown>> = [];
+  for (const p of sourcePlaces) {
+    if (sample_mismatches.length >= 5) break;
+    const rawCountry = (p.country ?? "") as string;
+    const rawCity = (p.city ?? "") as string;
+    const rawCategory = (p.category ?? "") as string;
+    const rawVerification = (p.verification ?? "") as string;
+    const rawAccepted = [...(p.accepted ?? []), ...(p.supported_crypto ?? [])];
+    const normalizedAccepted = normalizeAcceptedValues(rawAccepted);
+    if (
+      rawCountry !== normalizeCountry(rawCountry)
+      || rawCity !== normalizeCity(rawCity)
+      || rawCategory !== normalizeCategory(rawCategory)
+      || rawVerification !== normalizeVerificationValue(rawVerification)
+      || JSON.stringify(rawAccepted) !== JSON.stringify(normalizedAccepted)
+    ) {
+      sample_mismatches.push({
+        id: p.id,
+        country: { raw: rawCountry, normalized: normalizeCountry(rawCountry) },
+        city: { raw: rawCity, normalized: normalizeCity(rawCity) },
+        category: { raw: rawCategory, normalized: normalizeCategory(rawCategory) },
+        verification: { raw: rawVerification, normalized: normalizeVerificationValue(rawVerification) },
+      });
+    }
+  }
+
+  return {
+    ...response,
+    meta: {
+      ...response.meta,
+      debug: {
+        normalization_version: NORMALIZATION_VERSION,
+        sample_mismatches,
+      },
+    },
+  };
+};
 
 const limitedResponse = (source: "db" | "fallback"): StatsApiResponse => ({
   total_places: 0,
@@ -189,11 +244,11 @@ const buildMapPopWhereClause = (filters: StatsFilters, options: FilterSqlOptions
     return `$${params.length}`;
   };
 
-  if (filters.country && options.hasCountry) clauses.push(`NULLIF(BTRIM(p.country), '') = ${addParam(filters.country)}`);
-  if (filters.city && options.hasCity) clauses.push(`NULLIF(BTRIM(p.city), '') = ${addParam(filters.city)}`);
-  if (filters.category && options.hasCategory) clauses.push(`NULLIF(BTRIM(p.category), '') = ${addParam(filters.category)}`);
+  if (filters.country && options.hasCountry) clauses.push(`${normalizeLocationSql("p.country")} = ${addParam(normalizeCountry(filters.country))}`);
+  if (filters.city && options.hasCity) clauses.push(`${normalizeLocationSql("p.city")} = ${addParam(normalizeCity(filters.city))}`);
+  if (filters.category && options.hasCategory) clauses.push(`${normalizeLocationSql("p.category")} = ${addParam(normalizeCategory(filters.category))}`);
   if (filters.promoted && options.hasPromoted) clauses.push(`COALESCE(p.promoted, FALSE) = ${addParam(filters.promoted === "true")}`);
-  if (filters.source && options.hasSource) clauses.push(`NULLIF(BTRIM(COALESCE(p.source, '')), '') = ${addParam(filters.source)}`);
+  if (filters.source && options.hasSource) clauses.push(`${normalizeLocationSql("p.source")} = ${addParam(normalizeFilterValue(filters.source).toLowerCase())}`);
 
   if (filters.verification && options.verificationColumn) {
     clauses.push(`COALESCE((SELECT ${normalizeVerificationSql(`v.${options.verificationColumn}`)}
@@ -205,17 +260,18 @@ const buildMapPopWhereClause = (filters: StatsFilters, options: FilterSqlOptions
         WHEN 'directory' THEN 3
         ELSE 4
       END
-      LIMIT 1), 'unverified') = ${addParam(filters.verification)}`);
+      LIMIT 1), 'unverified') = ${addParam(normalizeVerificationValue(filters.verification))}`);
   }
 
   if (filters.accepted && options.hasPaymentPlaceId && (options.hasPaymentChain || options.hasPaymentAsset)) {
+    const accepted = normalizeAcceptedValues([filters.accepted])[0] ?? "";
     clauses.push(`EXISTS (
       SELECT 1
       FROM payment_accepts pa
       WHERE pa.place_id = p.id
       AND (
-        ${options.hasPaymentChain ? `LOWER(NULLIF(BTRIM(COALESCE(pa.chain, '')), '')) = LOWER(${addParam(filters.accepted)})` : "FALSE"}
-        OR ${options.hasPaymentAsset ? `LOWER(NULLIF(BTRIM(COALESCE(pa.asset, '')), '')) = LOWER(${addParam(filters.accepted)})` : "FALSE"}
+        ${options.hasPaymentChain ? `LOWER(NULLIF(BTRIM(COALESCE(pa.chain, '')), '')) = LOWER(${addParam(accepted)})` : "FALSE"}
+        OR ${options.hasPaymentAsset ? `LOWER(NULLIF(BTRIM(COALESCE(pa.asset, '')), '')) = LOWER(${addParam(accepted)})` : "FALSE"}
       )
     )`);
   }
@@ -231,6 +287,131 @@ const buildMapPopCte = (whereClause: string) => `WITH ${MAP_POPULATION_CTE} AS (
   FROM places p
   WHERE ${whereClause}
 )`;
+
+const responseFromPlaces = (filters: StatsFilters, sourcePlaces: typeof places): StatsApiResponse => {
+  const normAcceptedFilter = normalizeAcceptedValues([filters.accepted])[0]?.toLowerCase() ?? "";
+  const filteredPlaces = sourcePlaces.filter((place) => {
+    if (!isMapPopulationPlace(place)) return false;
+
+    if (filters.country && normalizeCountry(place.country) !== normalizeCountry(filters.country)) return false;
+    if (filters.city && normalizeCity(place.city) !== normalizeCity(filters.city)) return false;
+    if (filters.category && normalizeCategory(place.category) !== normalizeCategory(filters.category)) return false;
+    if (filters.verification && normalizeVerificationValue(place.verification) !== normalizeVerificationValue(filters.verification)) return false;
+
+    if (normAcceptedFilter) {
+      const accepted = normalizeAcceptedValues(place.accepted ?? place.supported_crypto ?? []).map((value) => value.toLowerCase());
+      if (!accepted.includes(normAcceptedFilter)) return false;
+    }
+
+    return true;
+  });
+
+  const byCountry = filteredPlaces.reduce<Record<string, number>>((acc, place) => {
+    const key = normalizeCountry(place.country);
+    if (!key) return acc;
+    acc[key] = (acc[key] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  const byCategory = filteredPlaces.reduce<Record<string, number>>((acc, place) => {
+    const key = normalizeCategory(place.category);
+    if (!key) return acc;
+    acc[key] = (acc[key] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  const cityCount = new Set(
+    filteredPlaces
+      .map((place) => {
+        const country = normalizeCountry(place.country);
+        const city = normalizeCity(place.city);
+        if (!country || !city) return null;
+        return `${country}::${city}`;
+      })
+      .filter(Boolean),
+  ).size;
+
+  const byCity = filteredPlaces.reduce<Record<string, number>>((acc, place) => {
+    const city = normalizeCity(place.city);
+    const country = normalizeCountry(place.country);
+    const key = city && country ? `${city}, ${country}` : city;
+    if (!key) return acc;
+    acc[key] = (acc[key] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  const chainCounts = filteredPlaces.reduce<Record<string, number>>((acc, place) => {
+    for (const accepted of normalizeAcceptedValues(place.accepted ?? place.supported_crypto ?? [])) {
+      acc[accepted] = (acc[accepted] ?? 0) + 1;
+    }
+    return acc;
+  }, {});
+
+  const sortedChains = Object.entries(chainCounts)
+    .map(([chain, total]) => ({ chain, total: Number(total) }))
+    .sort((a, b) => b.total - a.total || a.chain.localeCompare(b.chain));
+
+  const sortedCategories = Object.entries(byCategory)
+    .map(([category, total]) => ({ category, total: Number(total) }))
+    .sort((a, b) => b.total - a.total || a.category.localeCompare(b.category));
+
+  const sortedCountries = Object.entries(byCountry)
+    .map(([country, total]) => ({ country, total: Number(total) }))
+    .sort((a, b) => b.total - a.total || a.country.localeCompare(b.country));
+
+  const breakdown = filteredPlaces.reduce<StatsApiResponse["breakdown"]>((acc, place) => {
+    const v = normalizeVerificationValue(place.verification);
+    if (v === "owner") acc.owner += 1;
+    else if (v === "community") acc.community += 1;
+    else if (v === "directory") acc.directory += 1;
+    else acc.unverified += 1;
+    return acc;
+  }, { ...EMPTY_BREAKDOWN });
+
+  const topAssets = sortedChains.slice(0, TOP_CHAIN_LIMIT).map((entry) => ({ key: entry.chain, count: entry.total }));
+  const topChains = sortedChains.slice(0, TOP_CHAIN_LIMIT).map((entry) => ({ key: entry.chain, count: entry.total }));
+
+  const rows = topAssets.slice(0, TOP_MATRIX_LIMIT).map((entry) => ({
+    asset: entry.key,
+    total: entry.count,
+    counts: { [entry.key]: entry.count },
+  }));
+
+  return {
+    total_places: filteredPlaces.length,
+    total_count: filteredPlaces.length,
+    countries: Object.keys(byCountry).length,
+    cities: cityCount,
+    categories: Object.keys(byCategory).length,
+    chains: sortedChains.reduce<Record<string, number>>((acc, entry) => {
+      acc[entry.chain] = entry.total;
+      return acc;
+    }, {}),
+    breakdown,
+    verification_breakdown: withVerifiedTotal({ ...breakdown, verified: 0 }),
+    top_chains: topChains,
+    top_assets: topAssets,
+    category_ranking: sortedCategories.slice(0, TOP_RANKING_LIMIT).map((entry) => ({ key: entry.category, count: entry.total })),
+    country_ranking: sortedCountries.slice(0, TOP_RANKING_LIMIT).map((entry) => ({ key: entry.country, count: entry.total })),
+    city_ranking: Object.entries(byCity)
+      .map(([key, count]) => ({ key, count: Number(count) }))
+      .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key))
+      .slice(0, TOP_RANKING_LIMIT),
+    asset_acceptance_matrix: {
+      assets: rows.map((row) => row.asset),
+      chains: rows.map((row) => row.asset),
+      rows,
+    },
+    accepting_any_count: filteredPlaces.filter((place) => normalizeAcceptedValues(place.accepted ?? place.supported_crypto ?? []).length > 0).length,
+    meta: {
+      population: "map_pop",
+      where_version: MAP_POPULATION_WHERE_VERSION,
+      limited: false,
+      source: "fallback",
+    },
+    limited: false,
+  };
+};
 
 const loadStatsFromDb = async (route: string, filters: StatsFilters): Promise<StatsApiResponse> => {
   const placesTableExists = await tableExists(route, "places");
@@ -447,11 +628,6 @@ const loadStatsFromDb = async (route: string, filters: StatsFilters): Promise<St
   );
 
   const totalCount = Number(totalsRows.rows[0]?.total_places ?? 0);
-  const breakdownTotal = breakdown.owner + breakdown.community + breakdown.directory + breakdown.unverified;
-  if (breakdownTotal !== totalCount) {
-    console.error("[stats] verification breakdown mismatch", { totalCount, breakdownTotal, breakdown });
-  }
-
   const topAssets = parseRankingRows(assetRows.rows);
   const topChains = parseRankingRows(chainRows.rows);
   const chains = topChains.reduce<Record<string, number>>((acc, row) => {
@@ -507,13 +683,20 @@ const loadStatsFromDb = async (route: string, filters: StatsFilters): Promise<St
 
 export async function GET(request: Request) {
   const filters = parseFilters(request);
+  const debug = isDebugMode(request);
   const route = "api_stats";
   const dataSource = getDataSourceSetting();
-  const { shouldAttemptDb, hasDb } = getDataSourceContext(dataSource);
+  const { shouldAttemptDb, shouldAllowJson, hasDb } = getDataSourceContext(dataSource);
 
   if (!hasDb || !shouldAttemptDb) {
+    if (shouldAllowJson) {
+      const response = responseFromPlaces(filters, places);
+      return NextResponse.json<StatsApiResponse>(withDebugMeta(response, debug, places), {
+        headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("json", true) },
+      });
+    }
     const response = limitedResponse("fallback");
-    return NextResponse.json<StatsApiResponse>(response, {
+    return NextResponse.json<StatsApiResponse>(withDebugMeta(response, debug), {
       status: 503,
       headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("json", true) },
     });
@@ -523,17 +706,24 @@ export async function GET(request: Request) {
     const statsResponse = await withDbTimeout(loadStatsFromDb(route, filters), {
       message: "DB_TIMEOUT",
     });
-    return NextResponse.json<StatsApiResponse>(statsResponse, {
+    return NextResponse.json<StatsApiResponse>(withDebugMeta(statsResponse, debug), {
       headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("db", false) },
     });
   } catch (error) {
     if (error instanceof DbUnavailableError || (error as Error).message?.includes("DATABASE_URL")) {
-      console.error("[stats] database unavailable, serving limited stats");
+      console.error("[stats] database unavailable, serving fallback stats");
     } else {
       console.error("[stats] failed to load stats", error);
     }
 
-    return NextResponse.json<StatsApiResponse>(limitedResponse("fallback"), {
+    if (shouldAllowJson) {
+      const response = responseFromPlaces(filters, places);
+      return NextResponse.json<StatsApiResponse>(withDebugMeta(response, debug, places), {
+        headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("json", true) },
+      });
+    }
+
+    return NextResponse.json<StatsApiResponse>(withDebugMeta(limitedResponse("fallback"), debug), {
       status: 503,
       headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("db", true) },
     });
