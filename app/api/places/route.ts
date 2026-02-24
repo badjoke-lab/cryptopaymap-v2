@@ -15,7 +15,11 @@ import {
 import { places } from "@/lib/data/places";
 import { normalizeCommaParams } from "@/lib/filters";
 import { normalizeAccepted, type PaymentAccept } from "@/lib/accepted";
-import { getMapDisplayableWhereClauses, isMapDisplayablePlace } from "@/lib/stats/mapPopulation";
+import {
+  getMapPopulationWhereClauses,
+  isMapPopulationPlace,
+  normalizeVerificationSql,
+} from "@/lib/population/mapPopulationWhere";
 import type { Place } from "@/types/places";
 
 
@@ -334,7 +338,7 @@ const loadPlacesFromDb = async (
       where.push(`p.city = $${params.length}`);
     }
 
-    where.push(...getMapDisplayableWhereClauses("p"));
+    where.push(...getMapPopulationWhereClauses("p"));
 
     const hasVerifications = Boolean(tableChecks[0]?.verifications);
     const hasPayments = Boolean(tableChecks[0]?.payments);
@@ -362,7 +366,7 @@ const loadPlacesFromDb = async (
     const reviewField = hasVerifications && hasVerificationStatus ? "v.status" : null;
 
     const verificationSelect = verificationField
-      ? `, COALESCE(${verificationField}, 'unverified') AS verification`
+      ? `, COALESCE(${normalizeVerificationSql(verificationField)}, 'unverified') AS verification`
       : ", 'unverified'::text AS verification";
 
     const reviewSelect = reviewField ? `, ${reviewField} AS review_status` : ", NULL::text AS review_status";
@@ -418,7 +422,7 @@ const loadPlacesFromDb = async (
         }
       } else {
         params.push(filters.verification);
-        where.push(`COALESCE(${verificationField}, 'unverified') = ANY($${params.length}::text[])`);
+        where.push(`COALESCE(${normalizeVerificationSql(verificationField)}, 'unverified') = ANY($${params.length}::text[])`);
       }
     }
 
@@ -836,7 +840,7 @@ export async function GET(request: NextRequest) {
   const hasVerificationFilters = verificationFilters.length > 0;
 
   const filtered = sourcePlaces.filter((place) => {
-    if (!isMapDisplayablePlace(place)) {
+    if (!isMapPopulationPlace(place)) {
       return false;
     }
 
