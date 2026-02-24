@@ -227,3 +227,21 @@ ORDER BY side, reason, id;
 ## 5) 修正方針（根拠付き・1段落）
 
 修正対象は母集合定義ではなく、比較対象の取り方である。Mapの「画面内取得件数」をStatsの「全体母集合件数」と直接比較しない運用に揃えるべきで、必要なら Map 側に「全件母集合カウント専用API（`lat/lng not null` を同一述語でCOUNT）」を追加し、UI表示上も `in_view_count` と `population_total` を分離して明示するのが整合的である（根拠: 両者が同じ `getMapDisplayableWhereClauses` を参照している一方、Map実表示は `bbox/limit` を常時付与）。
+
+---
+
+## 6) TASK B 実装後の一致確認（population_id更新）
+
+実装内容（最小修正）:
+- `/api/stats` の母集合CTEは引き続き `getMapDisplayableWhereClauses("p")` を参照し、Mapと同一ソースを利用。
+- `meta.population_id` を `places:map_population:v2` に更新（旧 `v1` と識別可能）。
+
+比較表:
+
+| 観点 | 結果 | 根拠 |
+|---|---:|---|
+| Map母集合カウント（`isMapDisplayablePlace`） | 5 | `node --import tsx -e "...places.filter(isMapDisplayablePlace).length..."` |
+| `/api/stats` `total_places` | 5 | `curl http://localhost:3105/api/stats` |
+| `/api/stats` `meta.population_id` | `places:map_population:v2` | 同上 |
+
+上記により、TASK Aで確定した Map母集合（`lat/lng` 表示可能条件）と Stats母集合の一致、および population_id の更新を確認。

@@ -40,7 +40,7 @@ type StatsResponse = {
   };
   meta?: {
     source: 'db_live';
-    population_id: 'places:map_visible:v1';
+    population_id: 'places:map_population:v2';
     as_of: string;
   };
   generated_at?: string;

@@ -14,6 +14,8 @@ import { getMapDisplayableWhereClauses, isMapDisplayablePlace } from "@/lib/stat
 
 export const revalidate = 7200;
 
+const MAP_POPULATION_ID = "places:map_population:v2" as const;
+
 type StatsFilters = {
   country: string;
   city: string;
@@ -61,7 +63,7 @@ export type StatsApiResponse = {
   limited?: boolean;
   meta?: {
     source: "db_live";
-    population_id: "places:map_visible:v1";
+    population_id: typeof MAP_POPULATION_ID;
     as_of: string;
   };
 };
@@ -745,7 +747,7 @@ export async function GET(request: Request) {
       return NextResponse.json<StatsApiResponse>({
         ...responseFromPlaces(filters, jsonPlaces),
         ok: true,
-        meta: { source: "db_live", population_id: "places:map_visible:v1", as_of: new Date().toISOString() },
+        meta: { source: "db_live", population_id: MAP_POPULATION_ID, as_of: new Date().toISOString() },
       }, {
         headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("json", true) },
       });
@@ -765,7 +767,7 @@ export async function GET(request: Request) {
     return NextResponse.json<StatsApiResponse>({
       ...statsResponse,
       ok: true,
-      meta: { source: "db_live", population_id: "places:map_visible:v1", as_of: new Date().toISOString() },
+      meta: { source: "db_live", population_id: MAP_POPULATION_ID, as_of: new Date().toISOString() },
     }, {
       headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("db", false) },
     });
@@ -789,7 +791,7 @@ export async function GET(request: Request) {
       return NextResponse.json<StatsApiResponse>({
         ...responseFromPlaces(filters, jsonPlaces),
         ok: true,
-        meta: { source: "db_live", population_id: "places:map_visible:v1", as_of: new Date().toISOString() },
+        meta: { source: "db_live", population_id: MAP_POPULATION_ID, as_of: new Date().toISOString() },
       }, {
         headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("json", true) },
       });
