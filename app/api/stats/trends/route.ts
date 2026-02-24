@@ -23,6 +23,7 @@ type VerificationStackedPoint = {
 };
 
 export type StatsTrendsResponse = {
+  ok?: true;
   range: TrendRange;
   grain: TrendGrain;
   last_updated: string;
@@ -34,9 +35,20 @@ export type StatsTrendsResponse = {
   }>;
   stack: VerificationStackedPoint[];
   meta?: { reason: "no_history_data" | "db_unavailable" | "internal_error" };
+  response_meta?: {
+    source: "db";
+    as_of: string;
+  };
+};
+
+type TrendsUnavailableResponse = {
+  ok: false;
+  error: "stats_unavailable";
+  reason: "db_error";
 };
 
 const CACHE_CONTROL = "public, s-maxage=300, stale-while-revalidate=60";
+const NO_STORE = "no-store";
 const HISTORY_ACTIONS = ["approve", "promote"];
 const VALID_RANGES: TrendRange[] = ["24h", "7d", "30d", "all"];
 const VERIFIED_LEVELS = ["owner", "community", "directory"];
@@ -162,13 +174,10 @@ export async function GET(request: Request) {
   const responseUpdatedAt = new Date().toISOString();
 
   if (!hasDatabaseUrl()) {
-    const { labels } = buildBuckets(range, grain, null);
-    return NextResponse.json<StatsTrendsResponse>({
-      ...buildEmptyResponse(range, grain, labels, "no_history_data"),
-      last_updated: responseUpdatedAt,
-    }, {
+    return NextResponse.json<TrendsUnavailableResponse>({ ok: false, error: "stats_unavailable", reason: "db_error" }, {
+      status: 503,
       headers: {
-        "Cache-Control": CACHE_CONTROL,
+        "Cache-Control": NO_STORE,
         ...buildDataSourceHeaders("db", true),
       },
     });
@@ -336,30 +345,27 @@ export async function GET(request: Request) {
       ...(hasAnyData ? {} : { meta: { reason: "no_history_data" as const } }),
     };
 
-    return NextResponse.json<StatsTrendsResponse>(response, {
+    return NextResponse.json<StatsTrendsResponse>({
+      ...response,
+      ok: true,
+      response_meta: { source: "db", as_of: responseUpdatedAt },
+    }, {
       headers: {
         "Cache-Control": CACHE_CONTROL,
         ...buildDataSourceHeaders("db", false),
       },
     });
   } catch (error) {
-    const { labels } = buildBuckets(range, grain, null);
     if (error instanceof DbUnavailableError || (error as Error).message?.includes("DATABASE_URL")) {
-      return NextResponse.json<StatsTrendsResponse>({
-        ...buildEmptyResponse(range, grain, labels, "db_unavailable"),
-        last_updated: responseUpdatedAt,
-      }, {
+      return NextResponse.json<TrendsUnavailableResponse>({ ok: false, error: "stats_unavailable", reason: "db_error" }, {
         status: 503,
-        headers: buildDataSourceHeaders("db", true),
+        headers: { "Cache-Control": NO_STORE, ...buildDataSourceHeaders("db", true) },
       });
     }
     console.error("[stats] failed to load trends", error);
-    return NextResponse.json<StatsTrendsResponse>({
-      ...buildEmptyResponse(range, grain, labels, "internal_error"),
-      last_updated: responseUpdatedAt,
-    }, {
-      status: 500,
-      headers: buildDataSourceHeaders("db", true),
+    return NextResponse.json<TrendsUnavailableResponse>({ ok: false, error: "stats_unavailable", reason: "db_error" }, {
+      status: 503,
+      headers: { "Cache-Control": NO_STORE, ...buildDataSourceHeaders("db", true) },
     });
   }
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 
 import VerificationDonut from '@/components/stats/VerificationDonut';
@@ -8,6 +8,7 @@ import LimitedModeNotice from '@/components/status/LimitedModeNotice';
 import { safeFetch } from '@/lib/safeFetch';
 
 type StatsResponse = {
+  ok: true;
   total_places: number;
   total_count: number;
   countries: number;
@@ -62,6 +63,7 @@ type VerificationStackedPoint = {
 type TrendRange = '24h' | '7d' | '30d' | 'all';
 
 type TrendsResponse = {
+  ok: true;
   range: TrendRange;
   grain: '1h' | '1d' | '1w';
   last_updated: string;
@@ -71,6 +73,13 @@ type TrendsResponse = {
 };
 
 type FetchStatus = 'idle' | 'loading' | 'success';
+
+
+type StatsUnavailableResponse = {
+  ok: false;
+  error: 'stats_unavailable';
+  reason: 'db_error';
+};
 
 type StatsFilters = {
   country: string;
@@ -94,6 +103,8 @@ type StatsState = {
   notice?: string;
   stats?: StatsResponse;
   trends?: TrendsResponse;
+  statsUnavailable?: boolean;
+  trendsUnavailable?: boolean;
 };
 
 type ChartSeries = {
@@ -123,6 +134,7 @@ const DEFAULT_FILTERS: StatsFilters = {
 };
 
 const EMPTY_STATS: StatsResponse = {
+  ok: true,
   total_places: 0,
   total_count: 0,
   countries: 0,
@@ -156,6 +168,7 @@ const EMPTY_STATS: StatsResponse = {
 };
 
 const createEmptyTrends = (range: TrendRange): TrendsResponse => ({
+  ok: true,
   range,
   grain: '1d',
   last_updated: new Date(0).toISOString(),
@@ -457,8 +470,6 @@ export default function StatsPageClient() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [trendRange, setTrendRange] = useState<TrendRange>('7d');
   const [state, setState] = useState<StatsState>({ status: 'loading' });
-  const lastSuccessfulSnapshotRef = useRef<StatsResponse | null>(null);
-  const lastSuccessfulTrendsRef = useRef<Partial<Record<TrendRange, TrendsResponse>>>({});
   const stats = state.stats ?? EMPTY_STATS;
   const trends = state.trends ?? createEmptyTrends(trendRange);
 
@@ -474,42 +485,69 @@ export default function StatsPageClient() {
 
   const fetchSnapshot = useCallback(async (activeFilters: StatsFilters) => {
     setState((previous) => ({ ...previous, status: 'loading' }));
-    const statsResult = await safeFetch<StatsResponse>(`/api/stats${buildSnapshotQuery(activeFilters)}`)
-      .then((value) => ({ ok: true as const, value }))
-      .catch(() => ({ ok: false as const, value: lastSuccessfulSnapshotRef.current ?? EMPTY_STATS }));
 
-    const statsValue = statsResult.value;
-    if (statsResult.ok) {
-      lastSuccessfulSnapshotRef.current = statsValue;
+    try {
+      const response = await fetch(`/api/stats${buildSnapshotQuery(activeFilters)}`);
+      const payload = await response.json() as StatsResponse | StatsUnavailableResponse;
+
+      if (!response.ok || payload.ok === false) {
+        setState((previous) => ({
+          ...previous,
+          status: 'success',
+          stats: undefined,
+          statsUnavailable: true,
+          notice: 'Stats temporarily unavailable. Please try again later.',
+        }));
+        return;
+      }
+
+      setState((previous) => ({
+        ...previous,
+        status: 'success',
+        stats: payload,
+        statsUnavailable: false,
+        notice: undefined,
+      }));
+    } catch {
+      setState((previous) => ({
+        ...previous,
+        status: 'success',
+        stats: undefined,
+        statsUnavailable: true,
+        notice: 'Stats temporarily unavailable. Please try again later.',
+      }));
     }
-
-    const notice = statsResult.ok ? undefined : 'Showing last successful stats due to API error.';
-
-    setState((previous) => ({
-      status: 'success',
-      stats: statsValue,
-      trends: previous.trends,
-      notice,
-    }));
   }, [buildSnapshotQuery]);
 
   const fetchTrends = useCallback(async (range: TrendRange) => {
-    const trendsResult = await safeFetch<TrendsResponse>(`/api/stats/trends?range=${range}`)
-      .then((value) => ({ ok: true as const, value }))
-      .catch(() => ({
-        ok: false as const,
-        value: lastSuccessfulTrendsRef.current[range] ?? createEmptyTrends(range),
+    try {
+      const response = await fetch(`/api/stats/trends?range=${range}`);
+      const payload = await response.json() as TrendsResponse | StatsUnavailableResponse;
+
+      if (!response.ok || payload.ok === false) {
+        setState((previous) => ({
+          ...previous,
+          trends: undefined,
+          trendsUnavailable: true,
+          notice: 'Stats temporarily unavailable. Please try again later.',
+        }));
+        return;
+      }
+
+      setState((previous) => ({
+        ...previous,
+        status: previous.stats ? 'success' : previous.status,
+        trends: payload,
+        trendsUnavailable: false,
       }));
-
-    if (trendsResult.ok) {
-      lastSuccessfulTrendsRef.current[range] = trendsResult.value;
+    } catch {
+      setState((previous) => ({
+        ...previous,
+        trends: undefined,
+        trendsUnavailable: true,
+        notice: 'Stats temporarily unavailable. Please try again later.',
+      }));
     }
-
-    setState((previous) => ({
-      ...previous,
-      status: previous.stats ? 'success' : previous.status,
-      trends: trendsResult.value,
-    }));
   }, []);
 
   const syncUrl = useCallback((next: StatsFilters) => {
@@ -669,7 +707,8 @@ export default function StatsPageClient() {
   }, [matrixRows, stats.asset_acceptance_matrix.chains]);
 
   const lastUpdated = stats.generated_at ? new Date(stats.generated_at).toLocaleString() : null;
-  const showLimited = Boolean(stats.limited || state.notice);
+  const unavailable = Boolean(state.statsUnavailable || state.trendsUnavailable);
+  const showLimited = Boolean((stats.limited || state.notice) && !unavailable);
   const cityOptions = filters.country ? filterMeta?.cities?.[filters.country] ?? [] : [];
 
   if (state.status === 'loading') {
@@ -718,7 +757,10 @@ export default function StatsPageClient() {
               state.notice ? (
                 <button
                   type="button"
-                  onClick={() => fetchSnapshot(filters)}
+                  onClick={() => {
+                    fetchSnapshot(filters);
+                    fetchTrends(trendRange);
+                  }}
                   className="inline-flex items-center gap-2 rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-700"
                 >
                   Retry
@@ -779,6 +821,12 @@ export default function StatsPageClient() {
           </div>
         </section>
 
+        {unavailable ? (
+          <section className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-5 text-sm text-amber-900">
+            Stats temporarily unavailable. Please try again later.
+          </section>
+        ) : null}
+
         <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {summaryCards.map((card) => (
             <div
@@ -787,13 +835,15 @@ export default function StatsPageClient() {
             >
               <span className="text-sm font-medium text-gray-600">{card.label}</span>
               <span className="mt-1 text-2xl font-semibold text-gray-900 sm:text-[26px]">
-                {card.value.toLocaleString()}
+                {unavailable ? '—' : card.value.toLocaleString()}
               </span>
               <span className="text-xs text-gray-500">{card.description}</span>
             </div>
           ))}
         </section>
 
+        {!unavailable ? (
+          <>
         <SectionCard
           eyebrow="Trends"
           title="Growth trends"
@@ -932,6 +982,8 @@ export default function StatsPageClient() {
             </div>
           )}
         </SectionCard>
+          </>
+        ) : null}
       </div>
     </main>
   );
