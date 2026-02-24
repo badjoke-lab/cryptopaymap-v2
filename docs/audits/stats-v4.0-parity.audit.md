@@ -21,6 +21,13 @@
 - `breakdown合計 != total_count` の場合にエラーログを出す整合チェックを追加した。
 - Stats UIに Verification Breakdown ドーナツ表示をコンポーネント化して反映した。
 
+## PR-3 反映メモ（再発防止: 単一母集合CTE `map_pop` 固定）
+
+- PR2での回帰原因は、`loadStatsFromDb` が `stats_cache` / `responseFromDbFallback` / `fetchDbSnapshotV4` を合成する構造だったこと。`total_count` と `distinct` が cache/fallback 側、`breakdown` が live 側になり得て、同一レスポンス内で母集合が分離した。
+- `/api/stats` は `WITH map_pop AS (...)` を唯一の母集合CTEとして固定し、`total/breakdown/distinct/ranking/chain/matrix` 全項目を `map_pop` 参照へ統一した。
+- `stats_cache` 由来の合成経路を撤去し、DB不達時は `limited=true` の明示レスポンス（または JSON fallback）に一本化して「部分的な別ソース混在」を禁止した。
+- `/api/stats` レスポンスに `meta` を追加し、`population=map_pop`, `where_version=v1`, `source=db|fallback` を返すようにした。
+
 ---
 
 ## 0. エグゼクティブサマリ

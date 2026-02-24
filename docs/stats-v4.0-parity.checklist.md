@@ -12,7 +12,7 @@
 ## 0. 監査前提（最上位）
 
 - [ ] Map母集合（表示可能集合）をコード根拠付きで定義した
-- [ ] Stats母集合（/api/stats が実際に数える集合）をコード根拠付きで定義した
+- [x] Stats母集合（/api/stats が実際に数える集合）をコード根拠付きで定義した
 - [ ] 両者の差分を「WHERE条件差 / データソース差 / キャッシュ差 / UI差」で分類した
 - [ ] **母集合差分がある場合、以下すべてのメトリクス判定はNGまたはPartialで理由を記載した**
 
@@ -31,21 +31,21 @@
 
 ### A-2. Stats母集合
 
-- [ ] `FROM places` に対する WHERE 条件を列挙
+- [x] `FROM places` に対する WHERE 条件を列挙
 - [x] `lat/lng NOT NULL` 条件有無
 - [ ] `published/approved` など表示可否条件有無
 - [ ] `promoted/source` の扱い（任意フィルタか必須条件か）
 - [x] DB経路とJSON fallback経路で同一定義か
-- [ ] `stats_cache` 併用時の出所差（total系 vs ranking系）を確認
+- [x] `stats_cache` 併用時の出所差（total系 vs ranking系）を確認
 
 ---
 
 ## B. メトリクス完全一致（全項目）
 
 ### B-1. Total places
-- [ ] Map母集合期待値SQLを定義
+- [x] Map母集合期待値SQLを定義
 - [x] Stats API返却フィールド（`total_places` / `total_count`）対応を確認
-- [ ] 判定（OK/Partial/NG）
+- [x] 判定（OK/Partial/NG）
 
 ### B-2. 4クラス件数（owner / community / directory / unverified）
 - [x] Map母集合期待値SQLを定義
@@ -54,22 +54,22 @@
 - [x] 判定（OK）
 
 ### B-3. Countries（distinct）+ Countries ranking
-- [ ] distinct countries の期待値SQL
-- [ ] countries ranking の期待値SQL
+- [x] distinct countries の期待値SQL
+- [x] countries ranking の期待値SQL
 - [x] Stats API返却（`countries`, `country_ranking`）対応を確認
-- [ ] 判定
+- [x] 判定
 
 ### B-4. Cities（distinct）+ Cities ranking
-- [ ] distinct cities の期待値SQL（`country,city` 複合キーを明記）
-- [ ] cities ranking の期待値SQL
+- [x] distinct cities の期待値SQL（`country,city` 複合キーを明記）
+- [x] cities ranking の期待値SQL
 - [x] Stats API返却（`cities`, `city_ranking`）対応を確認
-- [ ] 判定
+- [x] 判定
 
 ### B-5. Categories（distinct）+ Category ranking
-- [ ] distinct categories の期待値SQL
-- [ ] categories ranking の期待値SQL
+- [x] distinct categories の期待値SQL
+- [x] categories ranking の期待値SQL
 - [x] Stats API返却（`categories`, `category_ranking`）対応を確認
-- [ ] 判定
+- [x] 判定
 
 ### B-6. Chains / Assets（Top, ranking, totals）
 - [ ] chain top/ranking の期待値SQL
@@ -96,7 +96,7 @@
 
 - [x] DB利用時（Map=DB, Stats=DB）での一致
 - [x] JSON fallback時（Map=JSON, Stats=JSON）での一致
-- [ ] 片側のみJSON化した時の挙動差
+- [x] 片側のみJSON化した時の挙動差
 - [ ] キャッシュ鮮度差（Map 20s / Stats cache-control + stats_cache）
 - [ ] 0件時レスポンス（NaNや空配列崩れ）
 

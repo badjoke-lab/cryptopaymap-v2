@@ -39,6 +39,12 @@ type StatsResponse = {
   };
   generated_at?: string;
   limited?: boolean;
+  meta?: {
+    limited: boolean;
+    population: 'map_pop';
+    where_version: 'v1';
+    source: 'db' | 'fallback';
+  };
 };
 
 type TrendPoint = {
