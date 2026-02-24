@@ -42,6 +42,8 @@ type StatsResponse = {
     source: 'db_live';
     population_id: 'places:map_population:v2';
     as_of: string;
+    acceptance_chain_missing_places: number;
+    acceptance_unknown_chain_included: true;
   };
   generated_at?: string;
   limited?: boolean;
@@ -126,6 +128,8 @@ const TREND_RANGE_OPTIONS: Array<{ value: TrendRange; label: string }> = [
   { value: 'all', label: 'All' },
 ];
 const EMPTY_MESSAGE = 'No data (showing 0).';
+
+const formatChainLabel = (value: string) => value.trim().toLowerCase() === 'unknown' ? 'Unknown' : value;
 const FILTER_KEYS: Array<keyof StatsFilters> = ['country', 'city', 'category', 'accepted', 'verification', 'promoted', 'source'];
 
 const DEFAULT_FILTERS: StatsFilters = {
@@ -190,7 +194,7 @@ const createEmptyTrends = (range: TrendRange): TrendsResponse => ({
   meta: { reason: 'no_history_data' },
 });
 
-function HorizontalBarList({ title, rows }: { title: string; rows: Array<{ key: string; count: number }> }) {
+function HorizontalBarList({ title, rows, formatKey = (key: string) => key }: { title: string; rows: Array<{ key: string; count: number }>; formatKey?: (key: string) => string }) {
   const max = Math.max(...rows.map((row) => row.count), 1);
 
   return (
@@ -201,7 +205,7 @@ function HorizontalBarList({ title, rows }: { title: string; rows: Array<{ key: 
           {rows.map((row) => (
             <div key={row.key}>
               <div className="mb-1 flex items-center justify-between text-xs text-gray-700">
-                <span className="font-medium">{row.key}</span>
+                <span className="font-medium">{formatKey(row.key)}</span>
                 <span>{row.count.toLocaleString()}</span>
               </div>
               <div className="h-2 rounded bg-gray-100">
@@ -802,7 +806,7 @@ export default function StatsPageClient() {
             </select>
             <select value={filters.accepted} onChange={(event) => handleFilterChange('accepted', event.target.value)} className="rounded-md border border-gray-300 px-3 py-2 text-sm">
               <option value="">All assets/chains</option>
-              {(filterMeta?.chains ?? []).map((chain) => <option key={chain} value={chain}>{chain}</option>)}
+              {(filterMeta?.chains ?? []).map((chain) => <option key={chain} value={chain}>{formatChainLabel(chain)}</option>)}
             </select>
             <select value={filters.verification} onChange={(event) => handleFilterChange('verification', event.target.value)} className="rounded-md border border-gray-300 px-3 py-2 text-sm">
               <option value="">All verification</option>
@@ -896,8 +900,9 @@ export default function StatsPageClient() {
           title="Chains / Assets"
           description="Top accepted chains and assets shown as descending bar charts."
         >
+          <p className="mb-3 text-xs text-gray-600">Network can be &apos;unknown&apos; when the source data doesn&apos;t specify on-chain / Lightning / etc.</p>
           <div className="grid gap-4 lg:grid-cols-2">
-            <HorizontalBarList title="Top chains" rows={chainEntries.slice(0, 10)} />
+            <HorizontalBarList title="Top chains" rows={chainEntries.slice(0, 10)} formatKey={formatChainLabel} />
             <HorizontalBarList title="Top assets" rows={assetEntries.slice(0, 10)} />
           </div>
         </SectionCard>
@@ -950,8 +955,9 @@ export default function StatsPageClient() {
         <SectionCard
           eyebrow="Snapshot"
           title="Asset Acceptance Matrix"
-          description="Asset × chain acceptance counts. Rows with empty accepts are excluded by API rules."
+          description="Asset × chain acceptance counts grouped by known network plus an unknown bucket when chain data is missing."
         >
+          <p className="mb-3 text-xs text-gray-600">Network can be &apos;unknown&apos; when the source data doesn&apos;t specify on-chain / Lightning / etc.</p>
           {matrixRows.length && matrixChains.length ? (
             <div className="overflow-hidden rounded-md border border-gray-200">
               <div className="overflow-x-auto">
@@ -960,7 +966,7 @@ export default function StatsPageClient() {
                     <tr>
                       <th className="px-4 py-2 text-left">Asset</th>
                       {matrixChains.map((chain) => (
-                        <th key={chain} className="px-4 py-2 text-right">{chain}</th>
+                        <th key={chain} className="px-4 py-2 text-right">{formatChainLabel(chain)}</th>
                       ))}
                       <th className="px-4 py-2 text-right">Total</th>
                     </tr>
