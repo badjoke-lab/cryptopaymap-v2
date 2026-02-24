@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { promises as fs } from "node:fs";
+import path from "node:path";
 
 import { DbUnavailableError, dbQuery } from "@/lib/db";
 import { places } from "@/lib/data/places";
@@ -8,6 +10,7 @@ import {
   getDataSourceSetting,
   withDbTimeout,
 } from "@/lib/dataSource";
+import { getMapDisplayableWhereClauses, isMapDisplayablePlace } from "@/lib/stats/mapPopulation";
 
 export const revalidate = 7200;
 
@@ -198,8 +201,20 @@ const responseFromCache = (row: CacheRow): StatsApiResponse => {
   };
 };
 
-const responseFromPlaces = (filters: StatsFilters): StatsApiResponse => {
-  const filteredPlaces = places.filter((place) => {
+const loadPlacesFromJsonFallback = async () => {
+  const filePath = path.join(process.cwd(), "data", "places.json");
+  const raw = await fs.readFile(filePath, "utf8");
+  const parsed = JSON.parse(raw);
+  if (!Array.isArray(parsed)) {
+    throw new Error("INVALID_PLACES_JSON");
+  }
+  return parsed;
+};
+
+const responseFromPlaces = (filters: StatsFilters, sourcePlaces: typeof places): StatsApiResponse => {
+  const filteredPlaces = sourcePlaces.filter((place) => {
+    if (!isMapDisplayablePlace(place)) return false;
+
     if (filters.country && (place.country ?? "").trim() !== filters.country) return false;
     if (filters.city && (place.city ?? "").trim() !== filters.city) return false;
     if (filters.category && (place.category ?? "").trim() !== filters.category) return false;
@@ -325,6 +340,18 @@ const parseRankingRows = (rows: Array<{ key: string | null; total: string | numb
     .map((row) => ({ key: row.key?.trim() ?? "", count: Number(row.total ?? 0) }))
     .filter((row) => Boolean(row.key) && Number.isFinite(row.count) && row.count > 0);
 
+const buildFilteredPlacesCte = (whereClause: string) => {
+  const baseClause = getMapDisplayableWhereClauses("p").join(" AND ");
+  const dynamicClause = whereClause.replace(/^WHERE\s+/i, "").trim();
+  const combinedWhere = [baseClause, dynamicClause].filter(Boolean).join(" AND ");
+
+  return `WITH filtered_places AS (
+      SELECT p.id, p.country, p.city, p.category
+      FROM places p
+      WHERE ${combinedWhere}
+    )`;
+};
+
 type FilterSqlOptions = {
   hasCountry: boolean;
   hasCity: boolean;
@@ -431,11 +458,22 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
     verificationColumn,
   });
 
-  const filteredPlacesCte = `WITH filtered_places AS (
-      SELECT p.id, p.country, p.city, p.category
-      FROM places p
-      ${whereClause}
-    )`;
+  const filteredPlacesCte = buildFilteredPlacesCte(whereClause);
+
+  const totalsPromise = dbQuery<{ total_places: string; countries: string; cities: string; categories: string }>(
+    `${filteredPlacesCte}
+     SELECT
+       COUNT(*) AS total_places,
+       COUNT(DISTINCT NULLIF(BTRIM(country), '')) AS countries,
+       COUNT(DISTINCT (NULLIF(BTRIM(country), ''), NULLIF(BTRIM(city), ''))) FILTER (
+         WHERE NULLIF(BTRIM(country), '') IS NOT NULL
+           AND NULLIF(BTRIM(city), '') IS NOT NULL
+       ) AS cities,
+       COUNT(DISTINCT NULLIF(BTRIM(category), '')) AS categories
+     FROM filtered_places`,
+    params,
+    { route },
+  );
 
   const verificationPromise = verificationColumn
     ? dbQuery<{ key: string | null; total: string }>(
@@ -555,8 +593,9 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
       )
     : Promise.resolve({ rows: [] as Array<{ asset: string | null; chain: string | null; total: string }> });
 
-  const [verificationRows, categoryRows, countryRows, cityRows, chainRows, assetRows, acceptingAnyRows, matrixRows] =
+  const [totalsRows, verificationRows, categoryRows, countryRows, cityRows, chainRows, assetRows, acceptingAnyRows, matrixRows] =
     await Promise.all([
+      totalsPromise,
       verificationPromise,
       categoryPromise,
       countryPromise,
@@ -600,6 +639,11 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
   }
 
   return {
+    total_places: Number(totalsRows.rows[0]?.total_places ?? 0),
+    total_count: Number(totalsRows.rows[0]?.total_places ?? 0),
+    countries: Number(totalsRows.rows[0]?.countries ?? 0),
+    cities: Number(totalsRows.rows[0]?.cities ?? 0),
+    categories: Number(totalsRows.rows[0]?.categories ?? 0),
     verification_breakdown: withVerifiedTotal(verificationBreakdown),
     top_chains: topChains,
     top_assets: topAssets,
@@ -659,11 +703,7 @@ const responseFromDbFallback = async (route: string, filters: StatsFilters): Pro
     verificationColumn,
   });
 
-  const filteredPlacesCte = `WITH filtered_places AS (
-      SELECT p.id, p.country, p.city, p.category
-      FROM places p
-      ${whereClause}
-    )`;
+  const filteredPlacesCte = buildFilteredPlacesCte(whereClause);
 
   const totalPromise = dbQuery<{ total: string }>(`${filteredPlacesCte} SELECT COUNT(*) AS total FROM filtered_places`, params, { route });
 
@@ -787,9 +827,18 @@ export async function GET(request: Request) {
   }
 
   if (!shouldAttemptDb) {
-    return NextResponse.json<StatsApiResponse>(responseFromPlaces(filters), {
-      headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("json", true) },
-    });
+    try {
+      const jsonPlaces = await loadPlacesFromJsonFallback();
+      return NextResponse.json<StatsApiResponse>(responseFromPlaces(filters, jsonPlaces), {
+        headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("json", true) },
+      });
+    } catch (error) {
+      console.error("[stats] failed to load JSON fallback", error);
+      return NextResponse.json<StatsApiResponse>(limitedResponse(), {
+        status: 503,
+        headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("json", true) },
+      });
+    }
   }
 
   try {
@@ -813,8 +862,17 @@ export async function GET(request: Request) {
       });
     }
 
-    return NextResponse.json<StatsApiResponse>(responseFromPlaces(filters), {
-      headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("json", true) },
-    });
+    try {
+      const jsonPlaces = await loadPlacesFromJsonFallback();
+      return NextResponse.json<StatsApiResponse>(responseFromPlaces(filters, jsonPlaces), {
+        headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("json", true) },
+      });
+    } catch (jsonError) {
+      console.error("[stats] failed to load JSON fallback", jsonError);
+      return NextResponse.json<StatsApiResponse>(limitedResponse(), {
+        status: 503,
+        headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("json", true) },
+      });
+    }
   }
 }
