@@ -11,6 +11,7 @@ import {
   withDbTimeout,
 } from "@/lib/dataSource";
 import { getMapDisplayableWhereClauses, isMapDisplayablePlace } from "@/lib/stats/mapPopulation";
+import { normalizeAcceptanceChainKey } from "@/lib/stats/acceptance";
 
 export const revalidate = 7200;
 
@@ -65,6 +66,8 @@ export type StatsApiResponse = {
     source: "db_live";
     population_id: typeof MAP_POPULATION_ID;
     as_of: string;
+    acceptance_chain_missing_places: number;
+    acceptance_unknown_chain_included: true;
   };
 };
 
@@ -314,6 +317,7 @@ const normalizeVerificationSql = (columnSql: string) =>
     WHEN NULLIF(BTRIM(${columnSql}), '') = 'directory' THEN 'directory'
     ELSE 'unverified'
   END`;
+
 
 const parseRankingRows = (rows: Array<{ key: string | null; total: string | number }>) =>
   rows
@@ -578,10 +582,9 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
     ? runStatsQuery<{ key: string | null; total: string }>(
         "top_chains",
         `${filteredPlacesCte}
-         SELECT NULLIF(BTRIM(pa.chain), '') AS key, COUNT(*) AS total
+         SELECT COALESCE(NULLIF(BTRIM(pa.chain), ''), 'unknown') AS key, COUNT(*) AS total
          FROM payment_accepts pa
          INNER JOIN filtered_places fp ON fp.id = pa.place_id
-         WHERE NULLIF(BTRIM(pa.chain), '') IS NOT NULL
          GROUP BY 1
          ORDER BY COUNT(*) DESC, key ASC
          LIMIT ${TOP_CHAIN_LIMIT}`,
@@ -624,11 +627,10 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
     ? runStatsQuery<{ asset: string | null; chain: string | null; total: string }>(
         "asset_acceptance_matrix",
         `${filteredPlacesCte}
-         SELECT NULLIF(BTRIM(pa.asset), '') AS asset, NULLIF(BTRIM(pa.chain), '') AS chain, COUNT(*) AS total
+         SELECT NULLIF(BTRIM(pa.asset), '') AS asset, COALESCE(NULLIF(BTRIM(pa.chain), ''), 'unknown') AS chain, COUNT(*) AS total
          FROM payment_accepts pa
          INNER JOIN filtered_places fp ON fp.id = pa.place_id
          WHERE NULLIF(BTRIM(pa.asset), '') IS NOT NULL
-           AND NULLIF(BTRIM(pa.chain), '') IS NOT NULL
          GROUP BY 1, 2
          ORDER BY COUNT(*) DESC, asset ASC, chain ASC
          LIMIT ${TOP_MATRIX_LIMIT * TOP_MATRIX_LIMIT}`,
@@ -637,7 +639,21 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
       )
     : Promise.resolve({ rows: [] as Array<{ asset: string | null; chain: string | null; total: string }> });
 
-  const [totalsRows, verificationRows, categoryRows, countryRows, cityRows, chainRows, assetRows, acceptingAnyRows, matrixRows] =
+  const chainMissingPlacesPromise = hasPayments && hasPaymentAsset && hasPaymentChain && hasPaymentPlaceId
+    ? runStatsQuery<{ total: string }>(
+        "acceptance_chain_missing_places",
+        `${filteredPlacesCte}
+         SELECT COUNT(DISTINCT pa.place_id) AS total
+         FROM payment_accepts pa
+         INNER JOIN filtered_places fp ON fp.id = pa.place_id
+         WHERE NULLIF(BTRIM(pa.asset), '') IS NOT NULL
+           AND NULLIF(BTRIM(pa.chain), '') IS NULL`,
+        params,
+        route,
+      )
+    : Promise.resolve({ rows: [{ total: "0" }] as Array<{ total: string }> });
+
+  const [totalsRows, verificationRows, categoryRows, countryRows, cityRows, chainRows, assetRows, acceptingAnyRows, matrixRows, chainMissingPlacesRows] =
     await Promise.all([
       totalsPromise,
       verificationPromise,
@@ -648,6 +664,7 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
       assetPromise,
       acceptingAnyPromise,
       matrixPromise,
+      chainMissingPlacesPromise,
     ]);
 
   const breakdown = verificationRows.rows.reduce(
@@ -670,16 +687,16 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
   }
 
   const topAssets = parseRankingRows(assetRows.rows);
-  const topChains = parseRankingRows(chainRows.rows);
+  const topChains = parseRankingRows(chainRows.rows).map((entry) => ({ ...entry, key: normalizeAcceptanceChainKey(entry.key) }));
 
   const matrixAssets = new Set(topAssets.slice(0, TOP_MATRIX_LIMIT).map((row) => row.key));
   const matrixChains = new Set(topChains.slice(0, TOP_MATRIX_LIMIT).map((row) => row.key));
   const rowMap = new Map<string, { asset: string; total: number; counts: Record<string, number> }>();
   for (const row of matrixRows.rows) {
     const asset = row.asset?.trim();
-    const chain = row.chain?.trim();
+    const chain = normalizeAcceptanceChainKey(row.chain);
     const total = Number(row.total ?? 0);
-    if (!asset || !chain || !Number.isFinite(total) || total <= 0) continue;
+    if (!asset || !Number.isFinite(total) || total <= 0) continue;
     matrixAssets.add(asset);
     matrixChains.add(chain);
     const existing = rowMap.get(asset) ?? { asset, total: 0, counts: {} };
@@ -713,6 +730,13 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
       rows: Array.from(rowMap.values()).sort((a, b) => b.total - a.total || a.asset.localeCompare(b.asset)),
     },
     accepting_any_count: Number(acceptingAnyRows.rows[0]?.total ?? 0),
+    meta: {
+      source: "db_live",
+      population_id: MAP_POPULATION_ID,
+      as_of: new Date().toISOString(),
+      acceptance_chain_missing_places: Number(chainMissingPlacesRows.rows[0]?.total ?? 0),
+      acceptance_unknown_chain_included: true,
+    },
   };
 };
 
@@ -747,7 +771,13 @@ export async function GET(request: Request) {
       return NextResponse.json<StatsApiResponse>({
         ...responseFromPlaces(filters, jsonPlaces),
         ok: true,
-        meta: { source: "db_live", population_id: MAP_POPULATION_ID, as_of: new Date().toISOString() },
+        meta: {
+          source: "db_live",
+          population_id: MAP_POPULATION_ID,
+          as_of: new Date().toISOString(),
+          acceptance_chain_missing_places: 0,
+          acceptance_unknown_chain_included: true,
+        },
       }, {
         headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("json", true) },
       });
@@ -767,7 +797,13 @@ export async function GET(request: Request) {
     return NextResponse.json<StatsApiResponse>({
       ...statsResponse,
       ok: true,
-      meta: { source: "db_live", population_id: MAP_POPULATION_ID, as_of: new Date().toISOString() },
+      meta: statsResponse.meta ?? {
+        source: "db_live",
+        population_id: MAP_POPULATION_ID,
+        as_of: new Date().toISOString(),
+        acceptance_chain_missing_places: 0,
+        acceptance_unknown_chain_included: true,
+      },
     }, {
       headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("db", false) },
     });
@@ -791,7 +827,13 @@ export async function GET(request: Request) {
       return NextResponse.json<StatsApiResponse>({
         ...responseFromPlaces(filters, jsonPlaces),
         ok: true,
-        meta: { source: "db_live", population_id: MAP_POPULATION_ID, as_of: new Date().toISOString() },
+        meta: {
+          source: "db_live",
+          population_id: MAP_POPULATION_ID,
+          as_of: new Date().toISOString(),
+          acceptance_chain_missing_places: 0,
+          acceptance_unknown_chain_included: true,
+        },
       }, {
         headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("json", true) },
       });
