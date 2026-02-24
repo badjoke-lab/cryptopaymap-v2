@@ -69,7 +69,8 @@ type CacheRow = {
   generated_at: string | Date | null;
 };
 
-const CACHE_CONTROL = "public, s-maxage=7200, stale-while-revalidate=600";
+const CACHE_CONTROL = "public, s-maxage=30, stale-while-revalidate=30";
+const FALLBACK_CACHE_CONTROL = "no-store";
 const TOP_CHAIN_LIMIT = 50;
 const TOP_RANKING_LIMIT = 10;
 const TOP_MATRIX_LIMIT = 20;
@@ -918,7 +919,7 @@ export async function GET(request: Request) {
     try {
       const jsonPlaces = await loadPlacesFromJsonFallback();
       return NextResponse.json<StatsApiResponse>(responseFromPlaces(filters, jsonPlaces), {
-        headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("json", true) },
+        headers: { "Cache-Control": FALLBACK_CACHE_CONTROL, ...buildDataSourceHeaders("json", true) },
       });
     } catch (jsonError) {
       console.error("[stats] failed to load JSON fallback", jsonError);
