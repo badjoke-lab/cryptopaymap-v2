@@ -13,6 +13,7 @@ import {
 
 import { parseMultipartSubmission, type MultipartFilesByField } from "@/lib/submissions/parseMultipart";
 import { validateMultipartSubmission } from "@/lib/submissions/validateMultipart";
+import { normalizePaymentAccepts, type PaymentAcceptInput } from "@/lib/submit/normalizePaymentAccepts";
 
 export type SubmissionKind = "owner" | "community" | "report";
 export type SubmissionLevel = "owner" | "community" | "unverified";
@@ -29,6 +30,7 @@ type SubmissionPayloadBase = {
   communityEvidenceUrls?: string[];
   amenitiesNotes?: string;
   submittedBy?: Record<string, unknown>;
+  payment_accepts?: PaymentAcceptInput[];
 };
 
 export type OwnerCommunitySubmissionPayload = SubmissionPayloadBase & {
@@ -291,6 +293,7 @@ const isNewSchemaCandidate = (body: Record<string, unknown>) =>
     "reportAction",
     "reportReason",
     "reportDetails",
+    "payment_accepts",
   ].some((key) => key in body);
 
 const buildLegacySubmissionPayload = (body: Record<string, unknown>, expectedKind: SubmissionKind) => ({
@@ -333,6 +336,9 @@ const buildLegacySubmissionPayload = (body: Record<string, unknown>, expectedKin
   reportDetails: body.reportDetails ?? body.details,
   placeId: body.placeId ?? (body.place as Record<string, unknown> | undefined)?.id,
   placeName: body.placeName ?? (body.place as Record<string, unknown> | undefined)?.name,
+  payment_accepts:
+    body.payment_accepts ??
+    (body.place as Record<string, unknown> | undefined)?.payment_accepts,
 });
 
 const validateLength = (
@@ -406,6 +412,10 @@ export const normalizeSubmission = (raw: unknown): NormalizationResult => {
   const rawLng = obj.lng;
   const parsedLat = ensureNumber(rawLat);
   const parsedLng = ensureNumber(rawLng);
+  const normalizedPaymentAccepts = normalizePaymentAccepts(obj.payment_accepts);
+  if (!normalizedPaymentAccepts.ok) {
+    Object.assign(errors, normalizedPaymentAccepts.errors);
+  }
 
   if (kind !== "report") {
     if (!name) errors.name = "Required";
@@ -516,6 +526,7 @@ export const normalizeSubmission = (raw: unknown): NormalizationResult => {
       reportDetails,
       reportAction: reportAction ?? "",
       communityEvidenceUrls,
+      payment_accepts: normalizedPaymentAccepts.ok ? normalizedPaymentAccepts.value : undefined,
     };
   } else {
     payload = {
@@ -539,6 +550,7 @@ export const normalizeSubmission = (raw: unknown): NormalizationResult => {
       paymentNote,
       ownerVerification: ownerVerification ?? "",
       communityEvidenceUrls,
+      payment_accepts: normalizedPaymentAccepts.ok ? normalizedPaymentAccepts.value : undefined,
       website,
       twitter,
       instagram,
@@ -835,7 +847,7 @@ const errorResponse = (status: number, error: SubmissionError) => {
 };
 
 const submissionCurlHint =
-  "Use multipart form-data with a payload JSON field. Example: curl -F 'payload={\"kind\":\"owner\",\"name\":\"Example\",\"country\":\"US\",\"city\":\"Austin\",\"address\":\"100 Congress Ave\",\"category\":\"cafe\",\"acceptedChains\":[\"btc\"],\"ownerVerification\":\"domain\",\"contactEmail\":\"me@example.com\"}' $BASE/api/submissions";
+  "Use multipart form-data with a payload JSON field. Example: curl -F 'payload={\"kind\":\"owner\",\"name\":\"Example\",\"country\":\"US\",\"city\":\"Austin\",\"address\":\"100 Congress Ave\",\"category\":\"cafe\",\"acceptedChains\":[\"btc\"],\"payment_accepts\":[{\"asset_key\":\"USDT\",\"rail_key\":\"trc20\"}],\"ownerVerification\":\"domain\",\"contactEmail\":\"me@example.com\"}' $BASE/api/submissions";
 
 const invalidPayloadResponse = (message: string, details?: Record<string, unknown>) =>
   errorResponse(400, {
@@ -1171,6 +1183,9 @@ export const handleLegacySubmission = async (request: Request, expectedKind: Sub
             rawBody.acceptedChains ??
             rawBody.accepted ??
             (rawBody.place as Record<string, unknown> | undefined)?.accepted,
+          payment_accepts:
+            rawBody.payment_accepts ??
+            (rawBody.place as Record<string, unknown> | undefined)?.payment_accepts,
           ownerVerification: rawBody.ownerVerification ?? rawBody.ownerVerificationMethod,
           verificationRequest: rawBody.verificationRequest ?? expectedKind,
           kind: rawBody.kind ?? expectedKind,

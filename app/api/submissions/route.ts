@@ -90,7 +90,7 @@ export async function POST(request: Request) {
           error: "Invalid submission",
           errors: normalizedErrors ?? { body: "Invalid JSON payload" },
           hint:
-            "Use multipart form-data with a payload JSON field. Example: curl -F 'payload={\"kind\":\"owner\",\"name\":\"Example\",\"country\":\"US\",\"city\":\"Austin\",\"address\":\"100 Congress Ave\",\"category\":\"cafe\",\"acceptedChains\":[\"btc\"],\"ownerVerification\":\"domain\",\"contactEmail\":\"me@example.com\"}' $BASE/api/submissions",
+            "Use multipart form-data with a payload JSON field. Example: curl -F 'payload={\"kind\":\"owner\",\"name\":\"Example\",\"country\":\"US\",\"city\":\"Austin\",\"address\":\"100 Congress Ave\",\"category\":\"cafe\",\"acceptedChains\":[\"btc\"],\"payment_accepts\":[{\"asset_key\":\"USDT\",\"rail_key\":\"trc20\"}],\"ownerVerification\":\"domain\",\"contactEmail\":\"me@example.com\"}' $BASE/api/submissions",
         }),
         { status: 400, headers: { "Content-Type": "application/json" } },
       );
