@@ -89,6 +89,8 @@ const SUPPORT_LINKS = [
   },
 ];
 
+const ENABLE_HOSTED_DONATIONS = false;
+
 export default function DonatePage() {
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 py-10 sm:px-6 sm:py-12">
@@ -126,23 +128,27 @@ export default function DonatePage() {
         </div>
       </section>
 
-      <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-        <h2 className="text-xl font-semibold text-gray-900">Card &amp; hosted donations</h2>
-        <p className="mt-2 text-sm text-gray-600">Prefer a traditional checkout? Use one of the hosted options.</p>
-        <div className="mt-4 flex flex-wrap gap-3">
-          {SUPPORT_LINKS.map((link) => (
-            <a
-              key={link.href}
-              href={link.href}
-              target="_blank"
-              rel="noreferrer"
-              className="rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-white"
-            >
-              {link.label}
-            </a>
-          ))}
-        </div>
-      </section>
+      {ENABLE_HOSTED_DONATIONS ? (
+        <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+          <h2 className="text-xl font-semibold text-gray-900">Card &amp; hosted donations</h2>
+          <p className="mt-2 text-sm text-gray-600">Prefer a traditional checkout? Use one of the hosted options.</p>
+          <div className="mt-4 flex flex-wrap gap-3">
+            {SUPPORT_LINKS.map((link) => (
+              <a
+                key={link.href}
+                href={link.href}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-white"
+              >
+                {link.label}
+              </a>
+            ))}
+          </div>
+        </section>
+      ) : (
+        <p className="text-sm text-gray-500">Hosted donations are temporarily unavailable.</p>
+      )}
     </div>
   );
 }

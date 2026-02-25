@@ -50,9 +50,7 @@ const FAQS = [
   },
   {
     question: 'Is it free to use and submit places?',
-    answerPrefix: 'Yes. Using CryptoPayMap and submitting updates are free. We’re currently supported by ',
-    answerLinkLabel: 'donations',
-    answerSuffix: '.',
+    answer: 'Yes. Using CryptoPayMap and submitting updates are free. We’re currently supported by donations.',
   },
 ] as const;
 
@@ -142,19 +140,7 @@ export default function HomePage() {
             {FAQS.map((faq) => (
               <details key={faq.question} className="rounded-xl border border-gray-200 bg-gray-50 p-4">
                 <summary className="cursor-pointer list-none text-base font-semibold text-gray-900">{faq.question}</summary>
-                <p className="mt-2 text-sm leading-6 text-gray-700">
-                  {'answer' in faq ? (
-                    faq.answer
-                  ) : (
-                    <>
-                      {faq.answerPrefix}
-                      <Link href="/donate" className="text-sky-700 underline underline-offset-2">
-                        {faq.answerLinkLabel}
-                      </Link>
-                      {faq.answerSuffix}
-                    </>
-                  )}
-                </p>
+                <p className="mt-2 text-sm leading-6 text-gray-700">{faq.answer}</p>
               </details>
             ))}
           </div>
