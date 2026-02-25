@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { places as fallbackPlaces } from '@/lib/data/places';
 import { getPlaceDetail } from '@/lib/places/detail';
 import { buildPlaceMetadata } from '@/lib/seo/metadata';
 
@@ -12,6 +13,11 @@ const formatLocation = (city: string | null | undefined, country: string | null 
   const location = [city, country].map((value) => value?.trim()).filter(Boolean).join(', ');
   return location.length ? location : null;
 };
+
+const siteUrl = 'https://www.cryptopaymap.com';
+const relatedLinksLimit = 6;
+
+const normalizeText = (value: string | null | undefined) => value?.trim().toLowerCase() ?? '';
 
 export async function generateMetadata({ params }: PlacePageProps): Promise<Metadata> {
   const { id } = params;
@@ -34,10 +40,76 @@ export default async function PlaceDetailPage({ params }: PlacePageProps) {
   const location = formatLocation(place.city, place.country);
   const heading = location ? `${place.name} — ${location}` : place.name;
   const address = place.address_full?.trim() || formatLocation(place.city, place.country);
+  const placeUrl = `${siteUrl}/place/${encodeURIComponent(place.id)}`;
+
+  const relatedByCountry = normalizeText(place.country)
+    ? fallbackPlaces
+        .filter(
+          (candidate) =>
+            candidate.id !== place.id &&
+            normalizeText(candidate.country) === normalizeText(place.country),
+        )
+        .slice(0, relatedLinksLimit)
+    : [];
+
+  const relatedByCategory = normalizeText(place.category)
+    ? fallbackPlaces
+        .filter(
+          (candidate) =>
+            candidate.id !== place.id &&
+            normalizeText(candidate.category) === normalizeText(place.category),
+        )
+        .slice(0, relatedLinksLimit)
+    : [];
+
+  const localBusinessJsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'LocalBusiness',
+    '@id': placeUrl,
+    url: placeUrl,
+    name: place.name,
+    ...(place.category?.trim() ? { category: place.category.trim() } : {}),
+    ...(address ? { address } : {}),
+    ...(place.lat != null && place.lng != null
+      ? {
+          geo: {
+            '@type': 'GeoCoordinates',
+            latitude: place.lat,
+            longitude: place.lng,
+          },
+        }
+      : {}),
+  };
+
+  const breadcrumbJsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      {
+        '@type': 'ListItem',
+        position: 1,
+        name: 'Map',
+        item: `${siteUrl}/map`,
+      },
+      {
+        '@type': 'ListItem',
+        position: 2,
+        name: place.name,
+        item: placeUrl,
+      },
+    ],
+  };
 
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
       <article className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8">
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify([localBusinessJsonLd, breadcrumbJsonLd]),
+          }}
+        />
+
         <h1 className="text-3xl font-semibold text-gray-900 sm:text-4xl">{heading}</h1>
 
         <dl className="mt-8 grid gap-5">
@@ -87,6 +159,46 @@ export default async function PlaceDetailPage({ params }: PlacePageProps) {
             Open on Map
           </Link>
         </div>
+
+        {relatedByCountry.length > 0 || relatedByCategory.length > 0 ? (
+          <section className="mt-10 border-t border-gray-100 pt-6">
+            <h2 className="text-lg font-semibold text-gray-900">Related places</h2>
+
+            {relatedByCountry.length > 0 ? (
+              <div className="mt-4">
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+                  Same country
+                </h3>
+                <ul className="mt-2 list-disc space-y-1 pl-5">
+                  {relatedByCountry.map((candidate) => (
+                    <li key={`country-${candidate.id}`}>
+                      <Link href={`/place/${encodeURIComponent(candidate.id)}`} className="text-sky-700 hover:underline">
+                        {candidate.name}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {relatedByCategory.length > 0 ? (
+              <div className="mt-5">
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+                  Same category
+                </h3>
+                <ul className="mt-2 list-disc space-y-1 pl-5">
+                  {relatedByCategory.map((candidate) => (
+                    <li key={`category-${candidate.id}`}>
+                      <Link href={`/place/${encodeURIComponent(candidate.id)}`} className="text-sky-700 hover:underline">
+                        {candidate.name}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
       </article>
     </main>
   );
