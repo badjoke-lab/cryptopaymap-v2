@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import { places as fallbackPlaces } from '@/lib/data/places';
 import { getPlaceDetail } from '@/lib/places/detail';
 import { buildPlaceMetadata } from '@/lib/seo/metadata';
+import { safeDecode } from '@/lib/utils/safeDecode';
 
 type PlacePageProps = {
   params: { id: string };
@@ -20,7 +21,8 @@ const relatedLinksLimit = 6;
 const normalizeText = (value: string | null | undefined) => value?.trim().toLowerCase() ?? '';
 
 export async function generateMetadata({ params }: PlacePageProps): Promise<Metadata> {
-  const { id } = params;
+  const rawId = params.id;
+  const id = safeDecode(rawId);
   const { place } = await getPlaceDetail(id);
 
   return buildPlaceMetadata({
@@ -30,7 +32,8 @@ export async function generateMetadata({ params }: PlacePageProps): Promise<Meta
 }
 
 export default async function PlaceDetailPage({ params }: PlacePageProps) {
-  const { id } = params;
+  const rawId = params.id;
+  const id = safeDecode(rawId);
   const { place } = await getPlaceDetail(id);
 
   if (!place) {
