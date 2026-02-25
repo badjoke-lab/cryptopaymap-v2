@@ -51,7 +51,7 @@ export default function DiscoverPage() {
         </ul>
         <div className="mt-6 flex flex-wrap gap-3">
           <Link
-            href="/"
+            href="/map"
             className="rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-white"
           >
             Explore the map
