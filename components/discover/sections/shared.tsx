@@ -1,7 +1,16 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
+import type { DiscoverEnvelope } from '@/lib/discover/types';
+
+export type SectionState<T> = {
+  loading: boolean;
+  error: string | null;
+  data: T;
+  limited: boolean;
+  limitedReason?: string;
+};
 
 export function SectionShell({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
   return (
@@ -50,6 +59,14 @@ export function SectionError({ summary, details, onRetry }: { summary: string; d
   );
 }
 
+export function LimitedDataNote({ reason }: { reason?: string }) {
+  return (
+    <p className="mt-3 text-xs text-gray-500">
+      Limited data{reason ? `: ${reason}` : ''}.
+    </p>
+  );
+}
+
 export function SectionEmpty({ message }: { message: string }) {
   return <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-600">{message}</div>;
 }
@@ -81,4 +98,44 @@ export function MapLink({ href, children, className }: { href: string; children:
       {children}
     </Link>
   );
+}
+
+export async function fetchDiscover<T>(url: string): Promise<DiscoverEnvelope<T>> {
+  const response = await fetch(url, { cache: 'no-store' });
+  const payload = (await response.json()) as DiscoverEnvelope<T>;
+  if (!response.ok || !payload.ok) {
+    throw new Error(payload.reason || 'Request failed');
+  }
+  return payload;
+}
+
+export function formatTimeLabel(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return 'recently';
+  const diffMs = Date.now() - date.getTime();
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+  if (diffHours < 24) return `${Math.max(diffHours, 1)}h ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toISOString().slice(0, 10);
+}
+
+export function useBreakpoint(): 'mobile' | 'tablet' | 'pc' {
+  const [breakpoint, setBreakpoint] = useState<'mobile' | 'tablet' | 'pc'>('pc');
+
+  useEffect(() => {
+    const calculate = () => {
+      const width = window.innerWidth;
+      if (width <= 767) return 'mobile';
+      if (width <= 1023) return 'tablet';
+      return 'pc';
+    };
+
+    const update = () => setBreakpoint(calculate());
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
+
+  return breakpoint;
 }
