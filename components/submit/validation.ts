@@ -66,13 +66,10 @@ export const validateDraft = (
     if (payload.category.length > MAX_LENGTHS.category) {
       errors.category = `Must be ${MAX_LENGTHS.category} characters or fewer`;
     }
-    if (!payload.acceptedChains.length) errors.acceptedChains = "Select at least one";
-    if (payload.acceptedChains.length > MAX_LENGTHS.acceptedChainsMax) {
-      errors.acceptedChains = `Must include ${MAX_LENGTHS.acceptedChainsMax} items or fewer`;
-    }
-    if (payload.acceptedChains.some((chain) => chain.length > MAX_LENGTHS.chain)) {
-      errors.acceptedChains = `Entries must be ${MAX_LENGTHS.chain} characters or fewer`;
-    }
+    const paymentAssets = payload.paymentAccepts
+      .map((entry) => entry.assetKey.trim().replace(/\s+/g, "").toUpperCase())
+      .filter(Boolean);
+    if (!paymentAssets.length) errors.paymentAccepts = "Select at least one asset";
     if (payload.about) {
       if (payload.about.length > MAX_LENGTHS.about) {
         errors.about = `Must be ${MAX_LENGTHS.about} characters or fewer`;

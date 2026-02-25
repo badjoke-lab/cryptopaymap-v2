@@ -8,6 +8,7 @@ export type OwnerCommunityDraft = {
   address: string;
   category: string;
   acceptedChains: string[];
+  paymentAccepts: PaymentAcceptDraft[];
   about: string;
   paymentNote: string;
   paymentUrl: string;
@@ -30,6 +31,13 @@ export type OwnerCommunityDraft = {
   communityEvidenceUrls: string[];
   amenities: string[];
   amenitiesNotes: string;
+};
+
+export type PaymentAcceptDraft = {
+  assetKey: string;
+  assetLabel?: string;
+  rails: string[];
+  customRails: string[];
 };
 
 export type ReportDraft = {

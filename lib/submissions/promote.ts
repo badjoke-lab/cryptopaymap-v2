@@ -523,7 +523,28 @@ export const promoteSubmission = async (
       const values = hasMethod ? "($1, $2, $3, $4)" : "($1, $2, $3)";
       const conflictTarget = hasMethod ? "(place_id, asset, chain, method)" : "(place_id, asset, chain)";
 
-      if (submission.accepted_chains?.length) {
+      const payloadPaymentAccepts = Array.isArray((submission.payload as OwnerCommunitySubmissionPayload).payment_accepts)
+        ? ((submission.payload as OwnerCommunitySubmissionPayload).payment_accepts ?? [])
+        : [];
+
+      if (payloadPaymentAccepts.length) {
+        for (const row of payloadPaymentAccepts) {
+          const asset = row.asset_key?.trim();
+          const railKey = row.rail_key?.trim();
+          if (!asset || !railKey) continue;
+
+          const method = row.rail_raw?.trim() || null;
+          const chain = hasMethod && railKey === "custom" ? "custom" : railKey;
+
+          await dbQuery(
+            `INSERT INTO payment_accepts ${columns}
+             VALUES ${values}
+             ON CONFLICT ${conflictTarget} DO NOTHING`,
+            hasMethod ? [placeId, asset, chain, method] : [placeId, asset, chain],
+            { route, client, retry: false },
+          );
+        }
+      } else if (submission.accepted_chains?.length) {
         for (const asset of submission.accepted_chains) {
           await dbQuery(
             `INSERT INTO payment_accepts ${columns}

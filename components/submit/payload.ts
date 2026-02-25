@@ -10,6 +10,24 @@ const parseNumber = (value: string): number | undefined => {
 
 const normalizeList = (value?: string[]) => (value ?? []).map((entry) => entry.trim()).filter(Boolean);
 
+const buildPaymentAcceptRows = (value: OwnerCommunityDraft["paymentAccepts"]) =>
+  value.flatMap((entry) => {
+    const assetKey = entry.assetKey.trim().replace(/\s+/g, "").toUpperCase();
+    if (!assetKey) return [];
+
+    const knownRows = normalizeList(entry.rails).map((rail) => ({ asset_key: assetKey, rail_key: rail.toLowerCase() }));
+    const customRows = normalizeList(entry.customRails).map((rail) => ({
+      asset_key: assetKey,
+      rail_key: "custom",
+      rail_raw: rail,
+    }));
+    const rows = [...knownRows, ...customRows];
+    return rows.length ? rows : [{ asset_key: assetKey, rail_key: "unknown" }];
+  });
+
+const deriveAcceptedChainsFromPaymentAccepts = (rows: Array<{ asset_key: string }>) =>
+  Array.from(new Set(rows.map((row) => row.asset_key).filter(Boolean)));
+
 export const buildSubmissionPayload = (draft: SubmissionDraft) => {
   const communityEvidenceUrls = normalizeList(draft.communityEvidenceUrls);
   if (draft.kind === "report") {
@@ -31,6 +49,7 @@ export const buildSubmissionPayload = (draft: SubmissionDraft) => {
   }
 
   const draftPayload = draft as OwnerCommunityDraft;
+  const paymentAcceptRows = buildPaymentAcceptRows(draftPayload.paymentAccepts);
   return {
     verificationRequest: draftPayload.kind,
     kind: draftPayload.kind,
@@ -39,7 +58,8 @@ export const buildSubmissionPayload = (draft: SubmissionDraft) => {
     city: draftPayload.city,
     address: draftPayload.address,
     category: draftPayload.category,
-    acceptedChains: draftPayload.acceptedChains,
+    acceptedChains: deriveAcceptedChainsFromPaymentAccepts(paymentAcceptRows),
+    payment_accepts: paymentAcceptRows,
     about: draftPayload.about || undefined,
     paymentNote: draftPayload.paymentNote || undefined,
     paymentUrl: draftPayload.paymentUrl || undefined,
