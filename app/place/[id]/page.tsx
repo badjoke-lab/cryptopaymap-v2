@@ -33,7 +33,7 @@ export default async function PlaceDetailPage({ params }: PlacePageProps) {
 
   const location = formatLocation(place.city, place.country);
   const heading = location ? `${place.name} — ${location}` : place.name;
-  const address = place.address_full?.trim() || place.address?.trim() || formatLocation(place.city, place.country);
+  const address = place.address_full?.trim() || formatLocation(place.city, place.country);
 
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
