@@ -762,8 +762,19 @@ export default function MapClient() {
       setSelectionNotice(null);
       return;
     }
+
+    if (selectedPlaceParam && selectedPlaceParam === selectedPlaceId) {
+      drawerReasonRef.current = `invalid-query-param:${selectedPlaceParam}`;
+      skipNextSelectionRef.current = true;
+      setSelectionNotice(null);
+      setSelectedPlaceId(null);
+      setIsPlaceOpen(false);
+      router.replace("/map", { scroll: false });
+      return;
+    }
+
     setSelectionNotice("Selected place is outside the current map area or filters.");
-  }, [places, placesStatus, selectedPlaceId]);
+  }, [places, placesStatus, router, selectedPlaceId, selectedPlaceParam]);
 
   useEffect(() => {
     if (!fetchPlacesRef.current) return;
