@@ -42,7 +42,7 @@ export default function VerificationHubSection() {
             <p className="mt-1 text-sm text-gray-600">{item.summary}</p>
             <button
               type="button"
-              className="mt-2 text-xs font-semibold text-gray-700 underline"
+              className="mt-2 min-h-[36px] text-xs font-semibold text-gray-700 underline"
               onClick={() => setExpandedDesktop((prev) => (prev === item.key ? null : item.key))}
             >
               {expandedDesktop === item.key ? 'Less' : 'More'}
@@ -55,7 +55,7 @@ export default function VerificationHubSection() {
       <div className="space-y-2 sm:hidden">
         {verificationItems.map((item) => (
           <details key={item.key} className="rounded-lg border border-gray-200 bg-white p-3">
-            <summary className="cursor-pointer list-none font-semibold text-gray-900">{item.title}</summary>
+            <summary className="cursor-pointer list-none py-1 text-base font-semibold text-gray-900">{item.title}</summary>
             <p className="mt-2 text-sm text-gray-600">{item.summary}</p>
             <p className="mt-2 text-xs text-gray-600">{item.details}</p>
           </details>
