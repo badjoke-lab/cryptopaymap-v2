@@ -3,5 +3,6 @@ Allow: /
 Disallow: /api/
 Disallow: /_next/
 Disallow: /internal
+Disallow: /internal/
 
 Sitemap: https://www.cryptopaymap.com/sitemap.xml

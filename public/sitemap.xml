@@ -28,4 +28,5 @@
     <loc>https://www.cryptopaymap.com/map</loc>
     <lastmod>2026-02-02</lastmod>
   </url>
+  <!-- Dynamic /place/* detail pages are intentionally omitted from this static sitemap. -->
 </urlset>
