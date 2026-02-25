@@ -2,8 +2,9 @@ import './globals.css';
 import type { Metadata } from 'next';
 import Script from 'next/script';
 import { ReactNode } from 'react';
+import { DEFAULT_DESCRIPTION } from '@/lib/seo/metadata';
 
-const description = 'CryptoPayMap — find crypto-friendly places worldwide, with verification levels to judge listing reliability.';
+const description = DEFAULT_DESCRIPTION;
 const siteUrl = 'https://www.cryptopaymap.com';
 
 export const metadata: Metadata = {
@@ -13,9 +14,6 @@ export const metadata: Metadata = {
     template: '%s | CryptoPayMap',
   },
   description,
-  alternates: {
-    canonical: '/',
-  },
   icons: {
     icon: [
       { url: '/favicon.ico' },

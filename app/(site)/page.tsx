@@ -1,34 +1,13 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { buildPageMetadata } from '@/lib/seo/metadata';
 
-export const metadata: Metadata = {
-  title: 'Home',
-  description: 'CryptoPayMap helps you find places that accept cryptocurrency, with verification signals and transparent listing sources.',
-  alternates: {
-    canonical: '/',
-  },
-  openGraph: {
-    title: 'CryptoPayMap',
-    description: 'Find crypto-friendly places worldwide with map search, verification levels, and community-driven updates.',
-    url: '/',
-    siteName: 'CryptoPayMap',
-    type: 'website',
-    images: [
-      {
-        url: '/og.png',
-        width: 1200,
-        height: 630,
-        alt: 'CryptoPayMap',
-      },
-    ],
-  },
-  twitter: {
-    card: 'summary_large_image',
-    title: 'CryptoPayMap',
-    description: 'Find crypto-friendly places worldwide with map search, verification levels, and community-driven updates.',
-    images: ['/og.png'],
-  },
-};
+export const metadata: Metadata = buildPageMetadata({
+  title: 'Find crypto-friendly places worldwide',
+  description:
+    'Discover cafes, shops, and services that accept cryptocurrency, then review listing trust signals before you visit.',
+  path: '/',
+});
 
 export default function HomePage() {
   return (

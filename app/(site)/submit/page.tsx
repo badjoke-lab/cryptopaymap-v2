@@ -1,34 +1,13 @@
-import type { Metadata } from "next";
-import Link from "next/link";
+import type { Metadata } from 'next';
+import Link from 'next/link';
+import { buildPageMetadata } from '@/lib/seo/metadata';
 
-export const metadata: Metadata = {
-  title: 'Submit',
-  description: 'Submit a place or request updates as Owner Verified, Community Verified, or Report a listing.',
-  alternates: {
-    canonical: '/submit',
-  },
-  openGraph: {
-    title: 'Submit | CryptoPayMap',
-    description: 'Submit a place or request updates as Owner Verified, Community Verified, or Report a listing.',
-    url: '/submit',
-    siteName: 'CryptoPayMap',
-    type: 'website',
-    images: [
-      {
-        url: '/og.png',
-        width: 1200,
-        height: 630,
-        alt: 'CryptoPayMap',
-      },
-    ],
-  },
-  twitter: {
-    card: 'summary_large_image',
-    title: 'Submit | CryptoPayMap',
-    description: 'Submit a place or request updates as Owner Verified, Community Verified, or Report a listing.',
-    images: ['/og.png'],
-  },
-};
+export const metadata: Metadata = buildPageMetadata({
+  title: 'Submit a place or listing update',
+  description:
+    'Send owner verification requests, community additions, or listing issue reports to keep CryptoPayMap accurate.',
+  path: '/submit',
+});
 
 const SubmitCard = ({
   title,
