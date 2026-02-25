@@ -153,6 +153,8 @@ export default function MapClient() {
   const isMobilePlaceOpen = mounted && isPlaceOpen && Boolean(selectedPlaceId);
   const drawerMode: "full" = "full";
 
+  const selectedPlaceParam = searchParams.get("place") ?? searchParams.get("select");
+
   const invalidateMapSize = useCallback(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
@@ -305,9 +307,8 @@ export default function MapClient() {
     if (!hasHydratedFiltersRef.current) return;
     const nextQuery = buildQueryFromFilters(filters);
     const nextParams = new URLSearchParams(nextQuery.replace("?", ""));
-    const selectParam = searchParams.get("select");
-    if (selectParam) {
-      nextParams.set("select", selectParam);
+    if (selectedPlaceParam) {
+      nextParams.set("place", selectedPlaceParam);
     }
     const nextQueryWithSelection = nextParams.toString();
     const currentQuery = searchParams.toString() ? `?${searchParams.toString()}` : "";
@@ -315,7 +316,7 @@ export default function MapClient() {
     if (normalizedQuery !== currentQuery) {
       router.replace(`${pathname}${normalizedQuery}`, { scroll: false });
     }
-  }, [filters, pathname, router, searchParams]);
+  }, [filters, pathname, router, searchParams, selectedPlaceParam]);
 
   useEffect(() => {
     let isMounted = true;
@@ -774,7 +775,7 @@ export default function MapClient() {
   }, [filters]);
 
   useEffect(() => {
-    const selectParam = searchParams.get("select");
+    const selectParam = selectedPlaceParam;
     if (skipNextSelectionRef.current) {
       if (!selectParam) {
         skipNextSelectionRef.current = false;
@@ -786,22 +787,24 @@ export default function MapClient() {
     }
     if (selectParam) {
       if (selectParam !== selectedPlaceIdRef.current) {
-        drawerReasonRef.current = `search-param:${selectParam}`;
+        drawerReasonRef.current = `query-param:${selectParam}`;
         setSelectedPlaceId(selectParam);
       }
       setIsPlaceOpen(true);
     }
-if (!selectionHydrated) {
+    if (!selectionHydrated) {
       setSelectionHydrated(true);
     }
-  }, [searchParams, selectionHydrated]);
+  }, [selectedPlaceParam, selectionHydrated]);
 
   useEffect(() => {
     if (!selectionHydrated) return;
     const params = new URLSearchParams(searchParams.toString());
     if (selectedPlaceId) {
-      params.set("select", selectedPlaceId);
+      params.set("place", selectedPlaceId);
+      params.delete("select");
     } else {
+      params.delete("place");
       params.delete("select");
     }
     const nextQuery = params.toString();
