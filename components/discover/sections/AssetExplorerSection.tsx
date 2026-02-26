@@ -180,7 +180,7 @@ export default function AssetExplorerSection() {
             <ul className="mt-2 space-y-2 text-sm">
               {panel.recent5.slice(0, 5).map((item) => (
                 <li key={item.placeId}>
-                  <MapLink href={`/map?place=${encodeURIComponent(item.placeId)}`} className="block rounded px-1 py-1 hover:bg-gray-50">
+                  <MapLink href={`/map?place=${encodeURIComponent(item.placeId)}${activeAsset ? `&asset=${encodeURIComponent(activeAsset)}` : ''}`} className="block rounded px-1 py-1 hover:bg-gray-50">
                     <p className="truncate font-medium text-gray-900">{item.name}</p>
                     <p className="truncate text-xs text-gray-600">{item.city}, {item.country}</p>
                   </MapLink>
