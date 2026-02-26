@@ -56,7 +56,7 @@ export default function FeaturedCitiesSection() {
 
       {!loading && !error && items.length > 0 ? (
         <div className="overflow-hidden">
-          <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1 sm:mx-0 sm:grid sm:snap-none sm:grid-cols-2 sm:overflow-visible sm:px-0 lg:grid-cols-3">
+          <div className="mx-0 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1 sm:grid sm:snap-none sm:grid-cols-2 sm:overflow-visible sm:px-0 lg:grid-cols-3">
             {items.map((city) => {
               const totalVerification = city.verificationBreakdown.owner + city.verificationBreakdown.community + city.verificationBreakdown.directory + city.verificationBreakdown.unverified;
               return (

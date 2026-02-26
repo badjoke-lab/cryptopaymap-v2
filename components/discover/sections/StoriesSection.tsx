@@ -182,8 +182,8 @@ export default function StoriesSection() {
     <>
       <SectionShell title="Stories" description="Snapshot narratives and monthly highlights from the map ecosystem.">
         <div className="mb-4 flex gap-2 overflow-x-auto" role="tablist" aria-label="Stories tabs" onKeyDown={onTabKeyDown}>
-          <TabButton active={activeTab === 'auto'} onClick={() => setActiveTab('auto')} id="stories-tab-auto" controls="stories-panel-auto">Auto Stories</TabButton>
-          <TabButton active={activeTab === 'monthly'} onClick={() => setActiveTab('monthly')} id="stories-tab-monthly" controls="stories-panel-monthly">Monthly Report</TabButton>
+          <TabButton active={activeTab === 'auto'} onClick={() => setActiveTab('auto')} id="stories-tab-auto" controls="stories-panel-auto">Auto</TabButton>
+          <TabButton active={activeTab === 'monthly'} onClick={() => setActiveTab('monthly')} id="stories-tab-monthly" controls="stories-panel-monthly">Monthly</TabButton>
         </div>
 
         {activeTab === 'auto' ? (
