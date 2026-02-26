@@ -32,10 +32,11 @@ const verificationItems = [
 
 export default function VerificationHubSection() {
   const [expandedDesktop, setExpandedDesktop] = useState<string | null>(null);
+  const [expandedMobile, setExpandedMobile] = useState<string | null>(null);
 
   return (
     <SectionShell title="Verification Hub" description="How verification labels are used across map listings.">
-      <div className="hidden gap-3 sm:grid sm:grid-cols-2 lg:grid-cols-4">
+      <div className="hidden gap-3 md:grid md:grid-cols-2 lg:grid-cols-4">
         {verificationItems.map((item) => (
           <article key={item.key} className="rounded-lg border border-gray-200 p-4">
             <h3 className="font-semibold text-gray-900">{item.title}</h3>
@@ -52,13 +53,25 @@ export default function VerificationHubSection() {
         ))}
       </div>
 
-      <div className="space-y-2 sm:hidden">
+      <div className="space-y-2 md:hidden" data-testid="verification-accordion">
         {verificationItems.map((item) => (
-          <details key={item.key} className="rounded-lg border border-gray-200 bg-white p-3">
-            <summary className="cursor-pointer list-none py-1 text-base font-semibold text-gray-900">{item.title}</summary>
-            <p className="mt-2 text-sm text-gray-600">{item.summary}</p>
-            <p className="mt-2 text-xs text-gray-600">{item.details}</p>
-          </details>
+          <article key={item.key} className="rounded-lg border border-gray-200 bg-white p-3">
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-3 py-1 text-left text-base font-semibold text-gray-900"
+              onClick={() => setExpandedMobile((prev) => (prev === item.key ? null : item.key))}
+              aria-expanded={expandedMobile === item.key}
+              aria-controls={`verification-content-${item.key}`}
+              data-testid={`verification-trigger-${item.key}`}
+            >
+              <span>{item.title}</span>
+              <span className="text-xs font-semibold text-gray-600">{expandedMobile === item.key ? 'Hide' : 'More'}</span>
+            </button>
+            <div id={`verification-content-${item.key}`} className="mt-2" hidden={expandedMobile !== item.key}>
+              <p className="text-sm text-gray-600">{item.summary}</p>
+              <p className="mt-2 text-xs text-gray-600">{item.details}</p>
+            </div>
+          </article>
         ))}
       </div>
     </SectionShell>

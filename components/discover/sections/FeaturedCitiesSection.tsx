@@ -12,6 +12,7 @@ export default function FeaturedCitiesSection() {
   const [limitedReason, setLimitedReason] = useState<string | undefined>();
   const [retrying, setRetrying] = useState(false);
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const carouselRef = useRef<HTMLDivElement | null>(null);
 
   const load = useCallback(async (force = false) => {
     setLoading(true);
@@ -48,6 +49,20 @@ export default function FeaturedCitiesSection() {
 
   const barWidth = (value: number, total: number) => `${Math.max((value / Math.max(total, 1)) * 100, 8)}%`;
 
+  const scrollCities = (direction: 'prev' | 'next') => {
+    const carousel = carouselRef.current;
+    if (!carousel) return;
+    const firstCard = carousel.firstElementChild as HTMLElement | null;
+    const cardWidth = firstCard?.offsetWidth ?? carousel.clientWidth * 0.85;
+    const gap = 12;
+    const delta = cardWidth + gap;
+
+    carousel.scrollBy({
+      left: direction === 'next' ? delta : -delta,
+      behavior: 'smooth',
+    });
+  };
+
   return (
     <SectionShell title="Featured Crypto Cities" description="Top city clusters by active crypto-friendly places.">
       {loading ? <SimpleSkeletonRows rows={3} rowClassName="h-[152px]" /> : null}
@@ -56,14 +71,38 @@ export default function FeaturedCitiesSection() {
 
       {!loading && !error && items.length > 0 ? (
         <div className="overflow-hidden">
-          <div className="mx-0 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1 sm:grid sm:snap-none sm:grid-cols-2 sm:overflow-visible sm:px-0 lg:grid-cols-3">
+          <div className="mb-2 flex items-center justify-end gap-2 px-4 md:hidden">
+            <button
+              type="button"
+              aria-label="Previous city"
+              data-testid="cities-prev"
+              className="rounded border border-gray-200 px-2 py-1 text-sm font-semibold text-gray-700"
+              onClick={() => scrollCities('prev')}
+            >
+              Prev
+            </button>
+            <button
+              type="button"
+              aria-label="Next city"
+              data-testid="cities-next"
+              className="rounded border border-gray-200 px-2 py-1 text-sm font-semibold text-gray-700"
+              onClick={() => scrollCities('next')}
+            >
+              Next
+            </button>
+          </div>
+          <div
+            ref={carouselRef}
+            data-testid="cities-carousel"
+            className="mx-0 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1 md:grid md:snap-none md:grid-cols-2 md:overflow-visible md:px-0 lg:grid-cols-3"
+          >
             {items.map((city) => {
               const totalVerification = city.verificationBreakdown.owner + city.verificationBreakdown.community + city.verificationBreakdown.directory + city.verificationBreakdown.unverified;
               return (
                 <MapLink
                   key={`${city.countryCode}-${city.city}`}
                   href={`/map?country=${encodeURIComponent(city.countryCode)}&city=${encodeURIComponent(city.city)}`}
-                  className="min-w-[83.333%] snap-start rounded-lg border border-gray-200 p-4 transition hover:bg-gray-50 sm:min-w-0"
+                  className="min-w-[83.333%] snap-start rounded-lg border border-gray-200 p-4 transition hover:bg-gray-50 md:min-w-0"
                 >
                   <p className="truncate font-semibold text-gray-900">{city.city}, {city.countryCode}</p>
                   <p className="text-sm text-gray-600">{city.totalPlaces} places</p>
