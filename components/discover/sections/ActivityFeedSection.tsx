@@ -18,7 +18,7 @@ import {
 } from './shared';
 
 const activityTabs: Array<{ key: DiscoverActivityTab; label: string }> = [
-  { key: 'added', label: 'Just Added' },
+  { key: 'added', label: 'Added' },
   { key: 'owner', label: 'Owner' },
   { key: 'community', label: 'Community' },
   { key: 'promoted', label: 'Promoted' },
