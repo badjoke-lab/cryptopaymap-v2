@@ -22,6 +22,8 @@ import type {
 
 const CACHE_CONTROL = "public, s-maxage=180, stale-while-revalidate=60";
 const NO_STORE = "no-store";
+const FIXTURE_LAST_UPDATED_ISO = "2026-01-15T12:00:00.000Z";
+const isDiscoverFixtureMode = process.env.NEXT_PUBLIC_DISCOVER_FIXTURE === "1";
 
 const countryNames = new Intl.DisplayNames(["en"], { type: "region" });
 
@@ -40,13 +42,113 @@ const jsonResponse = <T>(body: DiscoverEnvelope<T>, status = 200) =>
     },
   });
 
-const makeEnvelope = <T>(data: T, options?: { limited?: boolean; reason?: string; ok?: boolean }): DiscoverEnvelope<T> => ({
+const makeEnvelope = <T>(
+  data: T,
+  options?: { limited?: boolean; reason?: string; ok?: boolean; lastUpdatedISO?: string },
+): DiscoverEnvelope<T> => ({
   ok: options?.ok ?? true,
   limited: options?.limited ?? false,
   reason: options?.reason,
   data,
-  lastUpdatedISO: new Date().toISOString(),
+  lastUpdatedISO: options?.lastUpdatedISO ?? new Date().toISOString(),
 });
+
+const fixtureActivity: DiscoverActivityItem[] = [
+  { placeId: "fixture-nyc-001", name: "Satoshi Coffee", city: "New York", country: "US", verificationLevel: "owner", assets: ["BTC", "USDC"], timeLabelISO: "2026-01-15T11:40:00.000Z", eventType: "promote" },
+  { placeId: "fixture-ber-002", name: "Block Brot", city: "Berlin", country: "DE", verificationLevel: "community", assets: ["BTC", "ETH", "USDT"], timeLabelISO: "2026-01-15T09:20:00.000Z", eventType: "approve" },
+  { placeId: "fixture-tok-003", name: "Lightning Ramen", city: "Tokyo", country: "JP", verificationLevel: "directory", assets: ["BTC", "JPYT"], timeLabelISO: "2026-01-14T17:05:00.000Z", eventType: "promote" },
+  { placeId: "fixture-bkk-004", name: "Chain Chai", city: "Bangkok", country: "TH", verificationLevel: "unverified", assets: ["USDT", "USDC"], timeLabelISO: "2026-01-14T13:10:00.000Z", eventType: "approve" },
+  { placeId: "fixture-mex-005", name: "Nodo Tacos", city: "Mexico City", country: "MX", verificationLevel: "owner", assets: ["BTC", "MXNe"], timeLabelISO: "2026-01-14T10:45:00.000Z", eventType: "promote" },
+  { placeId: "fixture-lon-006", name: "Bit Bazaar", city: "London", country: "GB", verificationLevel: "community", assets: ["BTC", "ETH", "USDC"], timeLabelISO: "2026-01-13T19:35:00.000Z", eventType: "approve" },
+  { placeId: "fixture-nbo-007", name: "Crypto Kiosk", city: "Nairobi", country: "KE", verificationLevel: "directory", assets: ["BTC", "USDT"], timeLabelISO: "2026-01-13T08:30:00.000Z", eventType: "promote" },
+  { placeId: "fixture-bcn-008", name: "Tapas on Chain", city: "Barcelona", country: "ES", verificationLevel: "unverified", assets: ["BTC", "EURC"], timeLabelISO: "2026-01-12T16:00:00.000Z", eventType: "approve" },
+];
+
+const fixtureTrendingCountries: DiscoverTrendingCountry[] = [
+  { countryCode: "US", countryName: "United States", delta30d: 41 },
+  { countryCode: "DE", countryName: "Germany", delta30d: 29 },
+  { countryCode: "JP", countryName: "Japan", delta30d: 22 },
+  { countryCode: "MX", countryName: "Mexico", delta30d: 19 },
+  { countryCode: "TH", countryName: "Thailand", delta30d: 16 },
+];
+
+const fixtureFeaturedCities: DiscoverFeaturedCity[] = [
+  { countryCode: "US", city: "New York", totalPlaces: 58, topCategory: "Cafe", topAssets: ["BTC", "USDC", "ETH"], verificationBreakdown: { owner: 18, community: 15, directory: 12, unverified: 13 } },
+  { countryCode: "DE", city: "Berlin", totalPlaces: 46, topCategory: "Restaurant", topAssets: ["BTC", "USDT", "ETH"], verificationBreakdown: { owner: 13, community: 12, directory: 9, unverified: 12 } },
+  { countryCode: "JP", city: "Tokyo", totalPlaces: 44, topCategory: "Retail", topAssets: ["BTC", "JPYT", "USDC"], verificationBreakdown: { owner: 11, community: 10, directory: 12, unverified: 11 } },
+  { countryCode: "MX", city: "Mexico City", totalPlaces: 39, topCategory: "Market", topAssets: ["BTC", "USDT", "MXNe"], verificationBreakdown: { owner: 10, community: 9, directory: 8, unverified: 12 } },
+  { countryCode: "TH", city: "Bangkok", totalPlaces: 34, topCategory: "Food", topAssets: ["USDT", "BTC", "USDC"], verificationBreakdown: { owner: 8, community: 9, directory: 6, unverified: 11 } },
+  { countryCode: "GB", city: "London", totalPlaces: 31, topCategory: "Pub", topAssets: ["BTC", "ETH", "USDC"], verificationBreakdown: { owner: 9, community: 7, directory: 6, unverified: 9 } },
+];
+
+const fixtureAssets: DiscoverAssetListItem[] = [
+  { asset: "BTC", countTotal: 221, delta30d: 28 },
+  { asset: "USDT", countTotal: 176, delta30d: 23 },
+  { asset: "USDC", countTotal: 153, delta30d: 20 },
+  { asset: "ETH", countTotal: 126, delta30d: 14 },
+  { asset: "SOL", countTotal: 88, delta30d: 10 },
+  { asset: "LTC", countTotal: 64, delta30d: 8 },
+  { asset: "XMR", countTotal: 53, delta30d: 6 },
+  { asset: "TRX", countTotal: 49, delta30d: 5 },
+  { asset: "DAI", countTotal: 45, delta30d: 4 },
+  { asset: "EURC", countTotal: 31, delta30d: 3 },
+];
+
+const fixtureStoriesAuto: DiscoverStoryCard[] = [
+  {
+    id: "fixture-country-us",
+    title: "United States leads discover momentum this month",
+    summary: "Fixture telemetry shows a +41 net visibility trend over the last 30 days.",
+    badges: ["Country", "Growth"],
+    dateISO: "2026-01-15",
+    cta: { kind: "map", href: "/map?country=US" },
+    metricsPreview: [{ label: "30d delta", value: "41" }, { label: "Rank", value: "#1" }],
+  },
+  {
+    id: "fixture-city-berlin",
+    title: "Berlin stands out in fixture featured cities",
+    summary: "46 map-ready places with restaurants as the top category.",
+    badges: ["City", "Featured"],
+    dateISO: "2026-01-15",
+    cta: { kind: "map", href: "/map?country=DE&city=Berlin" },
+    metricsPreview: [{ label: "Total places", value: "46" }, { label: "Top category", value: "Restaurant" }],
+  },
+  {
+    id: "fixture-asset-btc",
+    title: "BTC remains the widest acceptance asset",
+    summary: "221 tracked accepts in the current fixture baseline.",
+    badges: ["Asset", "Coverage"],
+    dateISO: "2026-01-15",
+    cta: { kind: "map", href: "/map?asset=BTC" },
+    metricsPreview: [{ label: "Total accepts", value: "221" }, { label: "30d delta", value: "28" }],
+  },
+  {
+    id: "fixture-city-tokyo",
+    title: "Tokyo adoption is broadening beyond cafes",
+    summary: "Retail leads in a 44-place fixture cluster with balanced verification mix.",
+    badges: ["City", "Diversity"],
+    dateISO: "2026-01-14",
+    cta: { kind: "map", href: "/map?country=JP&city=Tokyo" },
+    metricsPreview: [{ label: "Total places", value: "44" }, { label: "Owner verified", value: "11" }],
+  },
+];
+
+const fixtureAssetPanels: Record<string, DiscoverAssetPanel> = {
+  BTC: {
+    asset: "BTC",
+    countriesTop5: [{ countryCode: "US", total: 52 }, { countryCode: "DE", total: 41 }, { countryCode: "JP", total: 35 }, { countryCode: "MX", total: 29 }, { countryCode: "GB", total: 24 }],
+    categoriesTop5: [{ category: "Cafe", total: 39 }, { category: "Restaurant", total: 33 }, { category: "Retail", total: 28 }, { category: "Market", total: 21 }, { category: "Hotel", total: 17 }],
+    recent5: fixtureActivity.slice(0, 5),
+  },
+  USDT: {
+    asset: "USDT",
+    countriesTop5: [{ countryCode: "TH", total: 44 }, { countryCode: "MX", total: 32 }, { countryCode: "DE", total: 29 }, { countryCode: "US", total: 27 }, { countryCode: "KE", total: 20 }],
+    categoriesTop5: [{ category: "Market", total: 26 }, { category: "Food", total: 23 }, { category: "Services", total: 20 }, { category: "Retail", total: 19 }, { category: "Cafe", total: 14 }],
+    recent5: fixtureActivity.filter((item) => item.assets.includes("USDT")).slice(0, 5),
+  },
+};
+
+const makeFixtureEnvelope = <T>(data: T): DiscoverEnvelope<T> => makeEnvelope(data, { limited: false, ok: true, lastUpdatedISO: FIXTURE_LAST_UPDATED_ISO });
 
 const normalizeVerification = (raw: string | null): DiscoverVerificationLevel => {
   const value = (raw ?? "").trim().toLowerCase();
@@ -628,6 +730,18 @@ export const discoverHandlers = {
       return jsonResponse(makeEnvelope([], { ok: false, limited: true, reason: "invalid tab" }), 400);
     }
 
+    if (isDiscoverFixtureMode) {
+      const filtered = fixtureActivity
+        .filter((item) => {
+          if (tab === "owner") return item.verificationLevel === "owner";
+          if (tab === "community") return item.verificationLevel === "community";
+          if (tab === "promoted") return item.eventType === "promote";
+          return true;
+        })
+        .slice(0, limit);
+      return jsonResponse(makeFixtureEnvelope(filtered));
+    }
+
     if (!hasDatabaseUrl()) {
       return jsonResponse(makeEnvelope([], { ok: false, limited: true, reason: "db unavailable" }), 503);
     }
@@ -646,6 +760,9 @@ export const discoverHandlers = {
     if (window !== "30d") {
       return jsonResponse(makeEnvelope([], { ok: false, limited: true, reason: "unsupported window" }), 400);
     }
+    if (isDiscoverFixtureMode) {
+      return jsonResponse(makeFixtureEnvelope(fixtureTrendingCountries));
+    }
     if (!hasDatabaseUrl()) {
       return jsonResponse(makeEnvelope([], { ok: false, limited: true, reason: "db unavailable" }), 503);
     }
@@ -660,6 +777,9 @@ export const discoverHandlers = {
 
   async featuredCities() {
     const route = "api_discover_featured_cities";
+    if (isDiscoverFixtureMode) {
+      return jsonResponse(makeFixtureEnvelope(fixtureFeaturedCities));
+    }
     if (!hasDatabaseUrl()) {
       return jsonResponse(makeEnvelope([], { ok: false, limited: true, reason: "db unavailable" }), 503);
     }
@@ -673,6 +793,9 @@ export const discoverHandlers = {
 
   async assets() {
     const route = "api_discover_assets";
+    if (isDiscoverFixtureMode) {
+      return jsonResponse(makeFixtureEnvelope(fixtureAssets));
+    }
     if (!hasDatabaseUrl()) {
       return jsonResponse(makeEnvelope([], { ok: false, limited: true, reason: "db unavailable" }), 503);
     }
@@ -686,6 +809,16 @@ export const discoverHandlers = {
 
   async assetPanel(asset: string) {
     const route = "api_discover_asset_panel";
+    if (isDiscoverFixtureMode) {
+      const normalizedAsset = asset.trim().toUpperCase();
+      const fixturePanel = fixtureAssetPanels[normalizedAsset] ?? {
+        asset,
+        countriesTop5: fixtureFeaturedCities.slice(0, 5).map((item) => ({ countryCode: item.countryCode, total: Math.max(5, Math.floor(item.totalPlaces / 2)) })),
+        categoriesTop5: ["Cafe", "Restaurant", "Retail", "Market", "Services"].map((category, index) => ({ category, total: 18 - index * 2 })),
+        recent5: fixtureActivity.slice(0, 5),
+      };
+      return jsonResponse(makeFixtureEnvelope({ ...fixturePanel, asset: normalizedAsset || asset }));
+    }
     if (!hasDatabaseUrl()) {
       return jsonResponse(makeEnvelope({ asset, countriesTop5: [], categoriesTop5: [], recent5: [] }, { ok: false, limited: true, reason: "db unavailable" }), 503);
     }
@@ -699,6 +832,9 @@ export const discoverHandlers = {
 
   async storiesAuto() {
     const route = "api_discover_stories_auto";
+    if (isDiscoverFixtureMode) {
+      return jsonResponse(makeFixtureEnvelope(fixtureStoriesAuto));
+    }
     if (!hasDatabaseUrl()) {
       return jsonResponse(makeEnvelope([], { ok: false, limited: true, reason: "db unavailable" }), 503);
     }
@@ -711,6 +847,34 @@ export const discoverHandlers = {
   },
 
   async storiesMonthly() {
+    if (isDiscoverFixtureMode) {
+      return jsonResponse(makeFixtureEnvelope({
+        hasContent: true,
+        items: [
+          {
+            id: "2026-01-fixture",
+            month: "2026-01",
+            title: "Fixture mode monthly digest",
+            highlights: [
+              "US and DE led 30-day fixture growth.",
+              "BTC and USDT stayed dominant across featured cities.",
+              "Owner + community verification accounted for over half of featured city coverage.",
+            ],
+            dateISO: "2026-01-01",
+          },
+          {
+            id: "2025-12-fixture",
+            month: "2025-12",
+            title: "Fixture baseline snapshot",
+            highlights: [
+              "Initial fixture baseline seeded 6 cities and 10 assets.",
+              "Promote and approve events were balanced for audit replay.",
+            ],
+            dateISO: "2025-12-01",
+          },
+        ],
+      }));
+    }
     try {
       return jsonResponse(await queryMonthlyStories());
     } catch {
@@ -718,4 +882,3 @@ export const discoverHandlers = {
     }
   },
 };
-
