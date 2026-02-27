@@ -80,6 +80,11 @@ type TrendsResponse = {
   last_updated: string;
   points: TrendPoint[];
   stack: VerificationStackedPoint[];
+  top5?: {
+    kind: 'category' | 'asset' | 'country';
+    keys: string[];
+    points: Array<{ date: string; values: Record<string, number> }>;
+  };
   meta?: {
     reason?: 'no_history_data' | 'db_unavailable' | 'internal_error';
     has_data?: boolean;
@@ -99,6 +104,10 @@ type TrendsResponse = {
       reason: string;
       dropped_filters: string[];
       warnings?: string[];
+    };
+    legend?: {
+      kind: 'category' | 'asset' | 'country';
+      keys: string[];
     };
   };
 };
@@ -150,6 +159,7 @@ type ChartSeries = {
 };
 
 const MAX_AXIS_LABELS = 8;
+const TOP5_SERIES_COLORS = ['#2563EB', '#0EA5E9', '#14B8A6', '#8B5CF6', '#F59E0B'];
 const TREND_RANGE_OPTIONS: Array<{ value: TrendRange; label: string }> = [
   { value: '24h', label: '24h' },
   { value: '7d', label: '7d' },
@@ -768,6 +778,20 @@ export default function StatsPageClient() {
       values: trendPoints.map((point) => point.accepting_any_total),
     },
   ];
+  const trendTop5Legend = trends.meta?.legend;
+  const top5Points = Array.isArray(trends.top5?.points) ? trends.top5?.points : [];
+  const top5Keys = trendTop5Legend?.keys?.length
+    ? trendTop5Legend.keys
+    : (Array.isArray(trends.top5?.keys) ? trends.top5.keys : []);
+  const top5Kind = trendTop5Legend?.kind ?? trends.top5?.kind;
+  const trendTop5Series: ChartSeries[] = top5Keys.map((key, index) => ({
+    label: key,
+    color: TOP5_SERIES_COLORS[index % TOP5_SERIES_COLORS.length],
+    values: trendLabels.map((_, pointIndex) => {
+      const point = top5Points[pointIndex];
+      return Number(point?.values?.[key] ?? 0);
+    }),
+  }));
 
   const summaryCards = useMemo(
     () => [
@@ -1050,6 +1074,10 @@ export default function StatsPageClient() {
               Verification stack (owner/community/directory/unverified)
             </div>
             <StackedBarChart labels={trendLabels} points={trendStackedPoints} />
+            <div className="rounded-md border border-gray-200 bg-white p-3 text-xs font-medium text-gray-600">
+              Top5 {top5Kind ?? 'category'} trends (legend fixed by range-total ranking)
+            </div>
+            <LineChart labels={trendLabels} series={trendTop5Series} />
           </div>
         </SectionCard>
 
