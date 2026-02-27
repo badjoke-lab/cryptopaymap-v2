@@ -1,28 +1,14 @@
 import { NextResponse } from "next/server";
 
-import { runStatsTimeseriesJob, TimeseriesJob } from "@/lib/stats/generateTimeseries";
+import { runStatsTimeseriesJob } from "@/lib/stats/generateTimeseries";
 
 const NO_STORE = "no-store";
+const WEEKLY_RUN_UTC_DAY = 1; // Monday (UTC)
 
-const normalizeJob = (value: string | null): TimeseriesJob | null => {
-  if (value === "hourly" || value === "daily" || value === "weekly") {
-    return value;
-  }
-  return null;
-};
-
-const getJobFromRequest = async (request: Request) => {
-  const url = new URL(request.url);
-  const queryJob = normalizeJob(url.searchParams.get("job"));
-  if (queryJob) return queryJob;
-
-  const contentType = request.headers.get("content-type") ?? "";
-  if (contentType.includes("application/json")) {
-    const body = (await request.json().catch(() => null)) as { job?: string } | null;
-    return normalizeJob(body?.job ?? null);
-  }
-
-  return null;
+type JobResult = {
+  facts: number;
+  upserted: number;
+  topN: number;
 };
 
 const hasCronSecret = (request: Request, secret: string) => {
@@ -41,14 +27,16 @@ const jsonNoStore = (body: Record<string, unknown>, status = 200) =>
 
 const handle = async (request: Request) => {
   const startedAt = new Date();
+  const startedAtIso = startedAt.toISOString();
   const cronSecret = process.env.CRON_SECRET?.trim();
+  const logPrefix = "[cron][stats-timeseries]";
 
   if (!cronSecret) {
     return jsonNoStore(
       {
         ok: false,
         error: "misconfigured",
-        startedAt: startedAt.toISOString(),
+        startedAt: startedAtIso,
       },
       500,
     );
@@ -59,59 +47,73 @@ const handle = async (request: Request) => {
       {
         ok: false,
         error: "forbidden",
-        startedAt: startedAt.toISOString(),
+        startedAt: startedAtIso,
       },
       403,
     );
   }
 
-  const job = await getJobFromRequest(request);
-  if (!job) {
-    return jsonNoStore(
-      {
-        ok: false,
-        error: "invalid_job",
-        startedAt: startedAt.toISOString(),
-      },
-      400,
-    );
-  }
-
-  const logPrefix = "[cron][stats-timeseries]";
+  const mode = "daily";
 
   try {
-    console.log(`${logPrefix} start job=${job}`);
+    console.log(`${logPrefix} start mode=${mode}`);
 
-    const result = await runStatsTimeseriesJob(job, {
-      route: `cron_stats_timeseries_${job}`,
+    const hourlyResult: JobResult = await runStatsTimeseriesJob("hourly", {
+      route: "cron_stats_timeseries_hourly",
+      sinceHours: 48,
     });
+    console.log(`${logPrefix} hourly upserted=${hourlyResult.upserted} facts=${hourlyResult.facts}`);
+
+    const dailyResult: JobResult = await runStatsTimeseriesJob("daily", {
+      route: "cron_stats_timeseries_daily",
+    });
+    console.log(`${logPrefix} daily upserted=${dailyResult.upserted} facts=${dailyResult.facts}`);
+
+    const isWeeklyDay = startedAt.getUTCDay() === WEEKLY_RUN_UTC_DAY;
+    let weeklyResult: JobResult | null = null;
+
+    if (isWeeklyDay) {
+      weeklyResult = await runStatsTimeseriesJob("weekly", {
+        route: "cron_stats_timeseries_weekly",
+      });
+      console.log(`${logPrefix} weekly upserted=${weeklyResult.upserted} facts=${weeklyResult.facts}`);
+    } else {
+      console.log(`${logPrefix} weekly skipped reason=not_monday_utc`);
+    }
 
     const finishedAt = new Date();
     const durationMs = finishedAt.getTime() - startedAt.getTime();
-    console.log(`${logPrefix} done job=${job} upserted=${result.upserted} facts=${result.facts} durationMs=${durationMs}`);
+    console.log(`${logPrefix} done mode=${mode} durationMs=${durationMs}`);
 
     return jsonNoStore({
       ok: true,
-      job,
-      startedAt: startedAt.toISOString(),
+      job: mode,
+      startedAt: startedAtIso,
       finishedAt: finishedAt.toISOString(),
+      durationMs,
       counts: {
-        facts: result.facts,
-        upserted: result.upserted,
-        topN: result.topN,
+        hourly: hourlyResult,
+        daily: dailyResult,
+        weekly: weeklyResult,
+      },
+      weekly: {
+        ran: Boolean(weeklyResult),
+        reason: weeklyResult ? null : "not_monday_utc",
       },
     });
   } catch (error) {
     const finishedAt = new Date();
     const message = error instanceof Error ? error.message : "generation_failed";
-    console.error(`${logPrefix} failed job=${job} error=${message}`, error);
+    const durationMs = finishedAt.getTime() - startedAt.getTime();
+    console.error(`${logPrefix} failed mode=${mode} error=${message} durationMs=${durationMs}`, error);
 
     return jsonNoStore(
       {
         ok: false,
-        job,
-        startedAt: startedAt.toISOString(),
+        job: mode,
+        startedAt: startedAtIso,
         finishedAt: finishedAt.toISOString(),
+        durationMs,
         error: message,
       },
       500,
