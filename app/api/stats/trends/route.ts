@@ -21,6 +21,13 @@ type VerificationStackedPoint = {
   unverified: number;
 };
 
+type TopBreakdownKind = "category" | "asset" | "country";
+
+type TopBreakdownPoint = {
+  date: string;
+  values: Record<string, number>;
+};
+
 export type StatsTrendsResponse = {
   ok?: true;
   range: TrendRange;
@@ -33,6 +40,11 @@ export type StatsTrendsResponse = {
     accepting_any_delta: number;
   }>;
   stack: VerificationStackedPoint[];
+  top5?: {
+    kind: TopBreakdownKind;
+    keys: string[];
+    points: TopBreakdownPoint[];
+  };
   meta?: {
     reason?: "no_history_data" | "db_unavailable" | "internal_error";
     grain: TrendGrain;
@@ -55,6 +67,10 @@ export type StatsTrendsResponse = {
       reason: string;
       dropped_filters: CanonicalFilter[];
       warnings?: string[];
+    };
+    legend?: {
+      kind: TopBreakdownKind;
+      keys: string[];
     };
   };
   response_meta?: {
@@ -103,6 +119,8 @@ const CACHE_CONTROL_BY_GRAIN: Record<TrendGrain, string> = {
   "1d": "public, s-maxage=7200, stale-while-revalidate=900",
   "1w": "public, s-maxage=43200, stale-while-revalidate=3600",
 };
+
+const STABLE_TOP5_LIMIT = 5;
 
 const startOfUtcHour = (date: Date) => {
   const value = new Date(date);
@@ -369,6 +387,7 @@ export async function GET(request: Request) {
           directory?: number;
           unverified?: number;
         };
+        breakdowns?: Partial<Record<TopBreakdownKind, Record<string, number>>>;
       } | null;
       generated_at: string;
       max_generated_at: string | null;
@@ -401,6 +420,9 @@ export async function GET(request: Request) {
 
     const points: StatsTrendsResponse["points"] = [];
     const stack: VerificationStackedPoint[] = [];
+    const top5BreakdownByPoint: Array<{ date: string; values: Record<string, number> }> = [];
+    const top5Totals = new Map<string, number>();
+    const top5Kind: TopBreakdownKind = "category";
 
     for (const row of rows) {
       const bucketDate = bucketStart(new Date(row.period_start), grain);
@@ -439,7 +461,41 @@ export async function GET(request: Request) {
         directory: runningDirectory,
         unverified: runningUnverified,
       });
+
+      const legacyTopCategories = Array.isArray((row.breakdown_json as { top_categories?: Array<{ key?: string; count?: number }> } | null)?.top_categories)
+        ? ((row.breakdown_json as { top_categories?: Array<{ key?: string; count?: number }> }).top_categories ?? []).reduce<Record<string, number>>((acc, entry) => {
+            const key = entry?.key?.trim();
+            if (!key) return acc;
+            const count = Number(entry?.count ?? 0);
+            if (count <= 0) return acc;
+            acc[key] = count;
+            return acc;
+          }, {})
+        : {};
+      const categoryBreakdown = row.breakdown_json?.breakdowns?.[top5Kind] ?? legacyTopCategories;
+      const normalized = Object.entries(categoryBreakdown).reduce<Record<string, number>>((acc, [key, value]) => {
+        if (!key) return acc;
+        const numeric = Number(value ?? 0);
+        if (numeric <= 0) return acc;
+        acc[key] = numeric;
+        top5Totals.set(key, (top5Totals.get(key) ?? 0) + numeric);
+        return acc;
+      }, {});
+      top5BreakdownByPoint.push({ date: label, values: normalized });
     }
+
+    const top5Keys = [...top5Totals.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, STABLE_TOP5_LIMIT)
+      .map(([key]) => key);
+
+    const top5Points: TopBreakdownPoint[] = top5BreakdownByPoint.map((point) => ({
+      date: point.date,
+      values: top5Keys.reduce<Record<string, number>>((acc, key) => {
+        acc[key] = Number(point.values[key] ?? 0);
+        return acc;
+      }, {}),
+    }));
 
     const lastUpdated = rows[0]?.max_generated_at ?? null;
     const hasData = rows.length > 0;
@@ -453,6 +509,11 @@ export async function GET(request: Request) {
       last_updated: lastUpdated ?? queryAsOf.toISOString(),
       points,
       stack,
+      top5: {
+        kind: top5Kind,
+        keys: top5Keys,
+        points: top5Points,
+      },
       meta: {
         ...(hasData ? {} : { reason: "no_history_data" as const }),
         grain,
@@ -475,6 +536,10 @@ export async function GET(request: Request) {
           reason: fallbackApplied ? "no_saved_cube_for_requested" : "none",
           dropped_filters: droppedFilters,
           warnings: normalizedFilters.warnings,
+        },
+        legend: {
+          kind: top5Kind,
+          keys: top5Keys,
         },
       },
       response_meta: { source: "db", as_of: queryAsOf.toISOString() },

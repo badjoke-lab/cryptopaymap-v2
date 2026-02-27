@@ -41,6 +41,11 @@ type Aggregation = {
   verified: number;
   acceptingAny: number;
   verification: Record<Verification, number>;
+  breakdowns: {
+    category: Map<string, number>;
+    asset: Map<string, number>;
+    country: Map<string, number>;
+  };
 };
 
 type TimeseriesRow = {
@@ -73,6 +78,11 @@ const COMPOSITE_DIM_WITHIN_PARENT_LIMIT: Record<Grain, number> = {
   "1h": 5,
   "1d": 10,
   "1w": 10,
+};
+const BREAKDOWN_LIMIT_BY_GRAIN: Record<Grain, number> = {
+  "1h": 10,
+  "1d": 20,
+  "1w": 20,
 };
 
 const startOfUtcHour = (date: Date) => {
@@ -170,6 +180,11 @@ const createEmptyAggregation = (): Aggregation => ({
     directory: 0,
     unverified: 0,
   },
+  breakdowns: {
+    category: new Map<string, number>(),
+    asset: new Map<string, number>(),
+    country: new Map<string, number>(),
+  },
 });
 
 const getOrCreateAgg = (target: Map<string, Aggregation>, key: string) => {
@@ -193,12 +208,33 @@ const sortTopEntries = (source: Map<string, number>, limit: number) =>
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .slice(0, limit);
 
-const buildBreakdownJson = (aggregation: Aggregation) =>
-  JSON.stringify({
+const toTopMap = (source: Map<string, number>, limit: number) =>
+  [...source.entries()]
+    .filter(([key]) => Boolean(key))
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, limit)
+    .reduce<Record<string, number>>((acc, [key, count]) => {
+      acc[key] = count;
+      return acc;
+    }, {});
+
+const buildBreakdownJson = (aggregation: Aggregation, grain: Grain) => {
+  const limit = BREAKDOWN_LIMIT_BY_GRAIN[grain];
+  const topCategories = toTopMap(aggregation.breakdowns.category, limit);
+  const topAssets = toTopMap(aggregation.breakdowns.asset, limit);
+  const topCountries = toTopMap(aggregation.breakdowns.country, limit);
+
+  return JSON.stringify({
     verification: aggregation.verification,
-    top_categories: [],
-    top_assets: [],
+    top_categories: Object.entries(topCategories).map(([key, count]) => ({ key, count })),
+    top_assets: Object.entries(topAssets).map(([key, count]) => ({ key, count })),
+    breakdowns: {
+      category: topCategories,
+      asset: topAssets,
+      country: topCountries,
+    },
   });
+};
 
 const buildRows = (facts: PlaceFactRow[], options: ResolvedGenerationOptions, window: TimeWindow): TimeseriesRow[] => {
   const bucketKeys = listBuckets(options.grain, window).map((value) => value.toISOString());
@@ -332,6 +368,19 @@ const buildRows = (facts: PlaceFactRow[], options: ResolvedGenerationOptions, wi
       aggregation.acceptingAny += 1;
     }
     aggregation.verification[row.verification] += 1;
+
+    const country = sanitizeKey(row.country);
+    const category = sanitizeKey(row.category);
+    if (country) {
+      aggregation.breakdowns.country.set(country, (aggregation.breakdowns.country.get(country) ?? 0) + 1);
+    }
+    if (category) {
+      aggregation.breakdowns.category.set(category, (aggregation.breakdowns.category.get(category) ?? 0) + 1);
+    }
+    const dedupAssets = new Set((row.assets ?? []).map((asset) => sanitizeKey(asset)).filter(Boolean));
+    for (const asset of dedupAssets) {
+      aggregation.breakdowns.asset.set(asset, (aggregation.breakdowns.asset.get(asset) ?? 0) + 1);
+    }
   };
 
   for (const row of facts) {
@@ -396,7 +445,7 @@ const buildRows = (facts: PlaceFactRow[], options: ResolvedGenerationOptions, wi
         totalCount: aggregation.total,
         verifiedCount: aggregation.verified,
         acceptingAnyCount: aggregation.acceptingAny,
-        breakdownJson: buildBreakdownJson(aggregation),
+        breakdownJson: buildBreakdownJson(aggregation, options.grain),
       });
     }
   };
