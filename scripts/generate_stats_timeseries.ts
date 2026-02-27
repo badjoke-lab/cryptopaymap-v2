@@ -14,7 +14,7 @@ type CliOptions = {
 };
 
 const printHelp = () => {
-  console.log(`Usage:\n  pnpm tsx scripts/generate_stats_timeseries.ts --grain=1h [--since-hours=48] [--top-n=50]\n  pnpm tsx scripts/generate_stats_timeseries.ts --grain=1d [--date=YYYY-MM-DD] [--top-n=50]\n  pnpm tsx scripts/generate_stats_timeseries.ts --grain=1w [--week-start=YYYY-MM-DD] [--top-n=50]`);
+  console.log(`Usage:\n  pnpm tsx scripts/generate_stats_timeseries.ts --grain=1h [--since-hours=48] [--top-n=30]\n  pnpm tsx scripts/generate_stats_timeseries.ts --grain=1d [--date=YYYY-MM-DD] [--top-n=30]\n  pnpm tsx scripts/generate_stats_timeseries.ts --grain=1w [--week-start=YYYY-MM-DD] [--top-n=30]`);
 };
 
 const parseArgs = (): CliOptions => {

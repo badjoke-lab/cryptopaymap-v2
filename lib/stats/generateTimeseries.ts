@@ -65,10 +65,15 @@ export type GenerateTimeseriesResult = {
 };
 
 const HISTORY_ACTIONS = ["approve", "promote"];
-const TOP_DIM_LIMIT_DEFAULT = 50;
+const TOP_DIM_LIMIT_DEFAULT = 30;
 const DEFAULT_SINCE_HOURS = 48;
 const CHUNK_SIZE = 500;
 const VERIFICATION_KEYS: Verification[] = ["owner", "community", "directory", "unverified"];
+const COMPOSITE_DIM_WITHIN_PARENT_LIMIT: Record<Grain, number> = {
+  "1h": 5,
+  "1d": 10,
+  "1w": 10,
+};
 
 const startOfUtcHour = (date: Date) => {
   const value = new Date(date);
@@ -182,6 +187,12 @@ const sortTopKeys = (source: Map<string, number>, limit: number) =>
     .slice(0, limit)
     .map(([key]) => key);
 
+const sortTopEntries = (source: Map<string, number>, limit: number) =>
+  [...source.entries()]
+    .filter(([key]) => Boolean(key))
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, limit);
+
 const buildBreakdownJson = (aggregation: Aggregation) =>
   JSON.stringify({
     verification: aggregation.verification,
@@ -213,12 +224,79 @@ const buildRows = (facts: PlaceFactRow[], options: ResolvedGenerationOptions, wi
   const topCountries = sortTopKeys(byCountry, topN);
   const topCategories = sortTopKeys(byCategory, topN);
   const topAssets = sortTopKeys(byAsset, topN);
+  const topCountriesSet = new Set(topCountries);
+  const topCategoriesSet = new Set(topCategories);
+  const topAssetsSet = new Set(topAssets);
+  const compositeWithinParentLimit = COMPOSITE_DIM_WITHIN_PARENT_LIMIT[options.grain];
+
+  const byCountryCategory = new Map<string, Map<string, number>>();
+  const byCountryAsset = new Map<string, Map<string, number>>();
+  const byCategoryAsset = new Map<string, Map<string, number>>();
+
+  for (const row of facts) {
+    const country = sanitizeKey(row.country);
+    const category = sanitizeKey(row.category);
+
+    if (country && category && topCountriesSet.has(country)) {
+      const countryCategories = byCountryCategory.get(country) ?? new Map<string, number>();
+      countryCategories.set(category, (countryCategories.get(category) ?? 0) + 1);
+      byCountryCategory.set(country, countryCategories);
+    }
+
+    const dedupAssets = new Set((row.assets ?? []).map((asset) => sanitizeKey(asset)).filter(Boolean));
+
+    if (country && topCountriesSet.has(country)) {
+      const countryAssets = byCountryAsset.get(country) ?? new Map<string, number>();
+      for (const asset of dedupAssets) {
+        countryAssets.set(asset, (countryAssets.get(asset) ?? 0) + 1);
+      }
+      byCountryAsset.set(country, countryAssets);
+    }
+
+    if (category && topCategoriesSet.has(category)) {
+      const categoryAssets = byCategoryAsset.get(category) ?? new Map<string, number>();
+      for (const asset of dedupAssets) {
+        categoryAssets.set(asset, (categoryAssets.get(asset) ?? 0) + 1);
+      }
+      byCategoryAsset.set(category, categoryAssets);
+    }
+  }
+
+  const topCountryCategoryKeys = new Set<string>();
+  for (const country of topCountries) {
+    const candidates = byCountryCategory.get(country);
+    if (!candidates) continue;
+    for (const [category] of sortTopEntries(candidates, compositeWithinParentLimit)) {
+      topCountryCategoryKeys.add(`${country}::${category}`);
+    }
+  }
+
+  const topCountryAssetKeys = new Set<string>();
+  for (const country of topCountries) {
+    const candidates = byCountryAsset.get(country);
+    if (!candidates) continue;
+    for (const [asset] of sortTopEntries(candidates, compositeWithinParentLimit)) {
+      topCountryAssetKeys.add(`${country}::${asset}`);
+    }
+  }
+
+  const topCategoryAssetKeys = new Set<string>();
+  for (const category of topCategories) {
+    const candidates = byCategoryAsset.get(category);
+    if (!candidates) continue;
+    for (const [asset] of sortTopEntries(candidates, compositeWithinParentLimit)) {
+      topCategoryAssetKeys.add(`${category}::${asset}`);
+    }
+  }
 
   const allAgg = new Map<string, Aggregation>();
   const verificationAgg = new Map<string, Aggregation>();
   const countryAgg = new Map<string, Aggregation>();
   const categoryAgg = new Map<string, Aggregation>();
   const assetAgg = new Map<string, Aggregation>();
+  const countryCategoryAgg = new Map<string, Aggregation>();
+  const countryAssetAgg = new Map<string, Aggregation>();
+  const categoryAssetAgg = new Map<string, Aggregation>();
 
   for (const bucket of bucketKeys) {
     getOrCreateAgg(allAgg, `${bucket}::all`);
@@ -233,6 +311,15 @@ const buildRows = (facts: PlaceFactRow[], options: ResolvedGenerationOptions, wi
     }
     for (const asset of topAssets) {
       getOrCreateAgg(assetAgg, `${bucket}::${asset}`);
+    }
+    for (const countryCategory of topCountryCategoryKeys) {
+      getOrCreateAgg(countryCategoryAgg, `${bucket}::${countryCategory}`);
+    }
+    for (const countryAsset of topCountryAssetKeys) {
+      getOrCreateAgg(countryAssetAgg, `${bucket}::${countryAsset}`);
+    }
+    for (const categoryAsset of topCategoryAssetKeys) {
+      getOrCreateAgg(categoryAssetAgg, `${bucket}::${categoryAsset}`);
     }
   }
 
@@ -255,19 +342,40 @@ const buildRows = (facts: PlaceFactRow[], options: ResolvedGenerationOptions, wi
     apply(getOrCreateAgg(verificationAgg, `${bucket}::${row.verification}`), row);
 
     const country = sanitizeKey(row.country);
-    if (country && topCountries.includes(country)) {
+    if (country && topCountriesSet.has(country)) {
       apply(getOrCreateAgg(countryAgg, `${bucket}::${country}`), row);
     }
 
     const category = sanitizeKey(row.category);
-    if (category && topCategories.includes(category)) {
+    if (category && topCategoriesSet.has(category)) {
       apply(getOrCreateAgg(categoryAgg, `${bucket}::${category}`), row);
+    }
+
+    if (country && category) {
+      const countryCategoryKey = `${country}::${category}`;
+      if (topCountryCategoryKeys.has(countryCategoryKey)) {
+        apply(getOrCreateAgg(countryCategoryAgg, `${bucket}::${countryCategoryKey}`), row);
+      }
     }
 
     const dedupAssets = new Set((row.assets ?? []).map((asset) => sanitizeKey(asset)).filter(Boolean));
     for (const asset of dedupAssets) {
-      if (topAssets.includes(asset)) {
+      if (topAssetsSet.has(asset)) {
         apply(getOrCreateAgg(assetAgg, `${bucket}::${asset}`), row);
+      }
+
+      if (country) {
+        const countryAssetKey = `${country}::${asset}`;
+        if (topCountryAssetKeys.has(countryAssetKey)) {
+          apply(getOrCreateAgg(countryAssetAgg, `${bucket}::${countryAssetKey}`), row);
+        }
+      }
+
+      if (category) {
+        const categoryAssetKey = `${category}::${asset}`;
+        if (topCategoryAssetKeys.has(categoryAssetKey)) {
+          apply(getOrCreateAgg(categoryAssetAgg, `${bucket}::${categoryAssetKey}`), row);
+        }
       }
     }
   }
@@ -275,7 +383,9 @@ const buildRows = (facts: PlaceFactRow[], options: ResolvedGenerationOptions, wi
   const rows: TimeseriesRow[] = [];
   const toRows = (dimType: string, map: Map<string, Aggregation>) => {
     for (const [key, aggregation] of map.entries()) {
-      const [periodStartIso, dimKey] = key.split("::");
+      const separatorIndex = key.indexOf("::");
+      const periodStartIso = separatorIndex >= 0 ? key.slice(0, separatorIndex) : key;
+      const dimKey = separatorIndex >= 0 ? key.slice(separatorIndex + 2) : "";
       const periodStart = new Date(periodStartIso);
       rows.push({
         periodStart,
@@ -296,6 +406,9 @@ const buildRows = (facts: PlaceFactRow[], options: ResolvedGenerationOptions, wi
   toRows("country", countryAgg);
   toRows("category", categoryAgg);
   toRows("asset", assetAgg);
+  toRows("country|category", countryCategoryAgg);
+  toRows("country|asset", countryAssetAgg);
+  toRows("category|asset", categoryAssetAgg);
 
   rows.sort((a, b) => {
     const byDate = a.periodStart.getTime() - b.periodStart.getTime();
