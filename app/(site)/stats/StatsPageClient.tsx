@@ -136,6 +136,11 @@ type StatsState = {
   trends?: TrendsResponse;
   statsUnavailable?: boolean;
   trendsUnavailable?: boolean;
+  snapshotLoading?: boolean;
+  trendsLoading?: boolean;
+  trendsSource?: 'live' | 'zero-baseline' | 'cache';
+  trendsCachedAt?: string;
+  trendsMessage?: string;
 };
 
 type ChartSeries = {
@@ -151,7 +156,6 @@ const TREND_RANGE_OPTIONS: Array<{ value: TrendRange; label: string }> = [
   { value: '30d', label: '30d' },
   { value: 'all', label: 'All' },
 ];
-const EMPTY_MESSAGE = 'No data (showing 0).';
 
 const formatUtcMetaTime = (value: string | null | undefined) => {
   if (!value) return 'n/a';
@@ -208,23 +212,61 @@ const EMPTY_STATS: StatsResponse = {
   limited: true,
 };
 
-const createEmptyTrends = (range: TrendRange): TrendsResponse => ({
-  ok: true,
-  range,
-  grain: '1d',
-  last_updated: new Date(0).toISOString(),
-  points: [{
-    date: '0',
-    total: 0,
-    delta: 0,
-    verified_total: 0,
-    verified_delta: 0,
-    accepting_any_total: 0,
-    accepting_any_delta: 0,
-  }],
-  stack: [{ date: '0', owner: 0, community: 0, directory: 0, unverified: 0 }],
-  meta: { reason: 'no_history_data' },
-});
+const TRENDS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+const getRangeConfig = (range: TrendRange) => {
+  if (range === '24h') return { points: 24, grain: '1h' as const };
+  if (range === '7d') return { points: 7, grain: '1d' as const };
+  if (range === '30d') return { points: 30, grain: '1d' as const };
+  return { points: 26, grain: '1w' as const };
+};
+
+const formatTrendLabel = (timestamp: number, grain: '1h' | '1d' | '1w') => {
+  const date = new Date(timestamp);
+  if (grain === '1h') {
+    return `${String(date.getUTCHours()).padStart(2, '0')}:00`;
+  }
+  return `${date.getUTCMonth() + 1}/${date.getUTCDate()}`;
+};
+
+const createZeroBaselineTrends = (range: TrendRange, overrides?: Partial<TrendsResponse>): TrendsResponse => {
+  const config = getRangeConfig(range);
+  const now = Date.now();
+  const stepMs = config.grain === '1h' ? 60 * 60 * 1000 : config.grain === '1d' ? 24 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
+  const start = now - stepMs * (config.points - 1);
+
+  const points: TrendPoint[] = Array.from({ length: config.points }, (_, index) => {
+    const timestamp = start + index * stepMs;
+    return {
+      date: formatTrendLabel(timestamp, config.grain),
+      total: 0,
+      delta: 0,
+      verified_total: 0,
+      verified_delta: 0,
+      accepting_any_total: 0,
+      accepting_any_delta: 0,
+    };
+  });
+
+  const stack: VerificationStackedPoint[] = points.map((point) => ({
+    date: point.date,
+    owner: 0,
+    community: 0,
+    directory: 0,
+    unverified: 0,
+  }));
+
+  return {
+    ok: true,
+    range,
+    grain: config.grain,
+    last_updated: new Date().toISOString(),
+    points,
+    stack,
+    meta: { reason: 'no_history_data', ...overrides?.meta },
+    ...overrides,
+  };
+};
 
 function HorizontalBarList({ title, rows, formatKey = (key: string) => key }: { title: string; rows: Array<{ key: string; count: number }>; formatKey?: (key: string) => string }) {
   const max = Math.max(...rows.map((row) => row.count), 1);
@@ -248,7 +290,7 @@ function HorizontalBarList({ title, rows, formatKey = (key: string) => key }: { 
         </div>
       ) : (
         <div className="rounded-md border border-dashed border-gray-200 bg-gray-50 px-3 py-4 text-center text-sm text-gray-600">
-          {EMPTY_MESSAGE}
+          No results. Try removing filters.
         </div>
       )}
     </div>
@@ -510,9 +552,9 @@ export default function StatsPageClient() {
   const [filterMeta, setFilterMeta] = useState<FilterMetaResponse | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [trendRange, setTrendRange] = useState<TrendRange>('7d');
-  const [state, setState] = useState<StatsState>({ status: 'loading' });
+  const [state, setState] = useState<StatsState>({ status: 'loading', snapshotLoading: true, trendsLoading: true });
   const stats = state.stats ?? EMPTY_STATS;
-  const trends = state.trends ?? createEmptyTrends(trendRange);
+  const trends = state.trends ?? createZeroBaselineTrends(trendRange);
 
   const buildSnapshotQuery = useCallback((input: StatsFilters) => {
     const params = new URLSearchParams();
@@ -525,7 +567,7 @@ export default function StatsPageClient() {
   }, []);
 
   const fetchSnapshot = useCallback(async (activeFilters: StatsFilters) => {
-    setState((previous) => ({ ...previous, status: 'loading' }));
+    setState((previous) => ({ ...previous, status: previous.stats ? 'success' : 'loading', snapshotLoading: true }));
 
     try {
       const response = await fetch(`/api/stats${buildSnapshotQuery(activeFilters)}`);
@@ -535,9 +577,10 @@ export default function StatsPageClient() {
         setState((previous) => ({
           ...previous,
           status: 'success',
-          stats: undefined,
+          stats: previous.stats,
           statsUnavailable: true,
-          notice: 'Stats temporarily unavailable. Please try again later.',
+          snapshotLoading: false,
+          notice: 'Error loading snapshot. Showing last known values when available.',
         }));
         return;
       }
@@ -547,18 +590,28 @@ export default function StatsPageClient() {
         status: 'success',
         stats: payload,
         statsUnavailable: false,
+        snapshotLoading: false,
         notice: undefined,
       }));
     } catch {
       setState((previous) => ({
         ...previous,
         status: 'success',
-        stats: undefined,
+        stats: previous.stats,
         statsUnavailable: true,
-        notice: 'Stats temporarily unavailable. Please try again later.',
+        snapshotLoading: false,
+        notice: 'Error loading snapshot. Showing last known values when available.',
       }));
     }
   }, [buildSnapshotQuery]);
+
+
+  const getTrendsCacheKey = useCallback((range: TrendRange, input: StatsFilters) => {
+    const normalized = FILTER_KEYS
+      .map((key) => `${key}=${input[key].trim().toLowerCase()}`)
+      .join('&');
+    return `stats_trends::${range}::${normalized}`;
+  }, []);
 
   const buildTrendsQuery = useCallback((range: TrendRange, input: StatsFilters) => {
     const params = new URLSearchParams();
@@ -581,35 +634,66 @@ export default function StatsPageClient() {
   }, []);
 
   const fetchTrends = useCallback(async (range: TrendRange, activeFilters: StatsFilters) => {
+    setState((previous) => ({ ...previous, trendsLoading: true }));
+    const cacheKey = getTrendsCacheKey(range, activeFilters);
     try {
       const response = await fetch(`/api/stats/trends${buildTrendsQuery(range, activeFilters)}`);
       const payload = await response.json() as TrendsResponse | StatsUnavailableResponse;
 
       if (!response.ok || payload.ok === false) {
-        setState((previous) => ({
-          ...previous,
-          trends: undefined,
-          trendsUnavailable: true,
-          notice: 'Stats temporarily unavailable. Please try again later.',
-        }));
-        return;
+        throw new Error('trends_unavailable');
+      }
+
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(cacheKey, JSON.stringify({ payload, savedAt: new Date().toISOString() }));
+      }
+
+      const hasData = payload.meta?.has_data !== false;
+      setState((previous) => ({
+        ...previous,
+        status: previous.stats ? 'success' : previous.status,
+        trends: hasData ? payload : createZeroBaselineTrends(range, { meta: payload.meta }),
+        trendsUnavailable: false,
+        trendsLoading: false,
+        trendsSource: hasData ? 'live' : 'zero-baseline',
+        trendsCachedAt: undefined,
+        trendsMessage: hasData ? undefined : 'No saved trend data for this filter yet. Showing zero baseline.',
+      }));
+    } catch {
+      const fallback = createZeroBaselineTrends(range);
+      let cachedPayload: TrendsResponse | null = null;
+      let cachedAt: string | undefined;
+      if (typeof window !== 'undefined') {
+        const raw = window.localStorage.getItem(cacheKey);
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw) as { payload?: TrendsResponse; savedAt?: string };
+            if (parsed.payload && parsed.savedAt) {
+              const age = Date.now() - new Date(parsed.savedAt).getTime();
+              if (Number.isFinite(age) && age >= 0 && age <= TRENDS_CACHE_TTL_MS) {
+                cachedPayload = parsed.payload;
+                cachedAt = parsed.savedAt;
+              }
+            }
+          } catch {
+            cachedPayload = null;
+          }
+        }
       }
 
       setState((previous) => ({
         ...previous,
-        status: previous.stats ? 'success' : previous.status,
-        trends: payload,
-        trendsUnavailable: false,
-      }));
-    } catch {
-      setState((previous) => ({
-        ...previous,
-        trends: undefined,
+        trends: cachedPayload ?? fallback,
         trendsUnavailable: true,
-        notice: 'Stats temporarily unavailable. Please try again later.',
+        trendsLoading: false,
+        trendsSource: cachedPayload ? 'cache' : 'zero-baseline',
+        trendsCachedAt: cachedAt,
+        trendsMessage: cachedPayload
+          ? 'Trends API temporarily unavailable. Showing cached trends.'
+          : 'Trends data temporarily unavailable. Showing zero baseline.',
       }));
     }
-  }, [buildTrendsQuery]);
+  }, [buildTrendsQuery, getTrendsCacheKey]);
 
   const syncUrl = useCallback((next: StatsFilters) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -663,8 +747,9 @@ export default function StatsPageClient() {
     fetchSnapshot(filters);
   }, [fetchSnapshot, filters]);
 
-  const trendPoints = trends.points.length ? trends.points : createEmptyTrends(trendRange).points;
-  const trendStackedPoints = trends.stack.length ? trends.stack : createEmptyTrends(trendRange).stack;
+  const fallbackTrends = useMemo(() => createZeroBaselineTrends(trendRange), [trendRange]);
+  const trendPoints = Array.isArray(trends.points) && trends.points.length ? trends.points : fallbackTrends.points;
+  const trendStackedPoints = Array.isArray(trends.stack) && trends.stack.length ? trends.stack : fallbackTrends.stack;
   const trendLabels = trendPoints.map((point) => point.date);
   const trendSeries: ChartSeries[] = [
     {
@@ -772,13 +857,15 @@ export default function StatsPageClient() {
   const acceptsMissingChainCount = Number(stats.meta?.accepts_missing_chain_count ?? 0);
   const networkCoverage = Number(stats.meta?.network_coverage ?? 0);
   const networkCoveragePercent = `${(Math.max(0, Math.min(1, networkCoverage)) * 100).toFixed(1)}%`;
-  const unavailable = Boolean(state.statsUnavailable || state.trendsUnavailable);
-  const showLimited = Boolean((stats.limited || state.notice) && !unavailable);
+  const showLimited = Boolean(stats.limited || state.notice);
   const cityOptions = filters.country ? filterMeta?.cities?.[filters.country] ?? [] : [];
-  const isTrendDataUnavailableForFilters = (trends.meta?.has_data === false) || (trends.points.length === 0 && trends.stack.length === 0);
+  const isTrendDataUnavailableForFilters = trends.meta?.has_data === false;
   const trendFallback = trends.meta?.fallback;
   const trendUsed = trends.meta?.used;
   const trendCubeLabel = trendUsed ? `${trendUsed.dim_type}=${trendUsed.dim_key}` : 'all=all';
+  const trendWarningMessage = state.trendsMessage
+    ?? (isTrendDataUnavailableForFilters ? 'No saved trend data for this filter yet. Showing zero baseline.' : undefined);
+  const snapshotNoResults = stats.total_places === 0;
 
   if (state.status === 'loading') {
     return (
@@ -890,9 +977,9 @@ export default function StatsPageClient() {
           </div>
         </section>
 
-        {unavailable ? (
+        {state.statsUnavailable ? (
           <section className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-5 text-sm text-amber-900">
-            Stats temporarily unavailable. Please try again later.
+            Error loading snapshot. Showing last known values when available.
           </section>
         ) : null}
 
@@ -904,15 +991,13 @@ export default function StatsPageClient() {
             >
               <span className="text-sm font-medium text-gray-600">{card.label}</span>
               <span className="mt-1 text-2xl font-semibold text-gray-900 sm:text-[26px]">
-                {unavailable ? '—' : card.value.toLocaleString()}
+                {card.value.toLocaleString()}
               </span>
               <span className="text-xs text-gray-500">{card.description}</span>
             </div>
           ))}
         </section>
 
-        {!unavailable ? (
-          <>
         <SectionCard
           eyebrow="Trends"
           title="Growth trends"
@@ -927,9 +1012,20 @@ export default function StatsPageClient() {
               {trendFallback.dropped_filters.length ? ` Dropped filters: ${trendFallback.dropped_filters.join(', ')}.` : ''}
             </div>
           ) : null}
-          {isTrendDataUnavailableForFilters ? (
+          {state.trendsLoading ? (
+            <div className="mb-4 rounded-md border border-sky-200 bg-sky-50 p-3 text-xs text-sky-900">
+              Loading trends…
+            </div>
+          ) : null}
+          {trendWarningMessage ? (
             <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
-              No saved trend data yet.
+              {trendWarningMessage}
+              {trends.meta?.last_updated ? ` Last successful cube update: ${formatUtcMetaTime(trends.meta?.last_updated)}.` : ''}
+            </div>
+          ) : null}
+          {state.trendsSource === 'cache' && state.trendsCachedAt ? (
+            <div className="mb-4 text-xs text-gray-600">
+              Showing cached trends from {formatUtcMetaTime(state.trendsCachedAt)}.
             </div>
           ) : null}
           <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -962,6 +1058,12 @@ export default function StatsPageClient() {
           title="Verification Breakdown"
           description="Donut view of owner/community/directory/unverified counts for the current filter set."
         >
+          {state.snapshotLoading ? (
+            <div className="mb-4 rounded-md border border-sky-200 bg-sky-50 p-3 text-xs text-sky-900">Loading snapshot…</div>
+          ) : null}
+          {snapshotNoResults ? (
+            <div className="mb-4 rounded-md border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700">No results for this filter set. Try removing filters.</div>
+          ) : null}
           <VerificationDonut items={verificationEntries} />
         </SectionCard>
 
@@ -1023,7 +1125,7 @@ export default function StatsPageClient() {
                       </table>
                     </div>
                   ) : (
-                    <div className="px-4 py-6 text-center text-sm text-gray-600">{EMPTY_MESSAGE}</div>
+                    <div className="px-4 py-6 text-center text-sm text-gray-600">No results. Try removing filters.</div>
                   )}
                 </div>
               );
@@ -1067,12 +1169,10 @@ export default function StatsPageClient() {
             </div>
           ) : (
             <div className="rounded-md border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-center text-sm text-gray-600">
-              {EMPTY_MESSAGE}
+              No results. Try removing filters.
             </div>
           )}
         </SectionCard>
-          </>
-        ) : null}
       </div>
     </main>
   );
