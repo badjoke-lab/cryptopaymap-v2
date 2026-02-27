@@ -9,12 +9,13 @@ type CliOptions = {
   grain: Grain;
   date?: string;
   weekStart?: string;
+  hourStart?: string;
   sinceHours: number;
   topN: number;
 };
 
 const printHelp = () => {
-  console.log(`Usage:\n  pnpm tsx scripts/generate_stats_timeseries.ts --grain=1h [--since-hours=48] [--top-n=30]\n  pnpm tsx scripts/generate_stats_timeseries.ts --grain=1d [--date=YYYY-MM-DD] [--top-n=30]\n  pnpm tsx scripts/generate_stats_timeseries.ts --grain=1w [--week-start=YYYY-MM-DD] [--top-n=30]`);
+  console.log(`Usage:\n  pnpm tsx scripts/generate_stats_timeseries.ts --grain=1h [--since-hours=48] [--hour-start=2026-03-01T10:00:00Z] [--top-n=30]\n  pnpm tsx scripts/generate_stats_timeseries.ts --grain=1d [--date=YYYY-MM-DD] [--top-n=30]\n  pnpm tsx scripts/generate_stats_timeseries.ts --grain=1w [--week-start=YYYY-MM-DD] [--top-n=30]`);
 };
 
 const parseArgs = (): CliOptions => {
@@ -42,6 +43,8 @@ const parseArgs = (): CliOptions => {
       options.date = value;
     } else if (key === "--week-start" && value) {
       options.weekStart = value;
+    } else if (key === "--hour-start" && value) {
+      options.hourStart = value;
     } else if (key === "--since-hours" && value) {
       const parsed = Number(value);
       if (!Number.isFinite(parsed) || parsed <= 0) {

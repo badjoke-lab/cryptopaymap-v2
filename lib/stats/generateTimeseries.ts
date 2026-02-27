@@ -10,6 +10,7 @@ export type GenerateTimeseriesOptions = {
   grain: Grain;
   date?: string;
   weekStart?: string;
+  hourStart?: string;
   sinceHours?: number;
   topN?: number;
   route?: string;
@@ -131,10 +132,23 @@ const parseUtcDate = (raw: string) => {
   return parsed;
 };
 
+const parseUtcHour = (raw: string) => {
+  const normalized = raw.includes("T") ? raw : `${raw}T00:00:00.000Z`;
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`Invalid hourStart: ${raw}. Expected ISO datetime.`);
+  }
+  return startOfUtcHour(parsed);
+};
+
 const resolveWindow = (options: ResolvedGenerationOptions): TimeWindow => {
   const now = new Date();
 
   if (options.grain === "1h") {
+    if (options.hourStart) {
+      const start = parseUtcHour(options.hourStart);
+      return { start, end: addBucket(start, "1h", 1) };
+    }
     const end = addBucket(startOfUtcHour(now), "1h", 1);
     const start = addBucket(end, "1h", -(options.sinceHours ?? DEFAULT_SINCE_HOURS));
     return { start, end };

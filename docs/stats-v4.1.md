@@ -365,3 +365,28 @@ Primary Key:
 * 非対応条件は明示
 
 ---
+
+---
+
+## 🛠 Stats timeseries 運用（PR-10）
+
+- Backfill は安全デフォルトで実行する（全期間デフォルト禁止）。
+  - `1h`: 既定48時間
+  - `1d`: 既定7日
+  - `1w`: 既定8週
+- 推奨コマンド:
+  - `pnpm tsx scripts/backfill_stats_timeseries.ts --grain=1d --days=90`
+  - `pnpm tsx scripts/backfill_stats_timeseries.ts --grain=1w --weeks=52`
+  - `pnpm tsx scripts/backfill_stats_timeseries.ts --grain=1h --hours=48`
+- 欠損検知コマンド:
+  - `pnpm tsx scripts/check_stats_timeseries_gaps.ts --grain=1h --hours=48 --dim-type=all --dim-key=all --fail-if-gaps-above=0`
+  - `pnpm tsx scripts/check_stats_timeseries_gaps.ts --grain=1d --days=90 --dim-type=all --dim-key=all --fail-if-gaps-above=0`
+  - `pnpm tsx scripts/check_stats_timeseries_gaps.ts --grain=1w --weeks=52 --dim-type=all --dim-key=all --fail-if-gaps-above=0`
+- stale 判定しきい値:
+  - `1h`: period/generated の遅延が3時間超
+  - `1d`: period/generated の遅延が48時間超
+  - `1w`: period/generated の遅延が14日超
+- 保持方針（削除実装は別PR）:
+  - `1h`: 最大60日
+  - `1d`: 最大2年
+  - `1w`: 最大5年

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { runStatsTimeseriesJob } from "@/lib/stats/generateTimeseries";
+import { getStatsStaleness } from "@/lib/stats/staleness";
 
 const NO_STORE = "no-store";
 const WEEKLY_RUN_UTC_DAY = 1; // Monday (UTC)
@@ -24,6 +25,31 @@ const jsonNoStore = (body: Record<string, unknown>, status = 200) =>
       "Cache-Control": NO_STORE,
     },
   });
+
+
+const logStaleness = async (logPrefix: string) => {
+  const targets = [
+    { grain: "1h" as const, dimType: "all", dimKey: "all" },
+    { grain: "1d" as const, dimType: "all", dimKey: "all" },
+    { grain: "1w" as const, dimType: "all", dimKey: "all" },
+  ];
+
+  const checks = await Promise.all(
+    targets.map((target) => getStatsStaleness({
+      grain: target.grain,
+      dimType: target.dimType,
+      dimKey: target.dimKey,
+      route: "cron_stats_timeseries_staleness",
+    })),
+  );
+
+  for (const check of checks) {
+    const status = check.status === "stale" ? "STALE" : "FRESH";
+    console.log(`${logPrefix} [stats][stale] grain=${check.grain} dim=${check.dimType}/${check.dimKey} last_period_start=${check.lastPeriodStart ?? "none"} generated_at=${check.lastGeneratedAt ?? "none"} ageHours=${check.ageHours ?? "n/a"} generatedAgeHours=${check.generatedAgeHours ?? "n/a"} status=${status} reason=${check.reason}`);
+  }
+
+  return checks;
+};
 
 const handle = async (request: Request) => {
   const startedAt = new Date();
@@ -81,6 +107,8 @@ const handle = async (request: Request) => {
       console.log(`${logPrefix} weekly skipped reason=not_monday_utc`);
     }
 
+    const staleness = await logStaleness(logPrefix);
+
     const finishedAt = new Date();
     const durationMs = finishedAt.getTime() - startedAt.getTime();
     console.log(`${logPrefix} done mode=${mode} durationMs=${durationMs}`);
@@ -100,6 +128,7 @@ const handle = async (request: Request) => {
         ran: Boolean(weeklyResult),
         reason: weeklyResult ? null : "not_monday_utc",
       },
+      staleness,
     });
   } catch (error) {
     const finishedAt = new Date();
