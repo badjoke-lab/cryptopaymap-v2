@@ -41,6 +41,21 @@ export type StatsTrendsResponse = {
     has_data: boolean;
     missing_reason?: "no_saved_cube";
     last_updated: string | null;
+    requested?: {
+      dim_type: string;
+      dim_key: string;
+      filters_summary: Partial<Record<CanonicalFilter, string>>;
+    };
+    used?: {
+      dim_type: string;
+      dim_key: string;
+    };
+    fallback?: {
+      applied: boolean;
+      reason: string;
+      dropped_filters: CanonicalFilter[];
+      warnings?: string[];
+    };
   };
   response_meta?: {
     source: "db";
@@ -52,6 +67,19 @@ type TrendsUnavailableResponse = {
   ok: false;
   error: "stats_unavailable";
   reason: "db_error";
+};
+
+type CanonicalFilter = "country" | "city" | "category" | "asset" | "verification" | "promoted" | "source";
+
+type NormalizedFilters = {
+  values: Partial<Record<CanonicalFilter, string>>;
+  warnings: string[];
+};
+
+type DimSelection = {
+  dimType: string;
+  dimKey: string;
+  keys: CanonicalFilter[];
 };
 
 type TrendsBadRequestResponse = {
@@ -127,12 +155,95 @@ const parseRange = (request: Request): TrendRange | null => {
   return null;
 };
 
-const resolveDims = (request: Request) => {
+const parseFirstFilterValue = (rawValue: string | null, key: CanonicalFilter, warnings: string[]) => {
+  if (!rawValue) return "";
+  const values = rawValue
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  if (values.length > 1) {
+    warnings.push(`multi_not_supported:${key}`);
+  }
+
+  return values[0] ?? "";
+};
+
+const resolveFilters = (request: Request): NormalizedFilters => {
   const url = new URL(request.url);
+  const warnings: string[] = [];
+  const country = parseFirstFilterValue(url.searchParams.get("country"), "country", warnings);
+  const city = parseFirstFilterValue(url.searchParams.get("city"), "city", warnings);
+  const category = parseFirstFilterValue(url.searchParams.get("category"), "category", warnings);
+  const asset = parseFirstFilterValue(url.searchParams.get("asset") ?? url.searchParams.get("accepted"), "asset", warnings);
+  const verification = parseFirstFilterValue(url.searchParams.get("verification"), "verification", warnings);
+  const promoted = parseFirstFilterValue(url.searchParams.get("promoted"), "promoted", warnings);
+  const source = parseFirstFilterValue(url.searchParams.get("source"), "source", warnings);
+
   return {
-    dimType: url.searchParams.get("dim_type")?.trim() || "all",
-    dimKey: url.searchParams.get("dim_key")?.trim() || "all",
+    values: {
+      ...(country ? { country } : {}),
+      ...(city ? { city } : {}),
+      ...(category ? { category } : {}),
+      ...(asset ? { asset } : {}),
+      ...(verification ? { verification } : {}),
+      ...(promoted ? { promoted } : {}),
+      ...(source ? { source } : {}),
+    },
+    warnings,
   };
+};
+
+const buildRequestedDim = (filters: Partial<Record<CanonicalFilter, string>>): DimSelection => {
+  const orderedKeys: CanonicalFilter[] = ["country", "city", "category", "asset", "verification", "promoted", "source"];
+  const keys = orderedKeys.filter((key) => Boolean(filters[key]));
+  if (keys.length === 0) {
+    return { dimType: "all", dimKey: "all", keys: [] };
+  }
+  return {
+    dimType: keys.join("|"),
+    dimKey: keys.map((key) => filters[key] as string).join("|"),
+    keys,
+  };
+};
+
+const buildFallbackCandidates = (filters: Partial<Record<CanonicalFilter, string>>): DimSelection[] => {
+  const requested = buildRequestedDim(filters);
+  const list: DimSelection[] = [];
+
+  if (requested.keys.length > 0) {
+    list.push(requested);
+  }
+  const pushCandidate = (keys: CanonicalFilter[]) => {
+    if (keys.some((key) => !filters[key])) return;
+    list.push({
+      dimType: keys.join("|"),
+      dimKey: keys.map((key) => filters[key] as string).join("|"),
+      keys,
+    });
+  };
+
+  pushCandidate(["country", "category", "asset"]);
+  pushCandidate(["country", "category"]);
+  pushCandidate(["country", "asset"]);
+  pushCandidate(["category", "asset"]);
+
+  pushCandidate(["country"]);
+  pushCandidate(["city"]);
+  pushCandidate(["category"]);
+  pushCandidate(["asset"]);
+  pushCandidate(["source"]);
+  pushCandidate(["promoted"]);
+  pushCandidate(["verification"]);
+
+  list.push({ dimType: "all", dimKey: "all", keys: [] });
+
+  const unique = new Map<string, DimSelection>();
+  for (const candidate of list) {
+    unique.set(`${candidate.dimType}::${candidate.dimKey}`, candidate);
+  }
+
+  return [...unique.values()];
 };
 
 const buildRangeStart = (now: Date, range: TrendRange, grain: TrendGrain) => {
@@ -162,7 +273,9 @@ export async function GET(request: Request) {
 
   const range = parsedRange;
   const { grain } = RANGE_CONFIG[range];
-  const { dimType, dimKey } = resolveDims(request);
+  const normalizedFilters = resolveFilters(request);
+  const requestedDim = buildRequestedDim(normalizedFilters.values);
+  const candidates = buildFallbackCandidates(normalizedFilters.values);
   const queryAsOf = new Date();
   const rangeStart = buildRangeStart(queryAsOf, range, grain);
 
@@ -189,11 +302,26 @@ export async function GET(request: Request) {
         meta: {
           reason: "no_history_data",
           grain,
-          dim_type: dimType,
-          dim_key: dimKey,
+          dim_type: requestedDim.dimType,
+          dim_key: requestedDim.dimKey,
           has_data: false,
           missing_reason: "no_saved_cube",
           last_updated: null,
+          requested: {
+            dim_type: requestedDim.dimType,
+            dim_key: requestedDim.dimKey,
+            filters_summary: normalizedFilters.values,
+          },
+          used: {
+            dim_type: "all",
+            dim_key: "all",
+          },
+          fallback: {
+            applied: requestedDim.dimType !== "all" || requestedDim.dimKey !== "all",
+            reason: "no_saved_cube_for_requested",
+            dropped_filters: requestedDim.keys,
+            warnings: normalizedFilters.warnings,
+          },
         },
         response_meta: { source: "db", as_of: queryAsOf.toISOString() },
       };
@@ -204,6 +332,25 @@ export async function GET(request: Request) {
           ...buildDataSourceHeaders("db", false),
         },
       });
+    }
+
+    let usedDim = candidates[candidates.length - 1];
+    for (const candidate of candidates) {
+      const exists = await dbQuery<{ exists: number }>(
+        `SELECT 1 AS exists
+         FROM public.stats_timeseries
+         WHERE grain = $1
+           AND dim_type = $2
+           AND dim_key = $3
+           AND period_start >= $4
+         LIMIT 1`,
+        [grain, candidate.dimType, candidate.dimKey, rangeStart.toISOString()],
+        { route },
+      );
+      if (exists.rows.length > 0) {
+        usedDim = candidate;
+        break;
+      }
     }
 
     const { rows } = await dbQuery<{
@@ -236,7 +383,7 @@ export async function GET(request: Request) {
          AND dim_key = $3
          AND period_start >= $4
        ORDER BY period_start ASC`,
-      [grain, dimType, dimKey, rangeStart.toISOString()],
+      [grain, usedDim.dimType, usedDim.dimKey, rangeStart.toISOString()],
       { route },
     );
 
@@ -292,6 +439,8 @@ export async function GET(request: Request) {
 
     const lastUpdated = rows[0]?.max_generated_at ?? null;
     const hasData = rows.length > 0;
+    const droppedFilters = requestedDim.keys.filter((key) => !usedDim.keys.includes(key));
+    const fallbackApplied = requestedDim.dimType !== usedDim.dimType || requestedDim.dimKey !== usedDim.dimKey;
 
     const response: StatsTrendsResponse = {
       ok: true,
@@ -303,11 +452,26 @@ export async function GET(request: Request) {
       meta: {
         ...(hasData ? {} : { reason: "no_history_data" as const }),
         grain,
-        dim_type: dimType,
-        dim_key: dimKey,
+        dim_type: usedDim.dimType,
+        dim_key: usedDim.dimKey,
         has_data: hasData,
         ...(hasData ? {} : { missing_reason: "no_saved_cube" as const }),
         last_updated: lastUpdated,
+        requested: {
+          dim_type: requestedDim.dimType,
+          dim_key: requestedDim.dimKey,
+          filters_summary: normalizedFilters.values,
+        },
+        used: {
+          dim_type: usedDim.dimType,
+          dim_key: usedDim.dimKey,
+        },
+        fallback: {
+          applied: fallbackApplied,
+          reason: fallbackApplied ? "no_saved_cube_for_requested" : "none",
+          dropped_filters: droppedFilters,
+          warnings: normalizedFilters.warnings,
+        },
       },
       response_meta: { source: "db", as_of: queryAsOf.toISOString() },
     };

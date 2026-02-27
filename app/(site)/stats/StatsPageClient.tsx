@@ -83,6 +83,23 @@ type TrendsResponse = {
   meta?: {
     reason?: 'no_history_data' | 'db_unavailable' | 'internal_error';
     has_data?: boolean;
+    grain?: '1h' | '1d' | '1w';
+    last_updated?: string | null;
+    requested?: {
+      dim_type: string;
+      dim_key: string;
+      filters_summary: Record<string, string>;
+    };
+    used?: {
+      dim_type: string;
+      dim_key: string;
+    };
+    fallback?: {
+      applied: boolean;
+      reason: string;
+      dropped_filters: string[];
+      warnings?: string[];
+    };
   };
 };
 
@@ -135,6 +152,13 @@ const TREND_RANGE_OPTIONS: Array<{ value: TrendRange; label: string }> = [
   { value: 'all', label: 'All' },
 ];
 const EMPTY_MESSAGE = 'No data (showing 0).';
+
+const formatUtcMetaTime = (value: string | null | undefined) => {
+  if (!value) return 'n/a';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'n/a';
+  return `${date.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+};
 
 const formatChainLabel = (value: string) => value.trim().toLowerCase() === 'unknown' ? 'Unknown' : value;
 const FILTER_KEYS: Array<keyof StatsFilters> = ['country', 'city', 'category', 'accepted', 'verification', 'promoted', 'source'];
@@ -553,35 +577,6 @@ export default function StatsPageClient() {
       params.set('asset', asset);
     }
 
-    const dimensionEntries: Array<{ key: keyof StatsFilters; dimType: string }> = [
-      { key: 'country', dimType: 'country' },
-      { key: 'city', dimType: 'city' },
-      { key: 'category', dimType: 'category' },
-      { key: 'accepted', dimType: 'asset' },
-      { key: 'verification', dimType: 'verification' },
-      { key: 'promoted', dimType: 'promoted' },
-      { key: 'source', dimType: 'source' },
-    ];
-
-    const activeDimensions = dimensionEntries
-      .map((entry) => {
-        const raw = normalized[entry.key];
-        if (!raw) return null;
-        return { dimType: entry.dimType, dimKey: raw.toLowerCase() };
-      })
-      .filter((entry): entry is { dimType: string; dimKey: string } => Boolean(entry));
-
-    if (activeDimensions.length === 0) {
-      params.set('dim_type', 'all');
-      params.set('dim_key', 'all');
-    } else if (activeDimensions.length === 1) {
-      params.set('dim_type', activeDimensions[0].dimType);
-      params.set('dim_key', activeDimensions[0].dimKey);
-    } else {
-      params.set('dim_type', activeDimensions.map((entry) => entry.dimType).join('|'));
-      params.set('dim_key', activeDimensions.map((entry) => entry.dimKey).join('|'));
-    }
-
     return `?${params.toString()}`;
   }, []);
 
@@ -781,6 +776,9 @@ export default function StatsPageClient() {
   const showLimited = Boolean((stats.limited || state.notice) && !unavailable);
   const cityOptions = filters.country ? filterMeta?.cities?.[filters.country] ?? [] : [];
   const isTrendDataUnavailableForFilters = (trends.meta?.has_data === false) || (trends.points.length === 0 && trends.stack.length === 0);
+  const trendFallback = trends.meta?.fallback;
+  const trendUsed = trends.meta?.used;
+  const trendCubeLabel = trendUsed ? `${trendUsed.dim_type}=${trendUsed.dim_key}` : 'all=all';
 
   if (state.status === 'loading') {
     return (
@@ -921,12 +919,17 @@ export default function StatsPageClient() {
           description="Cumulative totals based on moderation history (approve/promote actions)."
         >
           <div className="mb-4 rounded-md border border-gray-200 bg-white p-3 text-xs text-gray-600">
-            Last updated: {new Date(trends.last_updated).toLocaleString()} / range: {trends.range} / grain: {trends.grain}
-            {trends.meta ? <span className="ml-2 text-amber-700">(note: {trends.meta.reason})</span> : null}
+            Last updated: {formatUtcMetaTime(trends.meta?.last_updated ?? trends.last_updated)} · Range: {trends.range} · Grain: {trends.meta?.grain ?? trends.grain} · Cube: {trendCubeLabel}
           </div>
+          {trendFallback?.applied ? (
+            <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+              Requested filters not available in saved cube yet. Showing nearest trend: {trendCubeLabel}.
+              {trendFallback.dropped_filters.length ? ` Dropped filters: ${trendFallback.dropped_filters.join(', ')}.` : ''}
+            </div>
+          ) : null}
           {isTrendDataUnavailableForFilters ? (
             <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
-              Trends data not available for this filter yet.
+              No saved trend data yet.
             </div>
           ) : null}
           <div className="mb-4 flex flex-wrap items-center gap-2">
