@@ -200,9 +200,12 @@ const buildRequestedDim = (filters: Partial<Record<CanonicalFilter, string>>): D
   if (keys.length === 0) {
     return { dimType: "all", dimKey: "all", keys: [] };
   }
+
+  const compositeKeyEligible = keys.every((key) => key === "country" || key === "category" || key === "asset") && keys.length >= 2;
+
   return {
     dimType: keys.join("|"),
-    dimKey: keys.map((key) => filters[key] as string).join("|"),
+    dimKey: keys.map((key) => filters[key] as string).join(compositeKeyEligible ? "::" : "|"),
     keys,
   };
 };
@@ -216,9 +219,10 @@ const buildFallbackCandidates = (filters: Partial<Record<CanonicalFilter, string
   }
   const pushCandidate = (keys: CanonicalFilter[]) => {
     if (keys.some((key) => !filters[key])) return;
+    const compositeKeyEligible = keys.every((key) => key === "country" || key === "category" || key === "asset") && keys.length >= 2;
     list.push({
       dimType: keys.join("|"),
-      dimKey: keys.map((key) => filters[key] as string).join("|"),
+      dimKey: keys.map((key) => filters[key] as string).join(compositeKeyEligible ? "::" : "|"),
       keys,
     });
   };
