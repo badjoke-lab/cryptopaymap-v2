@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import { DbUnavailableError, dbQuery } from "@/lib/db";
+import { dbQuery } from "@/lib/db";
 import { places } from "@/lib/data/places";
 import {
   buildDataSourceHeaders,
@@ -78,6 +78,9 @@ type StatsUnavailableResponse = {
   ok: false;
   error: "stats_unavailable";
   reason: "db_error";
+  code: "db_connect_failed" | "sql_error" | "timeout" | "unknown";
+  message: string;
+  request_id: string;
 };
 
 const CACHE_CONTROL = "public, s-maxage=7200, stale-while-revalidate=600";
@@ -128,6 +131,51 @@ const parseFilters = (request: Request): StatsFilters => {
   }
   return filters;
 };
+
+const resolveRequestId = (request: Request) => {
+  const headerValue = request.headers.get("x-request-id")?.trim();
+  if (headerValue) return headerValue;
+  if (typeof crypto?.randomUUID === "function") return crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+};
+
+const toErrorSummary = (error: unknown) => {
+  if (error instanceof Error) return error.message;
+  return String(error ?? "unknown_error");
+};
+
+const classifyFailure = (error: unknown): StatsUnavailableResponse["code"] => {
+  const message = toErrorSummary(error).toLowerCase();
+  if (message.includes("timeout") || message.includes("db_timeout")) return "timeout";
+  if (message.includes("database_url") || message.includes("connect") || message.includes("econn") || message.includes("ssl")) {
+    return "db_connect_failed";
+  }
+  if (message.includes("column") || message.includes("relation") || message.includes("syntax") || message.includes("operator")) {
+    return "sql_error";
+  }
+  return "unknown";
+};
+
+const failureResponse = (
+  status: number,
+  requestId: string,
+  code: StatsUnavailableResponse["code"],
+  message: string,
+) =>
+  NextResponse.json<StatsUnavailableResponse>(
+    {
+      ok: false,
+      error: "stats_unavailable",
+      reason: "db_error",
+      code,
+      message,
+      request_id: requestId,
+    },
+    {
+      status,
+      headers: { "Cache-Control": NO_STORE, ...buildDataSourceHeaders("db", true) },
+    },
+  );
 
 const tableExists = async (route: string, table: string) => {
   const { rows } = await dbQuery<{ present: string | null }>(
@@ -781,23 +829,18 @@ const loadStatsFromDb = async (route: string, filters: StatsFilters): Promise<St
 export async function GET(request: Request) {
   const filters = parseFilters(request);
   const route = "api_stats";
+  const requestId = resolveRequestId(request);
   const dataSource = getDataSourceSetting();
   const { shouldAttemptDb, shouldAllowJson, hasDb } = getDataSourceContext(dataSource);
 
   if (!hasDb && dataSource === "db") {
-    return NextResponse.json<StatsUnavailableResponse>({ ok: false, error: "stats_unavailable", reason: "db_error" }, {
-      status: 503,
-      headers: { "Cache-Control": NO_STORE, ...buildDataSourceHeaders("db", true) },
-    });
+    return failureResponse(503, requestId, "db_connect_failed", "database unavailable");
   }
 
   if (!shouldAttemptDb) {
     // Production must never use JSON fallback for stats.
     if (process.env.NODE_ENV === "production") {
-      return NextResponse.json<StatsUnavailableResponse>({ ok: false, error: "stats_unavailable", reason: "db_error" }, {
-        status: 503,
-        headers: { "Cache-Control": NO_STORE, ...buildDataSourceHeaders("db", true) },
-      });
+      return failureResponse(503, requestId, "db_connect_failed", "database unavailable");
     }
 
     try {
@@ -819,11 +862,8 @@ export async function GET(request: Request) {
         headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("json", true) },
       });
     } catch (error) {
-      console.error("[stats] failed to load JSON fallback", error);
-      return NextResponse.json<StatsUnavailableResponse>({ ok: false, error: "stats_unavailable", reason: "db_error" }, {
-        status: 503,
-        headers: { "Cache-Control": NO_STORE, ...buildDataSourceHeaders("db", true) },
-      });
+      console.error("[stats] failed to load JSON fallback", { requestId, error });
+      return failureResponse(503, requestId, "unknown", "stats unavailable");
     }
   }
 
@@ -848,17 +888,14 @@ export async function GET(request: Request) {
       headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("db", false) },
     });
   } catch (error) {
-    if (error instanceof DbUnavailableError || (error as Error).message?.includes("DATABASE_URL")) {
-      console.error("[stats] database unavailable, serving limited stats");
-    } else {
-      console.error("[stats] failed to load stats", error);
-    }
+    const code = classifyFailure(error);
+    const errorSummary = toErrorSummary(error);
+    console.error("[stats] failed to load stats snapshot", { requestId, code, error: errorSummary, detail: error });
 
     if (!shouldAllowJson || process.env.NODE_ENV === "production") {
-      return NextResponse.json<StatsUnavailableResponse>({ ok: false, error: "stats_unavailable", reason: "db_error" }, {
-        status: 503,
-        headers: { "Cache-Control": NO_STORE, ...buildDataSourceHeaders("db", true) },
-      });
+      const status = code === "db_connect_failed" ? 503 : 500;
+      const message = code === "timeout" ? "stats query timeout" : "stats snapshot unavailable";
+      return failureResponse(status, requestId, code, message);
     }
 
     // Production must never use JSON fallback for stats.
@@ -881,11 +918,8 @@ export async function GET(request: Request) {
         headers: { "Cache-Control": CACHE_CONTROL, ...buildDataSourceHeaders("json", true) },
       });
     } catch (jsonError) {
-      console.error("[stats] failed to load JSON fallback", jsonError);
-      return NextResponse.json<StatsUnavailableResponse>({ ok: false, error: "stats_unavailable", reason: "db_error" }, {
-        status: 503,
-        headers: { "Cache-Control": NO_STORE, ...buildDataSourceHeaders("db", true) },
-      });
+      console.error("[stats] failed to load JSON fallback", { requestId, jsonError });
+      return failureResponse(503, requestId, "unknown", "stats unavailable");
     }
   }
 }
