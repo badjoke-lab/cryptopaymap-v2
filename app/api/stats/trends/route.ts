@@ -72,7 +72,9 @@ export type StatsTrendsResponse = {
     legend?: {
       kind: TopBreakdownKind;
       keys: string[];
+      fallback_kind?: boolean;
     };
+    fallback_kind?: boolean;
     staleness?: {
       status: "fresh" | "stale";
       reason: "missing" | "period_lag" | "generated_at_lag" | "fresh";
@@ -185,6 +187,38 @@ const parseRange = (request: Request): TrendRange | null => {
     return raw as TrendRange;
   }
   return null;
+};
+
+const parseTopKind = (request: Request): TopBreakdownKind | null => {
+  const raw = new URL(request.url).searchParams.get("topKind")?.trim().toLowerCase();
+  if (raw === "category" || raw === "country" || raw === "asset") {
+    return raw;
+  }
+  return null;
+};
+
+const resolveTopKind = (filters: Partial<Record<CanonicalFilter, string>>): TopBreakdownKind => {
+  const hasCountry = Boolean(filters.country);
+  const hasCategory = Boolean(filters.category);
+  const hasAsset = Boolean(filters.asset);
+
+  if (!hasCountry && !hasCategory && !hasAsset) {
+    return "category";
+  }
+
+  if (hasCountry && !hasCategory) {
+    return "category";
+  }
+
+  if (hasCategory && !hasCountry) {
+    return "country";
+  }
+
+  if (!hasAsset) {
+    return "asset";
+  }
+
+  return "category";
 };
 
 const parseFirstFilterValue = (rawValue: string | null, key: CanonicalFilter, warnings: string[]) => {
@@ -308,6 +342,7 @@ export async function GET(request: Request) {
   }
 
   const range = parsedRange;
+  const requestedTopKind = parseTopKind(request);
   const { grain } = RANGE_CONFIG[range];
   const normalizedFilters = resolveFilters(request);
   const requestedDim = buildRequestedDim(normalizedFilters.values);
@@ -371,6 +406,12 @@ export async function GET(request: Request) {
             dropped_filters: requestedDim.keys,
             warnings: normalizedFilters.warnings,
           },
+          legend: {
+            kind: requestedTopKind ?? resolveTopKind(normalizedFilters.values),
+            keys: [],
+            fallback_kind: false,
+          },
+          fallback_kind: false,
         },
         response_meta: { source: "db", as_of: queryAsOf.toISOString() },
       };
@@ -449,7 +490,18 @@ export async function GET(request: Request) {
     const stack: VerificationStackedPoint[] = [];
     const top5BreakdownByPoint: Array<{ date: string; values: Record<string, number> }> = [];
     const top5Totals = new Map<string, number>();
-    const top5Kind: TopBreakdownKind = "category";
+    const effectiveFilters = usedDim.keys.reduce<Partial<Record<CanonicalFilter, string>>>((acc, key) => {
+      const value = normalizedFilters.values[key];
+      if (value) acc[key] = value;
+      return acc;
+    }, {});
+    const preferredTop5Kind: TopBreakdownKind = requestedTopKind ?? resolveTopKind(effectiveFilters);
+    const kindAvailable = rows.some((row) => {
+      const breakdown = row.breakdown_json?.breakdowns?.[preferredTop5Kind];
+      return Boolean(breakdown && Object.keys(breakdown).length > 0);
+    });
+    const top5Kind: TopBreakdownKind = kindAvailable ? preferredTop5Kind : "category";
+    const fallbackKindApplied = preferredTop5Kind !== top5Kind;
 
     for (const row of rows) {
       const bucketDate = bucketStart(new Date(row.period_start), grain);
@@ -580,7 +632,9 @@ export async function GET(request: Request) {
         legend: {
           kind: top5Kind,
           keys: top5Keys,
+          fallback_kind: fallbackKindApplied,
         },
+        fallback_kind: fallbackKindApplied,
         staleness: {
           status: stalenessCheck.status,
           reason: stalenessCheck.reason,

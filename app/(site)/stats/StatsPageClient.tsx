@@ -108,7 +108,9 @@ type TrendsResponse = {
     legend?: {
       kind: 'category' | 'asset' | 'country';
       keys: string[];
+      fallback_kind?: boolean;
     };
+    fallback_kind?: boolean;
   };
 };
 
@@ -784,6 +786,11 @@ export default function StatsPageClient() {
     ? trendTop5Legend.keys
     : (Array.isArray(trends.top5?.keys) ? trends.top5.keys : []);
   const top5Kind = trendTop5Legend?.kind ?? trends.top5?.kind;
+  const top5Title = top5Kind === 'asset'
+    ? 'Top 5 Assets'
+    : top5Kind === 'country'
+      ? 'Top 5 Countries'
+      : 'Top 5 Categories';
   const trendTop5Series: ChartSeries[] = top5Keys.map((key, index) => ({
     label: key,
     color: TOP5_SERIES_COLORS[index % TOP5_SERIES_COLORS.length],
@@ -889,6 +896,9 @@ export default function StatsPageClient() {
   const trendCubeLabel = trendUsed ? `${trendUsed.dim_type}=${trendUsed.dim_key}` : 'all=all';
   const trendWarningMessage = state.trendsMessage
     ?? (isTrendDataUnavailableForFilters ? 'No saved trend data for this filter yet. Showing zero baseline.' : undefined);
+  const top5FallbackKindMessage = trends.meta?.fallback_kind
+    ? 'Showing category trends (requested breakdown not available yet).'
+    : undefined;
   const snapshotNoResults = stats.total_places === 0;
 
   if (state.status === 'loading') {
@@ -1052,6 +1062,11 @@ export default function StatsPageClient() {
               Showing cached trends from {formatUtcMetaTime(state.trendsCachedAt)}.
             </div>
           ) : null}
+          {top5FallbackKindMessage ? (
+            <div className="mb-4 text-xs text-amber-800">
+              {top5FallbackKindMessage}
+            </div>
+          ) : null}
           <div className="mb-4 flex flex-wrap items-center gap-2">
             {TREND_RANGE_OPTIONS.map((option) => (
               <button
@@ -1075,7 +1090,7 @@ export default function StatsPageClient() {
             </div>
             <StackedBarChart labels={trendLabels} points={trendStackedPoints} />
             <div className="rounded-md border border-gray-200 bg-white p-3 text-xs font-medium text-gray-600">
-              Top5 {top5Kind ?? 'category'} trends (legend fixed by range-total ranking)
+              {top5Title} trends (legend fixed by range-total ranking)
             </div>
             <LineChart labels={trendLabels} series={trendTop5Series} />
           </div>
