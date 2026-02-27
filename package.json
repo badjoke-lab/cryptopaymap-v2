@@ -18,7 +18,8 @@
     "test:map-smoke:headed": "playwright test tests/map-smoke.spec.ts --headed",
     "audit:submit": "tsx scripts/audit/run-submit-audit.ts",
     "db:schema:check": "tsx scripts/validate_db_schema.ts",
-    "validate:map-stats-parity": "node --import tsx scripts/validate_map_stats_parity.ts"
+    "validate:map-stats-parity": "node --import tsx scripts/validate_map_stats_parity.ts",
+    "db:migrate:stats-timeseries": "tsx scripts/db_apply_sql.ts migrations/20260227_stats_timeseries.sql"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.862.0",
