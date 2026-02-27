@@ -121,6 +121,9 @@ type StatsUnavailableResponse = {
   ok: false;
   error: 'stats_unavailable';
   reason: 'db_error';
+  code?: 'db_connect_failed' | 'sql_error' | 'timeout' | 'unknown';
+  message?: string;
+  request_id?: string;
 };
 
 type StatsFilters = {
@@ -143,6 +146,7 @@ type FilterMetaResponse = {
 type StatsState = {
   status: FetchStatus;
   notice?: string;
+  snapshotErrorCode?: string;
   stats?: StatsResponse;
   trends?: TrendsResponse;
   statsUnavailable?: boolean;
@@ -582,17 +586,19 @@ export default function StatsPageClient() {
     setState((previous) => ({ ...previous, status: previous.stats ? 'success' : 'loading', snapshotLoading: true }));
 
     try {
-      const response = await fetch(`/api/stats${buildSnapshotQuery(activeFilters)}`);
+      const response = await fetch(`/api/stats/snapshot${buildSnapshotQuery(activeFilters)}`);
       const payload = await response.json() as StatsResponse | StatsUnavailableResponse;
 
       if (!response.ok || payload.ok === false) {
+        const snapshotErrorCode = payload.ok === false ? payload.code ?? 'unknown' : 'unknown';
         setState((previous) => ({
           ...previous,
           status: 'success',
           stats: previous.stats,
           statsUnavailable: true,
           snapshotLoading: false,
-          notice: 'Error loading snapshot. Showing last known values when available.',
+          snapshotErrorCode,
+          notice: `Error loading snapshot (${snapshotErrorCode}). Showing last known values when available.`,
         }));
         return;
       }
@@ -603,6 +609,7 @@ export default function StatsPageClient() {
         stats: payload,
         statsUnavailable: false,
         snapshotLoading: false,
+        snapshotErrorCode: undefined,
         notice: undefined,
       }));
     } catch {
@@ -612,7 +619,8 @@ export default function StatsPageClient() {
         stats: previous.stats,
         statsUnavailable: true,
         snapshotLoading: false,
-        notice: 'Error loading snapshot. Showing last known values when available.',
+        snapshotErrorCode: 'unknown',
+        notice: 'Error loading snapshot (unknown). Showing last known values when available.',
       }));
     }
   }, [buildSnapshotQuery]);
@@ -1013,7 +1021,7 @@ export default function StatsPageClient() {
 
         {state.statsUnavailable ? (
           <section className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-5 text-sm text-amber-900">
-            Error loading snapshot. Showing last known values when available.
+            Error loading snapshot{state.snapshotErrorCode ? ` (${state.snapshotErrorCode})` : ""}. Showing last known values when available.
           </section>
         ) : null}
 
