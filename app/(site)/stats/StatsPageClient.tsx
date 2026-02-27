@@ -80,7 +80,10 @@ type TrendsResponse = {
   last_updated: string;
   points: TrendPoint[];
   stack: VerificationStackedPoint[];
-  meta?: { reason: 'no_history_data' | 'db_unavailable' | 'internal_error' };
+  meta?: {
+    reason?: 'no_history_data' | 'db_unavailable' | 'internal_error';
+    has_data?: boolean;
+  };
 };
 
 type FetchStatus = 'idle' | 'loading' | 'success';
@@ -533,9 +536,58 @@ export default function StatsPageClient() {
     }
   }, [buildSnapshotQuery]);
 
-  const fetchTrends = useCallback(async (range: TrendRange) => {
+  const buildTrendsQuery = useCallback((range: TrendRange, input: StatsFilters) => {
+    const params = new URLSearchParams();
+    params.set('range', range);
+
+    const normalized: Partial<Record<keyof StatsFilters, string>> = {};
+    for (const key of FILTER_KEYS) {
+      const value = input[key].trim();
+      if (!value) continue;
+      normalized[key] = value;
+      params.set(key, value);
+    }
+
+    const asset = normalized.accepted;
+    if (asset) {
+      params.set('asset', asset);
+    }
+
+    const dimensionEntries: Array<{ key: keyof StatsFilters; dimType: string }> = [
+      { key: 'country', dimType: 'country' },
+      { key: 'city', dimType: 'city' },
+      { key: 'category', dimType: 'category' },
+      { key: 'accepted', dimType: 'asset' },
+      { key: 'verification', dimType: 'verification' },
+      { key: 'promoted', dimType: 'promoted' },
+      { key: 'source', dimType: 'source' },
+    ];
+
+    const activeDimensions = dimensionEntries
+      .map((entry) => {
+        const raw = normalized[entry.key];
+        if (!raw) return null;
+        return { dimType: entry.dimType, dimKey: raw.toLowerCase() };
+      })
+      .filter((entry): entry is { dimType: string; dimKey: string } => Boolean(entry));
+
+    if (activeDimensions.length === 0) {
+      params.set('dim_type', 'all');
+      params.set('dim_key', 'all');
+    } else if (activeDimensions.length === 1) {
+      params.set('dim_type', activeDimensions[0].dimType);
+      params.set('dim_key', activeDimensions[0].dimKey);
+    } else {
+      params.set('dim_type', activeDimensions.map((entry) => entry.dimType).join('|'));
+      params.set('dim_key', activeDimensions.map((entry) => entry.dimKey).join('|'));
+    }
+
+    return `?${params.toString()}`;
+  }, []);
+
+  const fetchTrends = useCallback(async (range: TrendRange, activeFilters: StatsFilters) => {
     try {
-      const response = await fetch(`/api/stats/trends?range=${range}`);
+      const response = await fetch(`/api/stats/trends${buildTrendsQuery(range, activeFilters)}`);
       const payload = await response.json() as TrendsResponse | StatsUnavailableResponse;
 
       if (!response.ok || payload.ok === false) {
@@ -562,7 +614,7 @@ export default function StatsPageClient() {
         notice: 'Stats temporarily unavailable. Please try again later.',
       }));
     }
-  }, []);
+  }, [buildTrendsQuery]);
 
   const syncUrl = useCallback((next: StatsFilters) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -609,8 +661,8 @@ export default function StatsPageClient() {
   }, [fetchFilterMeta]);
 
   useEffect(() => {
-    fetchTrends(trendRange);
-  }, [fetchTrends, trendRange]);
+    fetchTrends(trendRange, filters);
+  }, [fetchTrends, filters, trendRange]);
 
   useEffect(() => {
     fetchSnapshot(filters);
@@ -728,6 +780,7 @@ export default function StatsPageClient() {
   const unavailable = Boolean(state.statsUnavailable || state.trendsUnavailable);
   const showLimited = Boolean((stats.limited || state.notice) && !unavailable);
   const cityOptions = filters.country ? filterMeta?.cities?.[filters.country] ?? [] : [];
+  const isTrendDataUnavailableForFilters = (trends.meta?.has_data === false) || (trends.points.length === 0 && trends.stack.length === 0);
 
   if (state.status === 'loading') {
     return (
@@ -777,7 +830,7 @@ export default function StatsPageClient() {
                   type="button"
                   onClick={() => {
                     fetchSnapshot(filters);
-                    fetchTrends(trendRange);
+                    fetchTrends(trendRange, filters);
                   }}
                   className="inline-flex items-center gap-2 rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-700"
                 >
@@ -871,6 +924,11 @@ export default function StatsPageClient() {
             Last updated: {new Date(trends.last_updated).toLocaleString()} / range: {trends.range} / grain: {trends.grain}
             {trends.meta ? <span className="ml-2 text-amber-700">(note: {trends.meta.reason})</span> : null}
           </div>
+          {isTrendDataUnavailableForFilters ? (
+            <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+              Trends data not available for this filter yet.
+            </div>
+          ) : null}
           <div className="mb-4 flex flex-wrap items-center gap-2">
             {TREND_RANGE_OPTIONS.map((option) => (
               <button
