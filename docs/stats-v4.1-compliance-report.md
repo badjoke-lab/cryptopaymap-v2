@@ -20,11 +20,6 @@
 
 ---
 
-> PR-12更新（Top5 kind切替対応）:
-> - `/api/stats/trends` は `topKind` クエリ（category/country/asset）を受理し、未指定時は使用フィルタから kind を自動決定。
-> - breakdown未保存時は category へフォールバックし、`meta.fallback_kind=true` を返却。
-> - UIは `meta.legend.kind` で凡例タイトルを動的化し、kindフォールバック注記を表示。
-
 ## 2. 仕様項目ごとの準拠判定
 
 ## A. データ生成（stats_timeseries）
@@ -151,10 +146,10 @@
 
 ### C-6 Top5内訳推移（verification/category/country/asset）
 - 要件: Top5 categories/countries/assets。
-- 現状実装: `topKind` 明示指定対応 + フィルタ状況による自動kind決定 + 未保存時categoryフォールバック。
-- 検証結果: **PASS**
-- 根拠: `parseTopKind` / `resolveTopKind` / `meta.fallback_kind` と `legend.kind`。
-- 差分/影響: PR-11のFAIL項目を解消。
+- 現状実装: `top5Kind` が `"category"` 固定。
+- 検証結果: **FAIL**
+- 根拠: `const top5Kind: TopBreakdownKind = "category";`
+- 不一致/影響: country/assetのTop5推移を返せず、仕様要件不足。
 
 ### C-7 フィルタ次元網羅（city/chain/promoted/source）
 - 要件: v4.1データ前提に含まれる次元を扱えること。
@@ -201,10 +196,10 @@
 
 ### D-6 Top5凡例固定
 - 要件: range内合計Top5で凡例固定。
-- 現状実装: APIでkind別top5 totalsを集計しkeys固定、UIは`meta.legend.kind/keys`を使用。
-- 検証結果: **PASS**
-- 根拠: API `top5Totals` + UI dynamic legend title利用。
-- 差分/影響: kind固定問題を解消。
+- 現状実装: APIでtop5 totalsを集計しkeys固定、UIはそのkeysを使用。
+- 検証結果: **PASS（categoryに限定）**
+- 根拠: API `top5Totals` + UI legend利用。
+- 不一致/影響: kindがcategory固定のため仕様の「country/asset」には未達。
 
 ---
 
@@ -232,14 +227,15 @@
 
 ## 3. 集計サマリ
 
-- **PASS: 27**
+- **PASS: 25**
 - **PARTIAL: 3**
-- **FAIL: 0**
+- **FAIL: 1**
 
 ### FAIL/PARTIAL詳細
-1. **PARTIAL (P1)**: city/chain/promoted/source の時系列キューブ未保存でfallback依存。
-2. **PARTIAL (P2)**: `/stats` 500回避の実行確認は未完（build環境制約）。
-3. **PARTIAL (P2)**: 360px表示の実画面検証未完。
+1. **FAIL (P1)**: Top5 trend kind が category固定（country/asset不足）。
+2. **PARTIAL (P1)**: city/chain/promoted/source の時系列キューブ未保存でfallback依存。
+3. **PARTIAL (P2)**: `/stats` 500回避の実行確認は未完（build環境制約）。
+4. **PARTIAL (P2)**: 360px表示の実画面検証未完。
 
 ---
 
