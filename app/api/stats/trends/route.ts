@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { DbUnavailableError, dbQuery, hasDatabaseUrl } from "@/lib/db";
 import { buildDataSourceHeaders } from "@/lib/dataSource";
 import { tableExists } from "@/lib/internal-submissions";
+import { evaluateStatsStaleness } from "@/lib/stats/staleness";
 
 export type TrendRange = "24h" | "7d" | "30d" | "all";
 export type TrendGrain = "1h" | "1d" | "1w";
@@ -71,6 +72,19 @@ export type StatsTrendsResponse = {
     legend?: {
       kind: TopBreakdownKind;
       keys: string[];
+    };
+    staleness?: {
+      status: "fresh" | "stale";
+      reason: "missing" | "period_lag" | "generated_at_lag" | "fresh";
+      last_period_start: string | null;
+      last_generated_at: string | null;
+      age_hours: number | null;
+      generated_age_hours: number | null;
+      thresholds: {
+        max_period_lag_hours: number;
+        max_generated_age_hours: number;
+      };
+      message: string;
     };
   };
   response_meta?: {
@@ -329,6 +343,19 @@ export async function GET(request: Request) {
           has_data: false,
           missing_reason: "no_saved_cube",
           last_updated: null,
+          staleness: {
+            status: "stale",
+            reason: "missing",
+            last_period_start: null,
+            last_generated_at: null,
+            age_hours: null,
+            generated_age_hours: null,
+            thresholds: {
+              max_period_lag_hours: grain === "1h" ? 3 : grain === "1d" ? 48 : 336,
+              max_generated_age_hours: grain === "1h" ? 3 : grain === "1d" ? 48 : 336,
+            },
+            message: "Stats update delayed (no saved cube yet).",
+          },
           requested: {
             dim_type: requestedDim.dimType,
             dim_key: requestedDim.dimKey,
@@ -499,6 +526,19 @@ export async function GET(request: Request) {
 
     const lastUpdated = rows[0]?.max_generated_at ?? null;
     const hasData = rows.length > 0;
+    const latestPeriodStart = rows.length > 0 ? rows[rows.length - 1].period_start : null;
+    const stalenessCheck = evaluateStatsStaleness({
+      grain,
+      dimType: usedDim.dimType,
+      dimKey: usedDim.dimKey,
+      now: queryAsOf,
+      lastPeriodStart: latestPeriodStart,
+      lastGeneratedAt: lastUpdated,
+    });
+    const stalenessMessage = stalenessCheck.status === "stale"
+      ? `Stats update delayed for ${grain} (${stalenessCheck.reason}).`
+      : "Stats are up to date.";
+
     const droppedFilters = requestedDim.keys.filter((key) => !usedDim.keys.includes(key));
     const fallbackApplied = requestedDim.dimType !== usedDim.dimType || requestedDim.dimKey !== usedDim.dimKey;
 
@@ -540,6 +580,19 @@ export async function GET(request: Request) {
         legend: {
           kind: top5Kind,
           keys: top5Keys,
+        },
+        staleness: {
+          status: stalenessCheck.status,
+          reason: stalenessCheck.reason,
+          last_period_start: stalenessCheck.lastPeriodStart,
+          last_generated_at: stalenessCheck.lastGeneratedAt,
+          age_hours: stalenessCheck.ageHours,
+          generated_age_hours: stalenessCheck.generatedAgeHours,
+          thresholds: {
+            max_period_lag_hours: stalenessCheck.threshold.maxPeriodLagHours,
+            max_generated_age_hours: stalenessCheck.threshold.maxGeneratedAgeHours,
+          },
+          message: stalenessMessage,
         },
       },
       response_meta: { source: "db", as_of: queryAsOf.toISOString() },
