@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 
 import { DbUnavailableError, dbQuery, hasDatabaseUrl } from "@/lib/db";
 import { buildDataSourceHeaders } from "@/lib/dataSource";
-import { ensureHistoryTable } from "@/lib/history";
-import { hasColumn, tableExists } from "@/lib/internal-submissions";
+import { tableExists } from "@/lib/internal-submissions";
 
 export type TrendRange = "24h" | "7d" | "30d" | "all";
 export type TrendGrain = "1h" | "1d" | "1w";
@@ -34,7 +33,15 @@ export type StatsTrendsResponse = {
     accepting_any_delta: number;
   }>;
   stack: VerificationStackedPoint[];
-  meta?: { reason: "no_history_data" | "db_unavailable" | "internal_error" };
+  meta?: {
+    reason?: "no_history_data" | "db_unavailable" | "internal_error";
+    grain: TrendGrain;
+    dim_type: string;
+    dim_key: string;
+    has_data: boolean;
+    missing_reason?: "no_saved_cube";
+    last_updated: string | null;
+  };
   response_meta?: {
     source: "db";
     as_of: string;
@@ -47,17 +54,26 @@ type TrendsUnavailableResponse = {
   reason: "db_error";
 };
 
-const CACHE_CONTROL = "public, s-maxage=300, stale-while-revalidate=60";
-const NO_STORE = "no-store";
-const HISTORY_ACTIONS = ["approve", "promote"];
-const VALID_RANGES: TrendRange[] = ["24h", "7d", "30d", "all"];
-const VERIFIED_LEVELS = ["owner", "community", "directory"];
+type TrendsBadRequestResponse = {
+  ok: false;
+  error: "invalid_range";
+};
 
-const RANGE_CONFIG: Record<TrendRange, { grain: TrendGrain; periods?: number }> = {
-  "24h": { grain: "1h", periods: 24 },
-  "7d": { grain: "1d", periods: 7 },
-  "30d": { grain: "1d", periods: 30 },
-  all: { grain: "1w" },
+const NO_STORE = "no-store";
+const VALID_RANGES: TrendRange[] = ["24h", "7d", "30d", "all"];
+const DEFAULT_RANGE: TrendRange = "7d";
+
+const RANGE_CONFIG: Record<TrendRange, { grain: TrendGrain; lookbackHours?: number; lookbackDays?: number; lookbackWeeks?: number }> = {
+  "24h": { grain: "1h", lookbackHours: 24 },
+  "7d": { grain: "1d", lookbackDays: 7 },
+  "30d": { grain: "1d", lookbackDays: 30 },
+  all: { grain: "1w", lookbackWeeks: 52 },
+};
+
+const CACHE_CONTROL_BY_GRAIN: Record<TrendGrain, string> = {
+  "1h": "public, s-maxage=600, stale-while-revalidate=120",
+  "1d": "public, s-maxage=7200, stale-while-revalidate=900",
+  "1w": "public, s-maxage=43200, stale-while-revalidate=3600",
 };
 
 const startOfUtcHour = (date: Date) => {
@@ -101,77 +117,54 @@ const formatBucketLabel = (date: Date, grain: TrendGrain) => {
   return date.toISOString().slice(0, 10);
 };
 
-const parseRange = (request: Request): TrendRange => {
+const parseRange = (request: Request): TrendRange | null => {
   const url = new URL(request.url);
   const raw = url.searchParams.get("range");
-  if (raw && VALID_RANGES.includes(raw as TrendRange)) {
+  if (!raw) return DEFAULT_RANGE;
+  if (VALID_RANGES.includes(raw as TrendRange)) {
     return raw as TrendRange;
   }
-  return "7d";
+  return null;
 };
 
-const buildBuckets = (range: TrendRange, grain: TrendGrain, oldest: Date | null) => {
-  const now = new Date();
-  const config = RANGE_CONFIG[range];
+const resolveDims = (request: Request) => {
+  const url = new URL(request.url);
+  return {
+    dimType: url.searchParams.get("dim_type")?.trim() || "all",
+    dimKey: url.searchParams.get("dim_key")?.trim() || "all",
+  };
+};
+
+const buildRangeStart = (now: Date, range: TrendRange, grain: TrendGrain) => {
   const end = bucketStart(now, grain);
-  let start: Date;
+  const config = RANGE_CONFIG[range];
 
-  if (config.periods) {
-    start = addBucket(end, grain, -(config.periods - 1));
-  } else {
-    const fallback = addBucket(end, grain, -11);
-    start = oldest ? bucketStart(oldest, grain) : fallback;
-    if (start > end) start = end;
-  }
+  if (config.lookbackHours) return addBucket(end, "1h", -config.lookbackHours + 1);
+  if (config.lookbackDays) return addBucket(end, "1d", -config.lookbackDays + 1);
+  if (config.lookbackWeeks) return addBucket(end, "1w", -config.lookbackWeeks + 1);
 
-  const labels: string[] = [];
-  for (let current = new Date(start); current <= end; current = addBucket(current, grain)) {
-    const label = formatBucketLabel(current, grain);
-    labels.push(label);
-  }
-
-  if (!labels.length) {
-    const label = formatBucketLabel(end, grain);
-    labels.push(label);
-  }
-
-  return { labels, start };
+  return end;
 };
-
-const buildEmptyResponse = (
-  range: TrendRange,
-  grain: TrendGrain,
-  labels: string[],
-  reason: NonNullable<StatsTrendsResponse["meta"]>["reason"],
-): StatsTrendsResponse => ({
-  range,
-  grain,
-  last_updated: new Date().toISOString(),
-  points: labels.map((date) => ({
-    date,
-    total: 0,
-    delta: 0,
-    verified_total: 0,
-    verified_delta: 0,
-    accepting_any_total: 0,
-    accepting_any_delta: 0,
-  })),
-  stack: labels.map((date) => ({
-      date,
-      owner: 0,
-      community: 0,
-      directory: 0,
-      unverified: 0,
-    })),
-  meta: { reason },
-});
 
 export async function GET(request: Request) {
   const route = "api_stats_trends";
-  const range = parseRange(request);
-  const { grain } = RANGE_CONFIG[range];
+  const parsedRange = parseRange(request);
 
-  const responseUpdatedAt = new Date().toISOString();
+  if (!parsedRange) {
+    return NextResponse.json<TrendsBadRequestResponse>({ ok: false, error: "invalid_range" }, {
+      status: 400,
+      headers: {
+        "Cache-Control": NO_STORE,
+        ...buildDataSourceHeaders("db", false),
+      },
+    });
+  }
+
+  const range = parsedRange;
+  const { grain } = RANGE_CONFIG[range];
+  const { dimType, dimKey } = resolveDims(request);
+  const queryAsOf = new Date();
+  const rangeStart = buildRangeStart(queryAsOf, range, grain);
 
   if (!hasDatabaseUrl()) {
     return NextResponse.json<TrendsUnavailableResponse>({ ok: false, error: "stats_unavailable", reason: "db_error" }, {
@@ -184,117 +177,68 @@ export async function GET(request: Request) {
   }
 
   try {
-    await ensureHistoryTable(route);
+    const hasTimeseries = await tableExists(route, "stats_timeseries");
+    if (!hasTimeseries) {
+      const response: StatsTrendsResponse = {
+        ok: true,
+        range,
+        grain,
+        last_updated: queryAsOf.toISOString(),
+        points: [],
+        stack: [],
+        meta: {
+          reason: "no_history_data",
+          grain,
+          dim_type: dimType,
+          dim_key: dimKey,
+          has_data: false,
+          missing_reason: "no_saved_cube",
+          last_updated: null,
+        },
+        response_meta: { source: "db", as_of: queryAsOf.toISOString() },
+      };
 
-    const hasVerifications = await tableExists(route, "verifications");
-    const verificationColumn = hasVerifications
-      ? (await hasColumn(route, "verifications", "level"))
-        ? "level"
-        : (await hasColumn(route, "verifications", "status"))
-          ? "status"
-          : null
-      : null;
-
-    const hasPayments = await tableExists(route, "payment_accepts");
-    const [hasPaymentPlaceId, hasPaymentChain, hasPaymentAsset] = hasPayments
-      ? await Promise.all([
-          hasColumn(route, "payment_accepts", "place_id"),
-          hasColumn(route, "payment_accepts", "chain"),
-          hasColumn(route, "payment_accepts", "asset"),
-        ])
-      : [false, false, false];
-
-    const oldestResult = await dbQuery<{ oldest: string | null }>(
-      `SELECT MIN(created_at) AS oldest
-       FROM public.history
-       WHERE action = ANY($1::text[])
-         AND place_id IS NOT NULL`,
-      [HISTORY_ACTIONS],
-      { route },
-    );
-
-    const oldest = oldestResult.rows[0]?.oldest ? new Date(oldestResult.rows[0].oldest) : null;
-    const { labels, start } = buildBuckets(range, grain, oldest);
-
-    const verificationExpr = verificationColumn
-      ? `CASE
-             WHEN EXISTS (
-               SELECT 1
-               FROM verifications v
-               WHERE v.place_id = fp.place_id
-                 AND COALESCE(NULLIF(BTRIM(v.${verificationColumn}), ''), 'unverified') = 'owner'
-             ) THEN 'owner'
-             WHEN EXISTS (
-               SELECT 1
-               FROM verifications v
-               WHERE v.place_id = fp.place_id
-                 AND COALESCE(NULLIF(BTRIM(v.${verificationColumn}), ''), 'unverified') = 'community'
-             ) THEN 'community'
-             WHEN EXISTS (
-               SELECT 1
-               FROM verifications v
-               WHERE v.place_id = fp.place_id
-                 AND COALESCE(NULLIF(BTRIM(v.${verificationColumn}), ''), 'unverified') = 'directory'
-             ) THEN 'directory'
-             ELSE 'unverified'
-           END`
-      : `'unverified'`;
-
-    const acceptingAnyExpr = hasPayments && hasPaymentPlaceId && (hasPaymentChain || hasPaymentAsset)
-      ? `EXISTS (
-           SELECT 1
-           FROM payment_accepts pa
-           WHERE pa.place_id = fp.place_id
-             AND (
-               ${hasPaymentChain ? "NULLIF(BTRIM(COALESCE(pa.chain, '')), '') IS NOT NULL" : "FALSE"}
-               OR ${hasPaymentAsset ? "NULLIF(BTRIM(COALESCE(pa.asset, '')), '') IS NOT NULL" : "FALSE"}
-             )
-         )`
-      : "FALSE";
+      return NextResponse.json(response, {
+        headers: {
+          "Cache-Control": CACHE_CONTROL_BY_GRAIN[grain],
+          ...buildDataSourceHeaders("db", false),
+        },
+      });
+    }
 
     const { rows } = await dbQuery<{
-      bucket: string;
-      total: string;
-      verified: string;
-      accepting_any: string;
-      owner: string;
-      community: string;
-      directory: string;
-      unverified: string;
+      period_start: string;
+      total_count: string;
+      verified_count: string;
+      accepting_any_count: string;
+      breakdown_json: {
+        verification?: {
+          owner?: number;
+          community?: number;
+          directory?: number;
+          unverified?: number;
+        };
+      } | null;
+      generated_at: string;
+      max_generated_at: string | null;
     }>(
-      `WITH first_published AS (
-         SELECT h.place_id, MIN(h.created_at) AS first_published_at
-         FROM public.history h
-         WHERE h.action = ANY($1::text[])
-           AND h.place_id IS NOT NULL
-         GROUP BY h.place_id
-       ),
-       place_dim AS (
-         SELECT
-           fp.place_id,
-           fp.first_published_at,
-           ${verificationExpr} AS verification,
-           ${acceptingAnyExpr} AS accepting_any
-         FROM first_published fp
-       )
-       SELECT
-         to_char(date_trunc($2, first_published_at AT TIME ZONE 'UTC'), CASE WHEN $2 = 'hour' THEN 'YYYY-MM-DD"T"HH24:00:00"Z"' ELSE 'YYYY-MM-DD' END) AS bucket,
-         COUNT(*) AS total,
-         COUNT(*) FILTER (WHERE verification = ANY($3::text[])) AS verified,
-         COUNT(*) FILTER (WHERE accepting_any) AS accepting_any,
-         COUNT(*) FILTER (WHERE verification = 'owner') AS owner,
-         COUNT(*) FILTER (WHERE verification = 'community') AS community,
-         COUNT(*) FILTER (WHERE verification = 'directory') AS directory,
-         COUNT(*) FILTER (WHERE verification = 'unverified') AS unverified
-       FROM place_dim
-       WHERE first_published_at >= $4
-       GROUP BY bucket
-       ORDER BY bucket ASC`,
-      [HISTORY_ACTIONS, grain === "1h" ? "hour" : grain === "1d" ? "day" : "week", VERIFIED_LEVELS, start.toISOString()],
+      `SELECT
+         period_start,
+         total_count,
+         verified_count,
+         accepting_any_count,
+         breakdown_json,
+         generated_at,
+         MAX(generated_at) OVER () AS max_generated_at
+       FROM public.stats_timeseries
+       WHERE grain = $1
+         AND dim_type = $2
+         AND dim_key = $3
+         AND period_start >= $4
+       ORDER BY period_start ASC`,
+      [grain, dimType, dimKey, rangeStart.toISOString()],
       { route },
     );
-
-    const bucketMap = new Map(rows.map((row) => [row.bucket, row]));
 
     let runningTotal = 0;
     let runningVerified = 0;
@@ -305,28 +249,39 @@ export async function GET(request: Request) {
     let runningUnverified = 0;
 
     const points: StatsTrendsResponse["points"] = [];
-    const verificationStackedSeries: VerificationStackedPoint[] = [];
+    const stack: VerificationStackedPoint[] = [];
 
-    for (const label of labels) {
-      const row = bucketMap.get(label);
-      runningTotal += Number(row?.total ?? 0);
-      runningVerified += Number(row?.verified ?? 0);
-      runningAcceptingAny += Number(row?.accepting_any ?? 0);
-      runningOwner += Number(row?.owner ?? 0);
-      runningCommunity += Number(row?.community ?? 0);
-      runningDirectory += Number(row?.directory ?? 0);
-      runningUnverified += Number(row?.unverified ?? 0);
+    for (const row of rows) {
+      const bucketDate = bucketStart(new Date(row.period_start), grain);
+      const label = formatBucketLabel(bucketDate, grain);
+      const totalDelta = Number(row.total_count ?? 0);
+      const verifiedDelta = Number(row.verified_count ?? 0);
+      const acceptingAnyDelta = Number(row.accepting_any_count ?? 0);
+      const verification = row.breakdown_json?.verification ?? {};
+      const ownerDelta = Number(verification.owner ?? 0);
+      const communityDelta = Number(verification.community ?? 0);
+      const directoryDelta = Number(verification.directory ?? 0);
+      const unverifiedDelta = Number(verification.unverified ?? 0);
+
+      runningTotal += totalDelta;
+      runningVerified += verifiedDelta;
+      runningAcceptingAny += acceptingAnyDelta;
+      runningOwner += ownerDelta;
+      runningCommunity += communityDelta;
+      runningDirectory += directoryDelta;
+      runningUnverified += unverifiedDelta;
 
       points.push({
         date: label,
         total: runningTotal,
-        delta: Number(row?.total ?? 0),
+        delta: totalDelta,
         verified_total: runningVerified,
-        verified_delta: Number(row?.verified ?? 0),
+        verified_delta: verifiedDelta,
         accepting_any_total: runningAcceptingAny,
-        accepting_any_delta: Number(row?.accepting_any ?? 0),
+        accepting_any_delta: acceptingAnyDelta,
       });
-      verificationStackedSeries.push({
+
+      stack.push({
         date: label,
         owner: runningOwner,
         community: runningCommunity,
@@ -335,23 +290,31 @@ export async function GET(request: Request) {
       });
     }
 
-    const hasAnyData = rows.length > 0;
+    const lastUpdated = rows[0]?.max_generated_at ?? null;
+    const hasData = rows.length > 0;
+
     const response: StatsTrendsResponse = {
+      ok: true,
       range,
       grain,
-      last_updated: responseUpdatedAt,
+      last_updated: lastUpdated ?? queryAsOf.toISOString(),
       points,
-      stack: verificationStackedSeries,
-      ...(hasAnyData ? {} : { meta: { reason: "no_history_data" as const } }),
+      stack,
+      meta: {
+        ...(hasData ? {} : { reason: "no_history_data" as const }),
+        grain,
+        dim_type: dimType,
+        dim_key: dimKey,
+        has_data: hasData,
+        ...(hasData ? {} : { missing_reason: "no_saved_cube" as const }),
+        last_updated: lastUpdated,
+      },
+      response_meta: { source: "db", as_of: queryAsOf.toISOString() },
     };
 
-    return NextResponse.json<StatsTrendsResponse>({
-      ...response,
-      ok: true,
-      response_meta: { source: "db", as_of: responseUpdatedAt },
-    }, {
+    return NextResponse.json(response, {
       headers: {
-        "Cache-Control": CACHE_CONTROL,
+        "Cache-Control": CACHE_CONTROL_BY_GRAIN[grain],
         ...buildDataSourceHeaders("db", false),
       },
     });
