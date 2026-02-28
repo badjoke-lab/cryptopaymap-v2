@@ -866,27 +866,33 @@ export default function MapClient() {
     [filters],
   );
 
+  const renderAntarcticaDemoNotice = () => {
+    if (!showAntarcticaDemoNotice) return null;
+
+    return (
+      <div className="cpm-map-antarctica-demo-notice-slot" aria-live="polite">
+        <div className="cpm-map-antarctica-demo-notice" role="note">
+          <button
+            type="button"
+            className="cpm-map-antarctica-demo-notice__close"
+            aria-label="Close Antarctica demo listings notice"
+            onClick={dismissAntarcticaDemoNotice}
+          >
+            ×
+          </button>
+          <p>
+            4 Antarctica demo listings (one per verification level) for UI preview. Excluded from analytics. Not real businesses.{" "}
+            <Link href="/about#antarctica-demo-listings" className="cpm-map-antarctica-demo-notice__link">
+              Learn more.
+            </Link>
+          </p>
+        </div>
+      </div>
+    );
+  };
+
   // Mobile filter UI (ported to body to avoid transformed parent stacking issues).
   const renderMobileFilters = () => {
-    const antarcticaDemoNotice = showAntarcticaDemoNotice ? (
-      <div className="cpm-map-antarctica-demo-notice" role="note" aria-live="polite">
-        <button
-          type="button"
-          className="cpm-map-antarctica-demo-notice__close"
-          aria-label="Close Antarctica demo listings notice"
-          onClick={dismissAntarcticaDemoNotice}
-        >
-          ×
-        </button>
-        <p>
-          4 Antarctica demo listings (one per verification level) for UI preview. Excluded from analytics. Not real businesses.{" "}
-          <Link href="/about#antarctica-demo-listings" className="cpm-map-antarctica-demo-notice__link">
-            Learn more.
-          </Link>
-        </p>
-      </div>
-    ) : null;
-
     if (!isMobileViewport) return null;
     const content = (
       <div className="cpm-map-mobile-filters lg:hidden">
@@ -976,7 +982,6 @@ export default function MapClient() {
               <span className="cpm-inline-loading-spinner" aria-hidden />
             ) : null}
           </div>
-          {antarcticaDemoNotice}
         </div>
       </div>
     );
@@ -1193,24 +1198,6 @@ export default function MapClient() {
                 >
                   {isLocating ? "Locating…" : "Locate"}
                 </button>
-                {showAntarcticaDemoNotice ? (
-                  <div className="cpm-map-antarctica-demo-notice" role="note" aria-live="polite">
-                    <button
-                      type="button"
-                      className="cpm-map-antarctica-demo-notice__close"
-                      aria-label="Close Antarctica demo listings notice"
-                      onClick={dismissAntarcticaDemoNotice}
-                    >
-                      ×
-                    </button>
-                    <p>
-                      4 Antarctica demo listings (one per verification level) for UI preview. Excluded from analytics. Not real businesses.{" "}
-                      <Link href="/about#antarctica-demo-listings" className="cpm-map-antarctica-demo-notice__link">
-                        Learn more.
-                      </Link>
-                    </p>
-                  </div>
-                ) : null}
               </div>
             </div>
             {geolocationError && <div className="cpm-map-toast">{geolocationError}</div>}
@@ -1227,6 +1214,7 @@ export default function MapClient() {
             onRetry={() => fetchPlacesRef.current?.()}
           />
           {renderMobileFilters()}
+          {renderAntarcticaDemoNotice()}
         </div>
         {limitNotice && placesStatus !== "loading" && (
           <div className="pointer-events-none absolute inset-x-0 top-4 z-40 mx-auto w-[min(90%,520px)] rounded-md border border-amber-200 bg-amber-50/95 px-4 py-2 text-sm font-medium text-amber-900 shadow-sm backdrop-blur">
