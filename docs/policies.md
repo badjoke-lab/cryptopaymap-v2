@@ -146,6 +146,26 @@
 
 ---
 
+
+## 7. Demo Pins Policy (AQ)
+
+To ensure all four verification classes are always visible on the map, four temporary Antarctica demo places are maintained:
+
+- `antarctica-community-1`
+- `antarctica-directory-1`
+- `antarctica-owner-1`
+- `antarctica-unverified-1`
+
+Rules:
+
+- These records are marked in DB via `public.places.is_demo = true`.
+- Map display remains enabled for these demo records.
+- Stats / Discover and ranking-style aggregates must always exclude demo records via `COALESCE(is_demo, false) = false`.
+- Do not use country-based hardcoded exclusions (e.g., `country='AQ'`) for this purpose.
+- Once enough non-demo real examples exist for each verification class, these demo pins should be reviewed for removal.
+
+---
+
 ## Appendix A — Place ID Policy v1（legacy sources / keep as-is）
 
 > ここから下は従来の Place ID policy を **原文のまま保持**する。  

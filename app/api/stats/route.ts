@@ -379,12 +379,14 @@ type FilteredPlacesCteOptions = {
   hasCountry: boolean;
   hasCity: boolean;
   hasCategory: boolean;
+  hasIsDemo: boolean;
 };
 
 const buildFilteredPlacesCte = (whereClause: string, options: FilteredPlacesCteOptions) => {
   const baseClause = getMapDisplayableWhereClauses("p").join(" AND ");
+  const nonDemoClause = options.hasIsDemo ? "COALESCE(p.is_demo, false) = false" : "TRUE";
   const dynamicClause = whereClause.replace(/^WHERE\s+/i, "").trim();
-  const combinedWhere = [baseClause, dynamicClause].filter(Boolean).join(" AND ");
+  const combinedWhere = [baseClause, nonDemoClause, dynamicClause].filter(Boolean).join(" AND ");
 
   const countrySql = options.hasCountry ? "p.country AS country" : "NULL::text AS country";
   const citySql = options.hasCity ? "p.city AS city" : "NULL::text AS city";
@@ -507,12 +509,13 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
         : null
     : null;
 
-  const [hasCountry, hasCity, hasCategory, hasPromoted, hasSource] = await Promise.all([
+  const [hasCountry, hasCity, hasCategory, hasPromoted, hasSource, hasIsDemo] = await Promise.all([
     hasColumn(route, "places", "country"),
     hasColumn(route, "places", "city"),
     hasColumn(route, "places", "category"),
     hasColumn(route, "places", "promoted"),
     hasColumn(route, "places", "source"),
+    hasColumn(route, "places", "is_demo"),
   ]);
 
   const hasPayments = await tableExists(route, "payment_accepts");
@@ -536,7 +539,7 @@ const fetchDbSnapshotV4 = async (route: string, filters: StatsFilters): Promise<
     verificationColumn,
   });
 
-  const filteredPlacesCte = buildFilteredPlacesCte(whereClause, { hasCountry, hasCity, hasCategory });
+  const filteredPlacesCte = buildFilteredPlacesCte(whereClause, { hasCountry, hasCity, hasCategory, hasIsDemo });
 
   const totalsSql = `${filteredPlacesCte}
      SELECT

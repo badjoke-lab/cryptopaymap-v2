@@ -164,6 +164,9 @@ const resolveVerificationColumn = async (route: string) => {
   return null;
 };
 
+const resolveNonDemoPlacesPredicate = async (route: string) =>
+  (await hasColumn(route, "places", "is_demo")) ? "COALESCE(p.is_demo, false) = false" : "TRUE";
+
 const hasPromoteHistory = async (route: string) => {
   const { rows } = await dbQuery<{ total: string }>(
     `SELECT COUNT(*)::int AS total FROM public.history WHERE action = 'promote' AND place_id IS NOT NULL`,
@@ -181,6 +184,7 @@ const queryActivity = async (route: string, tab: DiscoverActivityTab, limit: num
 
   await ensureHistoryTable(route);
   const verificationColumn = await resolveVerificationColumn(route);
+  const nonDemoPlacesPredicate = await resolveNonDemoPlacesPredicate(route);
 
   const hasPayments = await tableExists(route, "payment_accepts");
   const [hasPaymentAsset, hasPaymentPlaceId] = hasPayments
@@ -284,6 +288,7 @@ const queryActivity = async (route: string, tab: DiscoverActivityTab, limit: num
      ${verificationJoin}
      ${assetsJoin}
      WHERE p.lat IS NOT NULL AND p.lng IS NOT NULL
+       AND ${nonDemoPlacesPredicate}
      ${whereVerification}
      ORDER BY le.created_at DESC
      LIMIT $2`,
@@ -305,6 +310,7 @@ const queryActivity = async (route: string, tab: DiscoverActivityTab, limit: num
 
 const queryTrendingCountries = async (route: string): Promise<DiscoverEnvelope<DiscoverTrendingCountry[]>> => {
   await ensureHistoryTable(route);
+  const nonDemoPlacesPredicate = await resolveNonDemoPlacesPredicate(route);
 
   const hasPromote = await hasPromoteHistory(route);
   let action: "promote" | "approve" = "promote";
@@ -342,6 +348,7 @@ const queryTrendingCountries = async (route: string): Promise<DiscoverEnvelope<D
      FROM scoped s
      INNER JOIN places p ON p.id = s.place_id
      WHERE p.country IS NOT NULL AND BTRIM(p.country) <> ''
+       AND ${nonDemoPlacesPredicate}
      GROUP BY p.country
      HAVING COUNT(*) FILTER (WHERE s.created_at >= NOW() - INTERVAL '30 day') > 0
      ORDER BY delta_30d DESC, p.country ASC
@@ -365,6 +372,7 @@ const queryFeaturedCities = async (route: string): Promise<DiscoverEnvelope<Disc
   if (!placesExists) return makeEnvelope([], { limited: true, reason: "places table unavailable" });
 
   const verificationColumn = await resolveVerificationColumn(route);
+  const nonDemoPlacesPredicate = await resolveNonDemoPlacesPredicate(route);
   const hasPayments = await tableExists(route, "payment_accepts");
   const [hasPaymentAsset, hasPaymentPlaceId] = hasPayments
     ? await Promise.all([hasColumn(route, "payment_accepts", "asset"), hasColumn(route, "payment_accepts", "place_id")])
@@ -408,6 +416,7 @@ const queryFeaturedCities = async (route: string): Promise<DiscoverEnvelope<Disc
        ${verificationJoin}
        WHERE p.lat IS NOT NULL
          AND p.lng IS NOT NULL
+         AND ${nonDemoPlacesPredicate}
          AND NULLIF(BTRIM(p.country), '') IS NOT NULL
          AND NULLIF(BTRIM(p.city), '') IS NOT NULL
      ), ranked AS (
@@ -485,6 +494,7 @@ const queryAssets = async (route: string): Promise<DiscoverEnvelope<DiscoverAsse
 
   await ensureHistoryTable(route);
   const hasPromote = await hasPromoteHistory(route);
+  const nonDemoPlacesPredicate = await resolveNonDemoPlacesPredicate(route);
 
   const { rows } = await dbQuery<{ asset: string; count_total: string; delta_30d: string }>(
     `SELECT pa.asset,
@@ -504,6 +514,7 @@ const queryAssets = async (route: string): Promise<DiscoverEnvelope<DiscoverAsse
      INNER JOIN places p ON p.id = pa.place_id
      WHERE p.lat IS NOT NULL
        AND p.lng IS NOT NULL
+       AND ${nonDemoPlacesPredicate}
        AND NULLIF(BTRIM(pa.asset), '') IS NOT NULL
      GROUP BY pa.asset
      ORDER BY COUNT(*) DESC, pa.asset ASC
@@ -541,6 +552,8 @@ const queryAssetPanel = async (route: string, asset: string): Promise<DiscoverEn
     return makeEnvelope(panel, { limited: true, reason: "payment_accepts columns unavailable" });
   }
 
+  const nonDemoPlacesPredicate = await resolveNonDemoPlacesPredicate(route);
+
   const [countriesRows, categoriesRows] = await Promise.all([
     dbQuery<{ country_code: string; total: string }>(
       `SELECT p.country AS country_code, COUNT(*)::int AS total
@@ -549,6 +562,7 @@ const queryAssetPanel = async (route: string, asset: string): Promise<DiscoverEn
        WHERE pa.asset = $1
          AND p.lat IS NOT NULL
          AND p.lng IS NOT NULL
+         AND ${nonDemoPlacesPredicate}
          AND NULLIF(BTRIM(p.country), '') IS NOT NULL
        GROUP BY p.country
        ORDER BY COUNT(*) DESC, p.country ASC
@@ -563,6 +577,7 @@ const queryAssetPanel = async (route: string, asset: string): Promise<DiscoverEn
        WHERE pa.asset = $1
          AND p.lat IS NOT NULL
          AND p.lng IS NOT NULL
+         AND ${nonDemoPlacesPredicate}
          AND NULLIF(BTRIM(p.category), '') IS NOT NULL
        GROUP BY p.category
        ORDER BY COUNT(*) DESC, p.category ASC
@@ -600,6 +615,7 @@ const queryAssetPanel = async (route: string, asset: string): Promise<DiscoverEn
        INNER JOIN places p ON p.id = h.place_id
        WHERE h.action = 'promote'
          AND h.place_id IS NOT NULL
+         AND ${nonDemoPlacesPredicate}
          AND EXISTS (
            SELECT 1
            FROM payment_accepts pa
