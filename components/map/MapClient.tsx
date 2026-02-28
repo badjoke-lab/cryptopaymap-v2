@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 
 // Leaflet core CSS
 import "leaflet/dist/leaflet.css";
@@ -37,6 +38,7 @@ const DEFAULT_COORDINATES: [number, number] = [20, 0];
 const DEFAULT_ZOOM = 2;
 const MAX_CLIENT_LIMIT = 12000;
 const BBOX_PRECISION = 6;
+const ANTARCTICA_DEMO_NOTICE_STORAGE_KEY = "cpm_hide_antarctica_demo_notice";
 
 const PIN_SVGS: Record<PinType, string> = {
   owner: `<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><g><path d="M16 2 C10 2,6 6.5,6 12 C6 20,16 30,16 30 C16 30,26 20,26 12 C26 6.5,22 2,16 2Z" fill="#F59E0B" stroke="white" stroke-width="2"/><circle cx="16" cy="12" r="4" fill="white"/></g></svg>`,
@@ -147,6 +149,8 @@ export default function MapClient() {
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [showAntarcticaDemoNotice, setShowAntarcticaDemoNotice] = useState(true);
+  const [attributionBottomOffsetPx, setAttributionBottomOffsetPx] = useState(44);
   const invalidateTimeoutRef = useRef<number | null>(null);
   const drawerReasonRef = useRef("initial");
 
@@ -193,6 +197,83 @@ export default function MapClient() {
 
   useEffect(() => {
     setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const hidden = window.localStorage.getItem(ANTARCTICA_DEMO_NOTICE_STORAGE_KEY) === "1";
+    setShowAntarcticaDemoNotice(!hidden);
+  }, []);
+
+  const dismissAntarcticaDemoNotice = useCallback(() => {
+    setShowAntarcticaDemoNotice(false);
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(ANTARCTICA_DEMO_NOTICE_STORAGE_KEY, "1");
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const getAttributionElement = () =>
+      document.querySelector(".leaflet-control-attribution") as HTMLElement | null;
+
+    const computeAttributionBottomOffsetPx = () => {
+      const attributionElement = getAttributionElement();
+      if (!attributionElement) return 44;
+      const rect = attributionElement.getBoundingClientRect();
+      const attributionTopDistanceFromBottom = window.innerHeight - rect.top;
+      return Math.max(Math.round(attributionTopDistanceFromBottom + 10), 44);
+    };
+
+    const updateAttributionBottomOffset = () => {
+      const next = computeAttributionBottomOffsetPx();
+      setAttributionBottomOffsetPx((prev) => (Math.abs(prev - next) < 1 ? prev : next));
+      return next;
+    };
+
+    updateAttributionBottomOffset();
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      resizeObserver = new ResizeObserver(() => {
+        updateAttributionBottomOffset();
+      });
+
+      const initialAttributionElement = getAttributionElement();
+      if (initialAttributionElement) {
+        resizeObserver.observe(initialAttributionElement);
+      }
+    }
+
+    let rafId = 0;
+    let rafAttempts = 0;
+    const rafRetry = () => {
+      rafAttempts += 1;
+      const next = updateAttributionBottomOffset();
+      if (next > 44 || rafAttempts >= 10) return;
+      rafId = window.requestAnimationFrame(rafRetry);
+    };
+    rafId = window.requestAnimationFrame(rafRetry);
+
+    const mutationObserver = new MutationObserver(() => {
+      const attributionElement = getAttributionElement();
+      if (resizeObserver && attributionElement) {
+        resizeObserver.observe(attributionElement);
+      }
+      updateAttributionBottomOffset();
+    });
+
+    mutationObserver.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener("resize", updateAttributionBottomOffset);
+
+    return () => {
+      if (rafId) {
+        window.cancelAnimationFrame(rafId);
+      }
+      resizeObserver?.disconnect();
+      mutationObserver.disconnect();
+      window.removeEventListener("resize", updateAttributionBottomOffset);
+    };
   }, []);
 
   useEffect(() => {
@@ -851,6 +932,41 @@ export default function MapClient() {
     [filters],
   );
 
+  const renderAntarcticaDemoNotice = () => {
+    if (!showAntarcticaDemoNotice) return null;
+
+    return (
+      <div
+        className="cpm-map-antarctica-demo-notice-slot"
+        aria-live="polite"
+        style={{
+          position: "fixed",
+          right: 12,
+          bottom: `calc(env(safe-area-inset-bottom) + ${attributionBottomOffsetPx}px)`,
+          maxWidth: "min(520px, calc(100vw - 24px))",
+          zIndex: 16000,
+        }}
+      >
+        <div className="cpm-map-antarctica-demo-notice" role="note">
+          <button
+            type="button"
+            className="cpm-map-antarctica-demo-notice__close"
+            aria-label="Close Antarctica demo listings notice"
+            onClick={dismissAntarcticaDemoNotice}
+          >
+            ×
+          </button>
+          <p>
+            4 Antarctica demo listings (one per verification level) for UI preview. Excluded from analytics. Not real businesses.{" "}
+            <Link href="/about#antarctica-demo-listings" className="cpm-map-antarctica-demo-notice__link">
+              Learn more.
+            </Link>
+          </p>
+        </div>
+      </div>
+    );
+  };
+
   // Mobile filter UI (ported to body to avoid transformed parent stacking issues).
   const renderMobileFilters = () => {
     if (!isMobileViewport) return null;
@@ -1174,6 +1290,7 @@ export default function MapClient() {
             onRetry={() => fetchPlacesRef.current?.()}
           />
           {renderMobileFilters()}
+          {renderAntarcticaDemoNotice()}
         </div>
         {limitNotice && placesStatus !== "loading" && (
           <div className="pointer-events-none absolute inset-x-0 top-4 z-40 mx-auto w-[min(90%,520px)] rounded-md border border-amber-200 bg-amber-50/95 px-4 py-2 text-sm font-medium text-amber-900 shadow-sm backdrop-blur">

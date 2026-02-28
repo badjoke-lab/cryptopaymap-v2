@@ -109,6 +109,64 @@
   white-space: nowrap;
 }
 
+
+.cpm-map-antarctica-demo-notice-slot {
+  pointer-events: none;
+  width: calc(100vw - 24px);
+}
+
+.cpm-map-antarctica-demo-notice {
+  position: relative;
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid #a7f3d0;
+  background: rgba(236, 253, 245, 0.98);
+  color: #334155;
+  padding: 10px 32px 10px 10px;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  font-weight: 500;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+  pointer-events: auto;
+}
+
+
+.cpm-map-antarctica-demo-notice p {
+  margin: 0;
+}
+
+.cpm-map-antarctica-demo-notice__close {
+  position: absolute;
+  top: 5px;
+  right: 7px;
+  border: none;
+  background: transparent;
+  color: #0f766e;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+}
+
+.cpm-map-antarctica-demo-notice__close:hover {
+  background: rgba(15, 118, 110, 0.12);
+}
+
+.cpm-map-antarctica-demo-notice__link {
+  color: #0f766e;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font-weight: 600;
+}
+
+.cpm-map-antarctica-demo-notice__link:hover {
+  color: #115e59;
+}
+
 .cpm-map-toast {
   max-width: 220px;
   border-radius: 12px;
@@ -328,4 +386,5 @@
   .cpm-map-controls {
     margin-top: 72px;
   }
+
 }

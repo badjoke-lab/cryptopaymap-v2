@@ -83,6 +83,33 @@ export default function AboutPage() {
           <p className="mt-3 text-sm leading-6 text-gray-700">
             Map is the main entry point for finding where crypto can be used right now.
           </p>
+          <div
+            id="antarctica-demo-listings"
+            className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-slate-700"
+          >
+            <h4 className="text-base font-semibold text-slate-900">Antarctica Demo Listings (Why they exist)</h4>
+            <p className="mt-2 text-sm leading-6">
+              CryptoPayMap currently has very limited real examples for all four verification levels (Owner / Community /
+              Directory / Unverified).
+              <br />
+              To let anyone instantly see how each label looks and behaves in the UI, we keep <strong>four fixed demo listings in Antarctica</strong> — one per verification level.
+            </p>
+            <p className="mt-3 text-sm leading-6">These demo listings:</p>
+            <ul className="mt-2 list-disc space-y-2 pl-5 text-sm leading-6">
+              <li>
+                <strong>Appear on the Map</strong> for UI/label demonstration
+              </li>
+              <li>
+                <strong>Are excluded from Stats and Discover</strong> to keep metrics accurate
+              </li>
+              <li>
+                <strong>Are not real businesses</strong> (demo only)
+              </li>
+            </ul>
+            <p className="mt-3 text-sm leading-6">
+              Once enough real listings exist across all verification levels, these demo listings may be removed.
+            </p>
+          </div>
 
           <h3 className="mt-5 text-lg font-semibold text-gray-900">Stats</h3>
           <p className="mt-2 text-sm leading-6 text-gray-700">
