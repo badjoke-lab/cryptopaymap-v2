@@ -150,6 +150,7 @@ export default function MapClient() {
   const [mounted, setMounted] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [showAntarcticaDemoNotice, setShowAntarcticaDemoNotice] = useState(true);
+  const [attributionHeight, setAttributionHeight] = useState(0);
   const invalidateTimeoutRef = useRef<number | null>(null);
   const drawerReasonRef = useRef("initial");
 
@@ -208,6 +209,45 @@ export default function MapClient() {
     setShowAntarcticaDemoNotice(false);
     if (typeof window === "undefined") return;
     window.localStorage.setItem(ANTARCTICA_DEMO_NOTICE_STORAGE_KEY, "1");
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const getAttributionElement = () =>
+      document.querySelector(".leaflet-control-attribution") as HTMLElement | null;
+
+    const updateAttributionHeight = () => {
+      const next = getAttributionElement()?.getBoundingClientRect().height ?? 0;
+      setAttributionHeight((prev) => (Math.abs(prev - next) < 0.5 ? prev : next));
+    };
+
+    updateAttributionHeight();
+
+    const resizeObserver = new ResizeObserver(() => {
+      updateAttributionHeight();
+    });
+
+    const mutationObserver = new MutationObserver(() => {
+      const attributionElement = getAttributionElement();
+      if (!attributionElement) return;
+      resizeObserver.observe(attributionElement);
+      updateAttributionHeight();
+    });
+
+    const initialAttributionElement = getAttributionElement();
+    if (initialAttributionElement) {
+      resizeObserver.observe(initialAttributionElement);
+    }
+
+    mutationObserver.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener("resize", updateAttributionHeight);
+
+    return () => {
+      resizeObserver.disconnect();
+      mutationObserver.disconnect();
+      window.removeEventListener("resize", updateAttributionHeight);
+    };
   }, []);
 
   useEffect(() => {
@@ -870,7 +910,17 @@ export default function MapClient() {
     if (!showAntarcticaDemoNotice) return null;
 
     return (
-      <div className="cpm-map-antarctica-demo-notice-slot" aria-live="polite">
+      <div
+        className="cpm-map-antarctica-demo-notice-slot"
+        aria-live="polite"
+        style={{
+          position: "fixed",
+          right: 12,
+          bottom: `calc(env(safe-area-inset-bottom) + ${attributionHeight + 10}px)`,
+          maxWidth: "min(520px, calc(100vw - 24px))",
+          zIndex: 16000,
+        }}
+      >
         <div className="cpm-map-antarctica-demo-notice" role="note">
           <button
             type="button"
