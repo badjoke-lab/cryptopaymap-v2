@@ -150,7 +150,7 @@ export default function MapClient() {
   const [mounted, setMounted] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [showAntarcticaDemoNotice, setShowAntarcticaDemoNotice] = useState(true);
-  const [attributionHeight, setAttributionHeight] = useState(0);
+  const [attributionBottomOffsetPx, setAttributionBottomOffsetPx] = useState(44);
   const invalidateTimeoutRef = useRef<number | null>(null);
   const drawerReasonRef = useRef("initial");
 
@@ -217,36 +217,62 @@ export default function MapClient() {
     const getAttributionElement = () =>
       document.querySelector(".leaflet-control-attribution") as HTMLElement | null;
 
-    const updateAttributionHeight = () => {
-      const next = getAttributionElement()?.getBoundingClientRect().height ?? 0;
-      setAttributionHeight((prev) => (Math.abs(prev - next) < 0.5 ? prev : next));
+    const computeAttributionBottomOffsetPx = () => {
+      const attributionElement = getAttributionElement();
+      if (!attributionElement) return 44;
+      const rect = attributionElement.getBoundingClientRect();
+      const attributionTopDistanceFromBottom = window.innerHeight - rect.top;
+      return Math.max(Math.round(attributionTopDistanceFromBottom + 10), 44);
     };
 
-    updateAttributionHeight();
+    const updateAttributionBottomOffset = () => {
+      const next = computeAttributionBottomOffsetPx();
+      setAttributionBottomOffsetPx((prev) => (Math.abs(prev - next) < 1 ? prev : next));
+      return next;
+    };
 
-    const resizeObserver = new ResizeObserver(() => {
-      updateAttributionHeight();
-    });
+    updateAttributionBottomOffset();
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      resizeObserver = new ResizeObserver(() => {
+        updateAttributionBottomOffset();
+      });
+
+      const initialAttributionElement = getAttributionElement();
+      if (initialAttributionElement) {
+        resizeObserver.observe(initialAttributionElement);
+      }
+    }
+
+    let rafId = 0;
+    let rafAttempts = 0;
+    const rafRetry = () => {
+      rafAttempts += 1;
+      const next = updateAttributionBottomOffset();
+      if (next > 44 || rafAttempts >= 10) return;
+      rafId = window.requestAnimationFrame(rafRetry);
+    };
+    rafId = window.requestAnimationFrame(rafRetry);
 
     const mutationObserver = new MutationObserver(() => {
       const attributionElement = getAttributionElement();
-      if (!attributionElement) return;
-      resizeObserver.observe(attributionElement);
-      updateAttributionHeight();
+      if (resizeObserver && attributionElement) {
+        resizeObserver.observe(attributionElement);
+      }
+      updateAttributionBottomOffset();
     });
 
-    const initialAttributionElement = getAttributionElement();
-    if (initialAttributionElement) {
-      resizeObserver.observe(initialAttributionElement);
-    }
-
     mutationObserver.observe(document.body, { childList: true, subtree: true });
-    window.addEventListener("resize", updateAttributionHeight);
+    window.addEventListener("resize", updateAttributionBottomOffset);
 
     return () => {
-      resizeObserver.disconnect();
+      if (rafId) {
+        window.cancelAnimationFrame(rafId);
+      }
+      resizeObserver?.disconnect();
       mutationObserver.disconnect();
-      window.removeEventListener("resize", updateAttributionHeight);
+      window.removeEventListener("resize", updateAttributionBottomOffset);
     };
   }, []);
 
@@ -916,7 +942,7 @@ export default function MapClient() {
         style={{
           position: "fixed",
           right: 12,
-          bottom: `calc(env(safe-area-inset-bottom) + ${attributionHeight + 10}px)`,
+          bottom: `calc(env(safe-area-inset-bottom) + ${attributionBottomOffsetPx}px)`,
           maxWidth: "min(520px, calc(100vw - 24px))",
           zIndex: 16000,
         }}
