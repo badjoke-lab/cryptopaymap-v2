@@ -107,6 +107,16 @@ type CacheEntry = {
   data: PlaceSummaryPlus[];
   source: "db" | "json";
   limited: boolean;
+  lastUpdatedISO?: string;
+};
+
+type PublishedSnapshot = {
+  meta?: {
+    last_updated?: string;
+    source?: string;
+    notes?: string;
+  };
+  places: Place[];
 };
 
 const placesCache = new Map<string, CacheEntry>();
@@ -263,18 +273,28 @@ const logDbFailure = (message: string, error?: unknown) => {
   console.warn(`[places] ${message}`);
 };
 
-const loadPlacesFromJson = async (): Promise<Place[]> => {
+const FALLBACK_SNAPSHOT_FILE = path.join(
+  process.cwd(),
+  "data",
+  "fallback",
+  "published_places_snapshot.json",
+);
+
+const loadPlacesFromSnapshot = async (): Promise<PublishedSnapshot> => {
   try {
-    const filePath = path.join(process.cwd(), "data", "places.json");
-    const raw = await fs.readFile(filePath, "utf8");
+    const raw = await fs.readFile(FALLBACK_SNAPSHOT_FILE, "utf8");
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      return parsed as Place[];
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      Array.isArray((parsed as PublishedSnapshot).places)
+    ) {
+      return parsed as PublishedSnapshot;
     }
   } catch (error) {
-    logDbFailure("failed to load fallback JSON data", error);
+    logDbFailure("failed to load fallback snapshot data", error);
   }
-  return [];
+  throw new Error("FALLBACK_SNAPSHOT_UNAVAILABLE");
 };
 
 
@@ -745,8 +765,12 @@ export async function GET(request: NextRequest) {
   const cacheKey = buildCacheKey(normalizedParams);
   const cached = placesCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
+    const headers = {
+      ...buildDataSourceHeaders(cached.source, cached.limited),
+      ...(cached.lastUpdatedISO ? { "x-cpm-last-updated": cached.lastUpdatedISO } : {}),
+    };
     return NextResponse.json(cached.data, {
-      headers: buildDataSourceHeaders(cached.source, cached.limited),
+      headers,
     });
   }
 
@@ -830,7 +854,25 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  const sourcePlaces = await loadPlacesFromJson();
+  let sourceSnapshot: PublishedSnapshot;
+  try {
+    sourceSnapshot = await loadPlacesFromSnapshot();
+  } catch {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "FALLBACK_SNAPSHOT_UNAVAILABLE",
+        message: "Fallback snapshot data is unavailable or unreadable.",
+      },
+      {
+        status: 503,
+        headers: buildDataSourceHeaders("json", true),
+      },
+    );
+  }
+
+  const sourcePlaces = sourceSnapshot.places;
+  const snapshotLastUpdated = normalizeText(sourceSnapshot.meta?.last_updated) ?? undefined;
 
   const hasChainFilters = combinedPaymentFilters.length > 0;
   const hasVerificationFilters = verificationFilters.length > 0;
@@ -892,9 +934,15 @@ export async function GET(request: NextRequest) {
     expiresAt: Date.now() + CACHE_TTL_MS,
     source: "json",
     limited: true,
+    lastUpdatedISO: snapshotLastUpdated,
   });
 
+  const headers = {
+    ...buildDataSourceHeaders("json", true),
+    ...(snapshotLastUpdated ? { "x-cpm-last-updated": snapshotLastUpdated } : {}),
+  };
+
   return NextResponse.json(paged, {
-    headers: buildDataSourceHeaders("json", true),
+    headers,
   });
 }
