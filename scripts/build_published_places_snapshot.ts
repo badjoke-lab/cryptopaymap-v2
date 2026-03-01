@@ -87,6 +87,26 @@ async function main() {
   await client.connect();
 
   try {
+    const { rows: placeColumns } = await client.query<{ column_name: string }>(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'places'
+         AND column_name IN ('status', 'is_demo')`
+    );
+
+    const hasStatus = placeColumns.some((column) => column.column_name === "status");
+    const hasIsDemo = placeColumns.some((column) => column.column_name === "is_demo");
+
+    const whereClauses = [
+      "p.lat IS NOT NULL",
+      "p.lng IS NOT NULL",
+      "isfinite(p.lat)",
+      "isfinite(p.lng)",
+      hasIsDemo ? "COALESCE(p.is_demo, false) = false" : "TRUE",
+      hasStatus ? "COALESCE(p.status, 'published') = 'published'" : "TRUE",
+    ];
+
     const result = await client.query<{
       id: string;
       name: string;
@@ -180,12 +200,7 @@ async function main() {
          ) AS cover_image
        FROM places p
        LEFT JOIN verifications v ON v.place_id = p.id
-       WHERE p.lat IS NOT NULL
-         AND p.lng IS NOT NULL
-         AND isfinite(p.lat)
-         AND isfinite(p.lng)
-         AND COALESCE(p.is_demo, false) = false
-         AND COALESCE(p.status, 'published') = 'published'
+       WHERE ${whereClauses.join("\n         AND ")}
        ORDER BY p.updated_at DESC NULLS LAST, p.id ASC`
     );
 

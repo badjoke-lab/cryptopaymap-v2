@@ -19,7 +19,9 @@
     "audit:submit": "tsx scripts/audit/run-submit-audit.ts",
     "db:schema:check": "tsx scripts/validate_db_schema.ts",
     "validate:map-stats-parity": "node --import tsx scripts/validate_map_stats_parity.ts",
-    "db:migrate:stats-timeseries": "tsx scripts/db_apply_sql.ts migrations/20260227_stats_timeseries.sql"
+    "db:migrate:stats-timeseries": "tsx scripts/db_apply_sql.ts migrations/20260227_stats_timeseries.sql",
+    "snapshot:build": "tsx scripts/build_published_places_snapshot.ts",
+    "snapshot:verify": "tsx scripts/verify_published_places_snapshot.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.862.0",
