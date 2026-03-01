@@ -1,0 +1,142 @@
+{
+  "meta": {
+    "last_updated": "2026-03-01T03:34:04.290700Z",
+    "source": "db",
+    "notes": "approved/published snapshot for map fallback"
+  },
+  "places": [
+    {
+      "id": "cpm:tokyo:owner-cafe-1",
+      "name": "Satoshi Coffee",
+      "lat": 35.68,
+      "lng": 139.76,
+      "verification": "owner",
+      "category": "cafe",
+      "city": "Tokyo",
+      "country": "JP",
+      "accepted": [
+        "BTC",
+        "BTC@Lightning",
+        "ETH"
+      ],
+      "address_full": "1-1 Chiyoda, Tokyo",
+      "about_short": "A cozy Bitcoin-first cafe serving specialty coffee and fresh pastries.",
+      "paymentNote": "Lightning preferred for orders under $20.",
+      "amenities": [
+        "wifi",
+        "outlets",
+        "takeout"
+      ],
+      "phone": "+81-3-1234-5678",
+      "website": "https://satoshi-coffee.example.com",
+      "twitter": "@satoshi_coffee",
+      "instagram": "@satoshi.coffee",
+      "facebook": "satoshi-coffee",
+      "coverImage": "https://images.unsplash.com/photo-1509042239860-f550ce710b93?auto=format&fit=crop&w=1200&q=80"
+    },
+    {
+      "id": "cpm:newyork:community-diner-1",
+      "name": "Liberty Diner",
+      "lat": 40.71,
+      "lng": -74.0,
+      "verification": "community",
+      "category": "diner",
+      "city": "New York",
+      "country": "US",
+      "accepted": [
+        "BTC",
+        "USDT"
+      ],
+      "address_full": "100 Liberty St, New York, NY",
+      "about_short": "Classic American diner with a crypto-friendly checkout experience.",
+      "paymentNote": null,
+      "amenities": [
+        "late night",
+        "cashless"
+      ],
+      "phone": "+1-212-555-0199",
+      "website": null,
+      "twitter": "@libertydiner",
+      "instagram": null,
+      "facebook": null,
+      "coverImage": "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=1200&q=80"
+    },
+    {
+      "id": "cpm:paris:directory-bistro-1",
+      "name": "Bistro du Coin",
+      "lat": 48.85,
+      "lng": 2.35,
+      "verification": "directory",
+      "category": "restaurant",
+      "city": "Paris",
+      "country": "FR",
+      "accepted": [
+        "BTC"
+      ],
+      "address_full": "10 Rue de Paris, Paris",
+      "about_short": "French bistro listed by the directory with seasonal menus.",
+      "paymentNote": "Call ahead for crypto availability.",
+      "amenities": [
+        "reservations"
+      ],
+      "phone": "+33-1-42-68-53-00",
+      "website": "https://bistro.example.fr",
+      "twitter": null,
+      "instagram": "@bistro.coin",
+      "facebook": null,
+      "coverImage": null
+    },
+    {
+      "id": "cpm:sydney:unverified-bookstore-1",
+      "name": "Harbour Books",
+      "lat": -33.86,
+      "lng": 151.2,
+      "verification": "unverified",
+      "category": "bookstore",
+      "city": "Sydney",
+      "country": "AU",
+      "accepted": [
+        "BTC",
+        "ETH"
+      ],
+      "address_full": "5 Harbour Rd, Sydney",
+      "about_short": null,
+      "paymentNote": null,
+      "amenities": [
+        "wifi"
+      ],
+      "phone": null,
+      "website": null,
+      "twitter": null,
+      "instagram": null,
+      "facebook": null,
+      "coverImage": null
+    },
+    {
+      "id": "cpm:toronto:owner-bakery-1",
+      "name": "Maple Bakery",
+      "lat": 43.65,
+      "lng": -79.38,
+      "verification": "owner",
+      "category": "bakery",
+      "city": "Toronto",
+      "country": "CA",
+      "accepted": [
+        "BTC@Lightning"
+      ],
+      "address_full": "50 King St, Toronto",
+      "about_short": "Family-run bakery famous for maple-infused pastries.",
+      "paymentNote": "Contactless payments only.",
+      "amenities": [
+        "takeout",
+        "wifi"
+      ],
+      "phone": "+1-416-555-0130",
+      "website": "https://maple-bakery.example.ca",
+      "twitter": null,
+      "instagram": "@maplebakery",
+      "facebook": null,
+      "coverImage": "https://images.unsplash.com/photo-1509440159596-0249088772ff?auto=format&fit=crop&w=1200&q=80"
+    }
+  ]
+}

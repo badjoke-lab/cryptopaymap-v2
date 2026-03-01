@@ -29,7 +29,7 @@ import {
   parseFiltersFromSearchParams,
 } from "@/lib/filters";
 import LimitedModeNotice from "@/components/status/LimitedModeNotice";
-import { isLimitedHeader } from "@/lib/clientDataSource";
+import { getLastUpdatedHeader, isLimitedHeader } from "@/lib/clientDataSource";
 import MapFetchStatus from "./MapFetchStatus";
 
 const HEADER_HEIGHT = 64;
@@ -116,7 +116,7 @@ export default function MapClient() {
     zoom: number;
   } | null>(null);
   const lastRequestKeyRef = useRef<string | null>(null);
-  const placesCacheRef = useRef<Map<string, { places: Place[]; limit: number; limited: boolean }>>(
+  const placesCacheRef = useRef<Map<string, { places: Place[]; limit: number; limited: boolean; lastUpdatedISO: string | null }>>(
     new Map(),
   );
   const [places, setPlaces] = useState<Place[]>([]);
@@ -126,6 +126,7 @@ export default function MapClient() {
   const [placesError, setPlacesError] = useState<string | null>(null);
   const [limitNotice, setLimitNotice] = useState<{ count: number; limit: number } | null>(null);
   const [limitedMode, setLimitedMode] = useState(false);
+  const [limitedModeLastUpdatedISO, setLimitedModeLastUpdatedISO] = useState<string | null>(null);
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
   const [isPlaceOpen, setIsPlaceOpen] = useState(false);
   const isPlaceOpenRef = useRef(false);
@@ -622,6 +623,7 @@ export default function MapClient() {
           setPlaces(cached.places);
           setLimitNotice(cached.places.length >= cached.limit ? { count: cached.places.length, limit: cached.limit } : null);
           setLimitedMode(cached.limited);
+          setLimitedModeLastUpdatedISO(cached.lastUpdatedISO);
           buildIndexAndRender(cached.places);
           setPlacesStatus("success");
           return;
@@ -657,6 +659,7 @@ export default function MapClient() {
           }
           const nextPlaces = (await response.json()) as Place[];
           const isLimited = isLimitedHeader(response.headers);
+          const lastUpdatedISO = getLastUpdatedHeader(response.headers);
           if (!isMounted || requestIdRef.current !== requestId) return;
 
           if (process.env.NODE_ENV !== "production") {
@@ -671,9 +674,10 @@ export default function MapClient() {
           placesRef.current = nextPlaces;
           setPlaces(nextPlaces);
           setLimitedMode(isLimited);
+          setLimitedModeLastUpdatedISO(lastUpdatedISO);
           setLimitNotice(nextPlaces.length >= limit ? { count: nextPlaces.length, limit } : null);
           buildIndexAndRender(nextPlaces);
-          placesCacheRef.current.set(requestKey, { places: nextPlaces, limit, limited: isLimited });
+          placesCacheRef.current.set(requestKey, { places: nextPlaces, limit, limited: isLimited, lastUpdatedISO });
           if (placesCacheRef.current.size > 30) {
             const [firstKey] = placesCacheRef.current.keys();
             if (firstKey) {
@@ -1283,7 +1287,7 @@ export default function MapClient() {
               </div>
             )}
             
-            {limitedMode ? <LimitedModeNotice className="mt-2 w-full max-w-sm" /> : null}
+            {limitedMode ? <LimitedModeNotice className="mt-2 w-full max-w-sm" lastUpdatedISO={limitedModeLastUpdatedISO} /> : null}
           </div>
           <MapFetchStatus
             error={placesError}
