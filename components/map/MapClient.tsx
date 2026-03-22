@@ -169,6 +169,7 @@ export default function MapClient() {
   const [attributionBottomOffsetPx, setAttributionBottomOffsetPx] = useState(44);
   const invalidateTimeoutRef = useRef<number | null>(null);
   const drawerReasonRef = useRef("initial");
+  const delayNextSelectionUrlSyncRef = useRef(false);
 
   const isMobilePlaceOpen = mounted && isPlaceOpen && Boolean(selectedPlaceId);
   const drawerMode: "full" = "full";
@@ -332,6 +333,7 @@ export default function MapClient() {
     }
     drawerReasonRef.current = `marker:${placeId}`;
     skipNextSelectionRef.current = false;
+    delayNextSelectionUrlSyncRef.current = true;
     setSelectedPlaceId(placeId);
     setIsPlaceOpen(true);
   }, []);
@@ -1045,13 +1047,24 @@ export default function MapClient() {
       params.delete("place");
       params.delete("select");
     }
-    const nextQuery = params.toString();
-    const currentQuery = searchParams.toString();
-    if (nextQuery !== currentQuery) {
-      const normalizedQuery = nextQuery ? `?${nextQuery}` : "";
-      router.replace(`${pathname}${normalizedQuery}`, { scroll: false });
+
+    const syncSelectionToUrl = () => {
+      const nextQuery = params.toString();
+      const currentQuery = searchParams.toString();
+      if (nextQuery !== currentQuery) {
+        const normalizedQuery = nextQuery ? `?${nextQuery}` : "";
+        router.replace(`${pathname}${normalizedQuery}`, { scroll: false });
+      }
+    };
+
+    if (delayNextSelectionUrlSyncRef.current && isMobileViewport && selectedPlaceId) {
+      delayNextSelectionUrlSyncRef.current = false;
+      const timeout = window.setTimeout(syncSelectionToUrl, 80);
+      return () => window.clearTimeout(timeout);
     }
-  }, [pathname, router, searchParams, selectedPlaceId, selectionHydrated]);
+
+    syncSelectionToUrl();
+  }, [pathname, router, searchParams, selectedPlaceId, selectionHydrated, isMobileViewport]);
 
   useEffect(() => {
     if (!selectionNotice) return;
@@ -1372,11 +1385,6 @@ export default function MapClient() {
       { enableHighAccuracy: true, timeout: 10000 },
     );
   }, []);
-
-  useEffect(() => {
-    if (!isPlaceOpen) return;
-    invalidateMapSize();
-  }, [invalidateMapSize, isPlaceOpen]);
 
   useEffect(() => {
     invalidateMapSize();
