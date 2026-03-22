@@ -169,6 +169,7 @@ export default function MapClient() {
   const [attributionBottomOffsetPx, setAttributionBottomOffsetPx] = useState(44);
   const invalidateTimeoutRef = useRef<number | null>(null);
   const drawerReasonRef = useRef("initial");
+  const mobileSheetStageRef = useRef<"peek" | "expanded" | null>(null);
 
   const isMobilePlaceOpen = mounted && isPlaceOpen && Boolean(selectedPlaceId);
   const drawerMode: "full" = "full";
@@ -292,6 +293,28 @@ export default function MapClient() {
       reason: drawerReasonRef.current,
     });
   }, [isPlaceOpen]);
+
+  useEffect(() => {
+    if (!isMobilePlaceOpen) {
+      mobileSheetStageRef.current = null;
+    }
+  }, [isMobilePlaceOpen, selectedPlaceId]);
+
+  const handleMobileSheetStageChange = useCallback(
+    (stage: "peek" | "expanded") => {
+      if (!isMobilePlaceOpen) return;
+
+      const previousStage = mobileSheetStageRef.current;
+      mobileSheetStageRef.current = stage;
+
+      if (previousStage === null || previousStage === stage) {
+        return;
+      }
+
+      invalidateMapSize();
+    },
+    [invalidateMapSize, isMobilePlaceOpen],
+  );
 
   useEffect(() => {
     if (!filtersOpen) return;
@@ -1487,9 +1510,7 @@ export default function MapClient() {
               onClose={() => closeDrawer("user")}
               ref={bottomSheetRef}
               selectionStatus={selectionStatus}
-              onStageChange={() => {
-                invalidateMapSize();
-              }}
+              onStageChange={handleMobileSheetStageChange}
             />
           ) : null}
         </div>
